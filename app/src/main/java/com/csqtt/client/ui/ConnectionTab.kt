@@ -56,6 +56,7 @@ import com.csqtt.client.ConnectionStartBlocker
 import com.csqtt.client.ConnectionStartPolicy
 import com.csqtt.client.CsqttConstants
 import com.csqtt.client.MayakConfig
+import kotlinx.coroutines.flow.map
 import com.csqtt.client.R
 import com.csqtt.client.SettingsStore
 import com.csqtt.client.StoredSecretState
@@ -90,6 +91,8 @@ internal fun ConnectionTab(
 
     val csqttLinkMode by settingsStore.csqttLinkMode.collectAsStateWithLifecycle(initialValue = false)
     val csqttLink by settingsStore.csqttLink.collectAsStateWithLifecycle(initialValue = "")
+    val loadedCsqttLink by remember(settingsStore) { settingsStore.csqttLink.map<String, String?> { it } }
+        .collectAsStateWithLifecycle(initialValue = null)
     val peer by settingsStore.peer.collectAsStateWithLifecycle(initialValue = "")
     val vkHashes by settingsStore.vkHashes.collectAsStateWithLifecycle(initialValue = "")
     val vkHashCheckResultsJson by settingsStore.vkHashCheckResults.collectAsStateWithLifecycle(initialValue = "{}")
@@ -249,6 +252,56 @@ internal fun ConnectionTab(
         } else {
             startTunnelService()
         }
+    }
+
+    fun pasteLinkFromClipboard() {
+        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+            as? android.content.ClipboardManager
+        val clip = clipboard?.primaryClip
+        val pasted = if (clip != null && clip.itemCount > 0) {
+            clip.getItemAt(0).coerceToText(context)?.toString().orEmpty()
+        } else {
+            ""
+        }
+        val candidate = Regex("csqtt://\\S+", RegexOption.IGNORE_CASE).find(pasted)?.value
+            ?: pasted.filterNot(Char::isWhitespace)
+        if (parseCsqttLink(candidate) != null) {
+            scope.launch {
+                settingsStore.saveCsqttLink(candidate)
+                settingsStore.saveCsqttLinkMode(true)
+            }
+            context.showRaisedToast("Ссылка вставлена", Toast.LENGTH_SHORT)
+        } else {
+            context.showRaisedToast("В буфере обмена нет ссылки csqtt://", Toast.LENGTH_SHORT)
+        }
+    }
+
+    if (MayakConfig.SIMPLE_UI) {
+        CsqttScreen {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            ) {
+                MayakHome(
+                    linkReady = loadedCsqttLink?.let { parseCsqttLink(it) != null },
+                    tunnelRunning = tunnelRunning,
+                    tunnelStarting = tunnelStarting,
+                    tunnelStopping = tunnelStopping,
+                    autoPausedForWifi = autoPausedForWifi,
+                    cooldownActive = cooldownActive,
+                    configurationValid = isValid,
+                    workers = workersPerHash,
+                    onToggleTunnel = { toggleTunnel() },
+                    onWorkersChange = { value ->
+                        scope.launch { settingsStore.saveWorkersPerHash(value) }
+                    },
+                    onPasteLink = { pasteLinkFromClipboard() },
+                    onEnterManually = onInvalidConfiguration,
+                )
+            }
+        }
+        return
     }
 
     CsqttScreen {

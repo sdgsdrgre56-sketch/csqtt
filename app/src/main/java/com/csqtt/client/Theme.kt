@@ -235,8 +235,60 @@ private val BrandDarkColorScheme = darkColorScheme(
     surfaceTint = Color.Transparent,
 )
 
-private fun getAppColorScheme(isDark: Boolean): androidx.compose.material3.ColorScheme =
-    if (isDark) BrandDarkColorScheme else BrandLightColorScheme
+// Mayak palette: deep navy ground with a warm lighthouse yellow accent.
+private val MayakDarkColorScheme = darkColorScheme(
+    primary = Color(0xFFFFD54A),
+    onPrimary = Color(0xFF0B1E3A),
+    primaryContainer = Color(0xFF16345F),
+    onPrimaryContainer = Color(0xFFF5F7FA),
+    secondary = Color(0xFFFFD54A),
+    onSecondary = Color(0xFF0B1E3A),
+    secondaryContainer = Color(0xFF16345F),
+    onSecondaryContainer = Color(0xFFF5F7FA),
+    tertiary = Color(0xFFFFB74D),
+    onTertiary = Color(0xFF271500),
+    tertiaryContainer = Color(0xFF5A3900),
+    onTertiaryContainer = Color(0xFFFFE5BD),
+    background = Color(0xFF0B1E3A),
+    onBackground = Color(0xFFF5F7FA),
+    surface = Color(0xFF12294B),
+    onSurface = Color(0xFFF5F7FA),
+    surfaceVariant = Color(0xFF183560),
+    onSurfaceVariant = Color(0xFFA9B8CF),
+    outline = Color(0xFF6F7F99),
+    outlineVariant = Color(0xFF2A416A),
+    surfaceTint = Color.Transparent,
+)
+
+private val MayakLightColorScheme = lightColorScheme(
+    primary = Color(0xFF14457F),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFDCE7F7),
+    onPrimaryContainer = Color(0xFF0B1E3A),
+    secondary = Color(0xFF14457F),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFDCE7F7),
+    onSecondaryContainer = Color(0xFF0B1E3A),
+    tertiary = Color(0xFF8A5300),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFFFFE4B7),
+    onTertiaryContainer = Color(0xFF241400),
+    background = Color(0xFFF4F6FA),
+    onBackground = Color(0xFF0B1E3A),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF0B1E3A),
+    surfaceVariant = Color(0xFFE8EDF5),
+    onSurfaceVariant = Color(0xFF4A5B77),
+    outline = Color(0xFF8493AB),
+    outlineVariant = Color(0xFFCBD5E3),
+    surfaceTint = Color.Transparent,
+)
+
+private fun getAppColorScheme(isDark: Boolean): androidx.compose.material3.ColorScheme = when {
+    MayakConfig.SIMPLE_UI -> if (isDark) MayakDarkColorScheme else MayakLightColorScheme
+    isDark -> BrandDarkColorScheme
+    else -> BrandLightColorScheme
+}
 
 object CSQTTColors {
     val connected = Color(0xFF4CAF50)
