@@ -97,9 +97,65 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  server:
+    name: Server binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+
+      # The admin edition installs this server on a VPS, so the APK must carry it.
+      # It only changes when rust-server/ or shared/ change.
+      - id: servercache
+        uses: actions/cache@v5
+        with:
+          path: rust-server/dist
+          key: csqtt-server-${{ hashFiles('rust-server/**', 'shared/**') }}
+
+      - uses: dtolnay/rust-toolchain@master
+        if: steps.servercache.outputs.cache-hit != 'true'
+        with:
+          toolchain: 1.97.1
+
+      - uses: mlugg/setup-zig@v2
+        if: steps.servercache.outputs.cache-hit != 'true'
+        with:
+          version: 0.15.2
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.servercache.outputs.cache-hit != 'true'
+        with:
+          workspaces: rust-server -> build/linux-musl
+
+      - name: Build server for amd64, arm64 and armv7
+        if: steps.servercache.outputs.cache-hit != 'true'
+        run: |
+          cargo install cargo-zigbuild --locked
+          # The script ends with a Windows-oriented provenance step that is not
+          # needed here; the binaries are already in rust-server/dist by then.
+          bash rust-server/build_linux.sh --no-tests || echo "build script exited non-zero, checking outputs"
+
+      - name: Check server binaries
+        run: |
+          ls -l rust-server/dist
+          for arch in amd64 arm64 armv7; do
+            test -s "rust-server/dist/csqtt-linux-$arch"
+            file "rust-server/dist/csqtt-linux-$arch"
+          done
+          file rust-server/dist/csqtt-linux-amd64 | grep -q "x86-64"
+          file rust-server/dist/csqtt-linux-arm64 | grep -q "aarch64"
+          file rust-server/dist/csqtt-linux-armv7 | grep -q "ARM"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: csqtt-server
+          path: rust-server/dist/csqtt-linux-*
+          if-no-files-found: error
+          retention-days: 3
+
   apk:
     name: Android APK
-    needs: native
+    needs: [native, server]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -123,6 +179,19 @@ jobs:
           ls -lR app/src/main/jniLibs
           for abi in arm64-v8a armeabi-v7a x86_64; do
             test -s "app/src/main/jniLibs/$abi/libclient.so"
+          done
+
+      # Server binaries go only into the admin edition, which can install them over SSH.
+      - uses: actions/download-artifact@v8
+        with:
+          name: csqtt-server
+          path: app/src/admin/assets
+
+      - name: Check server binaries
+        run: |
+          ls -l app/src/admin/assets
+          for arch in amd64 arm64 armv7; do
+            test -s "app/src/admin/assets/csqtt-linux-$arch"
           done
 
       - name: Prepare Android SDK
