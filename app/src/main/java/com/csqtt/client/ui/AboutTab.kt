@@ -3,9 +3,6 @@
 
 package com.csqtt.client.ui
 
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,13 +12,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.csqtt.client.BuildConfig
 import com.csqtt.client.MayakConfig
 import com.csqtt.client.ui.components.CsqttScreen
@@ -34,18 +30,6 @@ private val RequiredNotices = listOf(
 
 @Composable
 internal fun AboutTab() {
-    val context = LocalContext.current
-
-    fun openUrl(url: String) {
-        try {
-            context.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        } catch (error: Exception) {
-            Toast.makeText(context, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     CsqttScreen {
         Column(
             modifier = Modifier
@@ -93,40 +77,22 @@ internal fun AboutTab() {
                 )
             }
 
-            AppSectionCard(
-                contentPadding = PaddingValues(20.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            // Attribution required by the PolyForm Noncommercial license of the
+            // original project. Kept compact, but it must stay readable.
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp),
             ) {
+                val footerStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp)
+                val footerColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 Text(
-                    text = "Авторство и лицензия",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "«${MayakConfig.APP_NAME}» — изменённая некоммерческая сборка открытого проекта " +
-                        "${MayakConfig.UPSTREAM_NAME}, автор оригинала — amurcanov. Приложение распространяется " +
-                        "бесплатно по лицензии PolyForm Noncommercial 1.0.0. Продажа и другое коммерческое " +
-                        "использование запрещены.",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "На основе ${MayakConfig.UPSTREAM_NAME} · ${MayakConfig.UPSTREAM_URL} · " +
+                        "PolyForm Noncommercial 1.0.0 · ${MayakConfig.LICENSE_URL}",
+                    style = footerStyle,
+                    color = footerColor,
                 )
                 RequiredNotices.forEach { notice ->
-                    Text(
-                        text = notice,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                OutlinedButton(
-                    onClick = { openUrl(MayakConfig.UPSTREAM_URL) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Оригинальный проект ${MayakConfig.UPSTREAM_NAME}")
-                }
-                OutlinedButton(
-                    onClick = { openUrl(MayakConfig.LICENSE_URL) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Текст лицензии")
+                    Text(text = notice, style = footerStyle, color = footerColor)
                 }
             }
         }
