@@ -133,15 +133,30 @@ jobs:
           cargo install cargo-zigbuild --locked
           # The script ends with a Windows-oriented provenance step that is not
           # needed here; the binaries are already in rust-server/dist by then.
-          bash rust-server/build_linux.sh --no-tests || echo "build script exited non-zero, checking outputs"
+          set -o pipefail
+          bash rust-server/build_linux.sh --no-tests 2>&1 | tee "$RUNNER_TEMP/server-build.log" \
+            || echo "build script exited non-zero, checking outputs"
 
       - name: Check server binaries
         run: |
-          ls -l rust-server/dist
+          ls -l rust-server/dist || true
+          missing=0
           for arch in amd64 arm64 armv7; do
-            test -s "rust-server/dist/csqtt-linux-$arch"
-            file "rust-server/dist/csqtt-linux-$arch"
+            if [ -s "rust-server/dist/csqtt-linux-$arch" ]; then
+              file "rust-server/dist/csqtt-linux-$arch"
+            else
+              missing=1
+            fi
           done
+          if [ "$missing" = 1 ]; then
+            # Job logs are not readable from the outside, so surface the tail as an annotation.
+            if [ -f "$RUNNER_TEMP/server-build.log" ]; then
+              body=$(grep -v '^ *Compiling \|^ *Downloaded \|^ *Downloading ' "$RUNNER_TEMP/server-build.log" | tail -n 40 | cut -c1-240 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+              echo "::error title=Server build log tail::$body"
+            fi
+            echo "::error title=Server binaries missing::$(ls rust-server/dist 2>&1 | tr '\n' ' ')"
+            exit 1
+          fi
           file rust-server/dist/csqtt-linux-amd64 | grep -q "x86-64"
           file rust-server/dist/csqtt-linux-arm64 | grep -q "aarch64"
           file rust-server/dist/csqtt-linux-armv7 | grep -q "ARM"
