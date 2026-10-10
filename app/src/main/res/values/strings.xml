@@ -3,15 +3,15 @@
 <!-- SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 -->
 
 <resources>
-    <string name="app_name">CSQTT</string>
+    <string name="app_name">Маяк</string>
     <string name="widget_disconnected">Отключено</string>
     <string name="widget_toggle_vpn">Переключить VPN</string>
     <string name="nav_connection">Подкл.</string>
-    <string name="nav_tunnel">Туннель</string>
+    <string name="nav_tunnel">Ссылка</string>
     <string name="nav_deploy">Деплой</string>
     <string name="nav_exceptions">Исключ.</string>
     <string name="nav_logs">Логи</string>
-    <string name="nav_info">Инфо</string>
+    <string name="nav_info">О прил.</string>
 
     <string name="action_clear">Очистить</string>
     <string name="action_copy">Копировать</string>

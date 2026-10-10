@@ -1,13 +1,18 @@
-<!-- SPDX-FileCopyrightText: 2026 amurcanov -->
 <!-- SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 -->
+<!-- Mayak lighthouse icon. -->
 
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:pathData="M 78.6,36.8 A 30,30 0 1,0 78.6,71.2 L 69.6,64.9 A 19,19 0 1,1 69.6,43.1 Z"
-        android:fillType="nonZero"
-        android:fillColor="#FFFFFFFF" />
+    <path android:pathData="M44,36 L20,28 L20,44 Z" android:fillColor="#FFFFFFFF" android:fillAlpha="0.6" />
+    <path android:pathData="M64,36 L88,28 L88,44 Z" android:fillColor="#FFFFFFFF" android:fillAlpha="0.6" />
+    <path android:pathData="M44,30 L64,30 L54,18 Z" android:fillColor="#FFFFFFFF" />
+    <path android:pathData="M47,32 h14 v9 h-14 Z" android:fillColor="#FFFFFFFF" />
+    <path android:pathData="M41,43 h26 v4 h-26 Z" android:fillColor="#FFFFFFFF" />
+    <path android:pathData="M45,49 L63,49 L64.38,58 L43.62,58 Z" android:fillColor="#FFFFFFFF" />
+    <path android:pathData="M42.85,63 L65.15,63 L66.54,72 L41.46,72 Z" android:fillColor="#FFFFFFFF" />
+    <path android:pathData="M40.69,77 L67.31,77 L69,88 L39,88 Z" android:fillColor="#FFFFFFFF" />
+    <path android:pathData="M33,90 h42 v5 h-42 Z" android:fillColor="#FFFFFFFF" />
 </vector>

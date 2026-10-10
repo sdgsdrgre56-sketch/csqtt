@@ -66,23 +66,34 @@ fun CsqttScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_csqtt_logo),
-                    contentDescription = "CSQTT",
-                    tint = Color.Unspecified,
-                    modifier = Modifier.height(26.dp)
-                )
+                if (com.csqtt.client.MayakConfig.SIMPLE_UI) {
+                    Text(
+                        text = com.csqtt.client.MayakConfig.APP_NAME,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                } else {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_csqtt_logo),
+                        contentDescription = "CSQTT",
+                        tint = Color.Unspecified,
+                        modifier = Modifier.height(26.dp)
+                    )
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_v219_by_amurcanov),
-                        contentDescription = "v2.1.9 by amurcanov",
-                        tint = Color.Unspecified,
-                        modifier = Modifier.height(19.dp)
-                    )
+                    if (!com.csqtt.client.MayakConfig.SIMPLE_UI) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_v219_by_amurcanov),
+                            contentDescription = "v2.1.9 by amurcanov",
+                            tint = Color.Unspecified,
+                            modifier = Modifier.height(19.dp)
+                        )
+                    }
                     headerActions?.let { Row(content = it) }
                 }
             }

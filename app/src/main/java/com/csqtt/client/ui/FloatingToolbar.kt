@@ -115,6 +115,7 @@ fun FloatingToolbar(
                         }
                     }
 
+                    if (!com.csqtt.client.MayakConfig.SIMPLE_UI) {
                     Text(
                         "Ваша роль использования",
                         style = MaterialTheme.typography.labelMedium,
@@ -169,6 +170,7 @@ fun FloatingToolbar(
                         enabled = true,
                         onSelected = onFingerprintChange,
                     )
+                    }
 
                     CompactDropdownSetting(
                         title = "Оформление",
@@ -195,7 +197,7 @@ fun FloatingToolbar(
                         infoContentDescription = "Как работает автопауза при Wi-Fi",
                     )
 
-                    if (vkAuthMode != CsqttConstants.VkAuth.MODE_AUTO_JS) {
+                    if (!com.csqtt.client.MayakConfig.SIMPLE_UI && vkAuthMode != CsqttConstants.VkAuth.MODE_AUTO_JS) {
                         CsqttSettingRow(
                             title = "Экстра потоки",
                             checked = extraWorkersEnabled == true,

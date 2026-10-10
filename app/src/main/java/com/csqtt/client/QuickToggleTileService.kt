@@ -116,8 +116,8 @@ class QuickToggleTileService : TileService() {
     private fun updateTile(running: Boolean) {
         runCatching {
             qsTile?.apply {
-                label = CsqttConstants.General.APP_NAME
-                icon = Icon.createWithResource(this@QuickToggleTileService, R.drawable.ic_c_logo)
+                label = MayakConfig.APP_NAME
+                icon = Icon.createWithResource(this@QuickToggleTileService, R.drawable.ic_stat_c)
                 state = if (running) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
                 if (Build.VERSION.SDK_INT >= 29) {
                     subtitle = if (running) "Подключено" else "Отключено"

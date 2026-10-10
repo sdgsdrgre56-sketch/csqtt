@@ -76,6 +76,7 @@ import com.csqtt.client.CsqttConstants
 import com.csqtt.client.ui.DeployTab
 import com.csqtt.client.ui.ExceptionsTab
 import com.csqtt.client.ui.InfoTab
+import com.csqtt.client.ui.AboutTab
 import com.csqtt.client.ui.components.LocalCsqttHeaderActions
 import com.csqtt.client.ui.design.CsqttMotion
 import com.csqtt.client.ui.design.CsqttShapes
@@ -323,7 +324,7 @@ fun MainScreen(
     val navigationDragSlop = with(density) { 6.dp.toPx() }
 
     val activeNavItems = remember(csqttLinkMode) {
-        if (csqttLinkMode) {
+        if (csqttLinkMode || MayakConfig.SIMPLE_UI) {
             navItems.filter { it.id != 2 }
         } else {
             navItems
@@ -348,6 +349,7 @@ fun MainScreen(
     }
 
     LaunchedEffect(updateCheckIntervalHours) {
+        if (!MayakConfig.UPSTREAM_UPDATE_CHECK) return@LaunchedEffect
         if (updateCheckIntervalHours == UPDATE_CHECK_NEVER) return@LaunchedEffect
 
         val intervalMillis = updateIntervalHoursToMillis(updateCheckIntervalHours)
@@ -520,7 +522,7 @@ fun MainScreen(
                                     isWhitelist = isWhitelist,
                                 )
                                 4 -> LogsTab(settingsStore)
-                                5 -> InfoTab(
+                                5 -> if (MayakConfig.SIMPLE_UI) AboutTab() else InfoTab(
                                     settingsStore = settingsStore,
                                     actionsExpanded = infoActionsExpanded,
                                     projectExpanded = infoProjectExpanded,

@@ -1,7 +1,7 @@
 name: Build APK
 
-# Builds the native Rust client for every Android ABI, then assembles the app
-# and publishes the APKs as a pre-release so they can be downloaded by link.
+# Builds the native Rust client for every Android ABI, then assembles the
+# signed release APK and publishes it as a pre-release so it can be downloaded by link.
 
 on:
   push:
@@ -33,23 +33,35 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The native client only changes when rust-client/ changes, so reuse the
+      # previously built library instead of compiling it again on every push.
+      - id: libcache
+        uses: actions/cache@v5
+        with:
+          path: out
+          key: libclient-${{ matrix.abi }}-${{ hashFiles('rust-client/**') }}
+
       - uses: dtolnay/rust-toolchain@master
+        if: steps.libcache.outputs.cache-hit != 'true'
         with:
           toolchain: 1.97.1
           targets: ${{ matrix.triple }}
 
       - uses: Swatinem/rust-cache@v2
+        if: steps.libcache.outputs.cache-hit != 'true'
         with:
           workspaces: rust-client -> ../build/native
           key: ${{ matrix.abi }}
 
       - name: Install build tools
+        if: steps.libcache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build cmake
           cargo install cargo-ndk --locked
 
       - name: Locate Android NDK
+        if: steps.libcache.outputs.cache-hit != 'true'
         run: |
           ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
           if [ -z "$ndk" ] || [ ! -d "$ndk" ]; then
@@ -61,16 +73,22 @@ jobs:
           echo "ANDROID_NDK_ROOT=$ndk" >> "$GITHUB_ENV"
 
       - name: Build libclient.so
+        if: steps.libcache.outputs.cache-hit != 'true'
         working-directory: rust-client
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/build/native
         run: cargo +1.97.1 ndk -t ${{ matrix.abi }} -P 26 build --release --locked
 
       - name: Collect library
+        if: steps.libcache.outputs.cache-hit != 'true'
         run: |
           mkdir -p "out/${{ matrix.abi }}"
           cp "build/native/${{ matrix.triple }}/release/client" "out/${{ matrix.abi }}/libclient.so"
+
+      - name: Check library
+        run: |
           ls -l "out/${{ matrix.abi }}"
+          test -s "out/${{ matrix.abi }}/libclient.so"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -84,6 +102,8 @@ jobs:
     needs: native
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      MAYAK_BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v7
 
@@ -116,16 +136,43 @@ jobs:
             || "$sdkmanager" --channel=3 "platforms;android-37" \
             || echo "Platform 37 not installed by sdkmanager; Gradle will try to fetch it."
 
-      - name: Build debug APK
-        run: bash gradlew assembleDebug --no-daemon --console=plain --stacktrace
+      - name: Select signing key
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_B64" ]; then
+            echo "$SIGNING_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "::add-mask::$SIGNING_KEYSTORE_PASSWORD"
+            {
+              echo "KEYSTORE_FILE=$RUNNER_TEMP/release.keystore"
+              echo "KEYSTORE_PASSWORD=$SIGNING_KEYSTORE_PASSWORD"
+              echo "KEY_ALIAS=$SIGNING_KEY_ALIAS"
+              echo "KEY_PASSWORD=$SIGNING_KEYSTORE_PASSWORD"
+              echo "SIGNING_KIND=private"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the private key from repository secrets."
+          else
+            {
+              echo "KEYSTORE_FILE=$GITHUB_WORKSPACE/ci/test-signing.p12"
+              echo "KEYSTORE_PASSWORD=mayak-test"
+              echo "KEY_ALIAS=mayak-test"
+              echo "KEY_PASSWORD=mayak-test"
+              echo "SIGNING_KIND=test"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the public TEST key (ci/test-signing.p12)."
+          fi
+
+      - name: Build release APK
+        run: bash gradlew assembleRelease --no-daemon --console=plain --stacktrace
 
       - name: Collect APKs
         run: |
-          tag="build-${{ github.run_number }}"
           mkdir -p dist
-          ls -l app/build/outputs/apk/debug
-          cp app/build/outputs/apk/debug/app-universal-debug.apk "dist/app-universal-$tag.apk"
-          cp app/build/outputs/apk/debug/app-arm64-v8a-debug.apk "dist/app-arm64-$tag.apk"
+          ls -l app/build/outputs/apk/release
+          cp app/build/outputs/apk/release/app-universal-release.apk "dist/Mayak-$MAYAK_BUILD_NUMBER-universal.apk"
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk "dist/Mayak-$MAYAK_BUILD_NUMBER-arm64.apk"
           ls -l dist
 
       - uses: actions/upload-artifact@v7
@@ -138,10 +185,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="build-${{ github.run_number }}"
+          tag="build-$MAYAK_BUILD_NUMBER"
           gh release create "$tag" dist/*.apk \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title "Test build ${{ github.run_number }}" \
-            --notes "Automatic test build from commit $GITHUB_SHA. Debug-signed, for testing only."
+            --title "Mayak build $MAYAK_BUILD_NUMBER" \
+            --notes "Automatic build from commit $GITHUB_SHA. Signing key: $SIGNING_KIND."

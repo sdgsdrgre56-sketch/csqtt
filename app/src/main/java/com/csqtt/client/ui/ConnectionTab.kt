@@ -55,6 +55,7 @@ import com.csqtt.client.ConnectionSource
 import com.csqtt.client.ConnectionStartBlocker
 import com.csqtt.client.ConnectionStartPolicy
 import com.csqtt.client.CsqttConstants
+import com.csqtt.client.MayakConfig
 import com.csqtt.client.R
 import com.csqtt.client.SettingsStore
 import com.csqtt.client.StoredSecretState
@@ -154,7 +155,10 @@ internal fun ConnectionTab(
             putExtra("vk_hashes", source.hashes)
             putExtra("vk_hashes_from_link", source.hashesFromLink)
             putExtra("secondary_vk_hash", "")
-            putExtra("workers_per_hash", workersPerHash)
+            putExtra(
+                "workers_per_hash",
+                if (MayakConfig.SIMPLE_UI) workersPerHash.coerceAtMost(MayakConfig.MAX_WORKERS) else workersPerHash,
+            )
             putExtra("port", 0)
             putExtra("sni", sni)
             putExtra("connection_password", source.password)
@@ -352,11 +356,13 @@ private fun TunnelConnectionPanel(
 
             TunnelUptimeText(tunnelRunning = tunnelRunning || autoPausedForWifi || tunnelStopping)
 
-            TunnelConnectionStatusPanel(
-                obfs = obfsDisplayName(obfsMode),
-                hashStatus = hashStatus,
-                workMode = workMode,
-            )
+            if (!MayakConfig.SIMPLE_UI) {
+                TunnelConnectionStatusPanel(
+                    obfs = obfsDisplayName(obfsMode),
+                    hashStatus = hashStatus,
+                    workMode = workMode,
+                )
+            }
         }
     }
 }

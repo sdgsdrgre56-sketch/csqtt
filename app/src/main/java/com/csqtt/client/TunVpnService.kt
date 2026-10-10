@@ -117,7 +117,7 @@ class TunVpnService : VpnService() {
             )
 
             val builder = Builder()
-                .setSession("CSQTT")
+                .setSession(MayakConfig.APP_NAME)
                 .setMtu(CsqttConstants.Vpn.DEFAULT_MTU)
                 .addAddress(clientIp, 32)
                 .addRoute("0.0.0.0", 0)

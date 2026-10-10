@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 -->
 
 <resources>
-    <color name="ic_launcher_background">#1E1E1E</color>
+    <color name="ic_launcher_background">#0B1E3A</color>
     <color name="tv_banner_background">#101927</color>
     <color name="app_background">#FBF8FF</color>
 

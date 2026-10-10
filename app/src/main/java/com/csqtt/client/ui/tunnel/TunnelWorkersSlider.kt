@@ -65,7 +65,7 @@ internal fun TunnelWorkersControl(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "Потоки",
+                    text = if (com.csqtt.client.MayakConfig.SIMPLE_UI) "Скорость" else "Потоки",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                 )

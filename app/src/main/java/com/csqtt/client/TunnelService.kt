@@ -1108,7 +1108,7 @@ class TunnelService : Service() {
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             TUNNEL_NOTIFICATION_CHANNEL_ID,
-            "CSQTT Туннель",
+            "${MayakConfig.APP_NAME} Туннель",
             NotificationManager.IMPORTANCE_LOW
         ).apply {
             description = "Уведомление о работе туннеля"

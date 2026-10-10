@@ -4,6 +4,7 @@
 package com.csqtt.client.ui
 
 import com.csqtt.client.showRaisedToast
+import com.csqtt.client.MayakConfig
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -217,10 +218,15 @@ internal fun SettingsTabContent(
                 manualHashCount = filledHashCount,
             ).toFloat()
         }
-        if (!effectiveExtraWorkersEnabled) {
+        val policyMaximum = if (!effectiveExtraWorkersEnabled) {
             sourceMaximum.coerceAtMost(CsqttConstants.Tunnel.DEFAULT_MAX_WORKERS.toFloat())
         } else {
             sourceMaximum
+        }
+        if (MayakConfig.SIMPLE_UI) {
+            policyMaximum.coerceAtMost(MayakConfig.MAX_WORKERS.toFloat())
+        } else {
+            policyMaximum
         }
     }
     val selectableMaxWorkers = remember(dynamicMaxWorkers) {
@@ -539,7 +545,7 @@ internal fun SettingsTabContent(
                                 settingsStore.saveCsqttLink(linkText)
                             }
                         },
-                        label = { Text("Ссылка csqtt://", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
+                        label = { Text(if (MayakConfig.SIMPLE_UI) "Ссылка подключения" else "Ссылка csqtt://", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                         placeholder = { Text("csqtt://connect?v=2&host=ip&peer=порт&password=пароль", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                         singleLine = true,
                         isError = linkRequiredError || (linkText.isNotBlank() && parsedCsqttLink == null),
@@ -551,9 +557,38 @@ internal fun SettingsTabContent(
                         )
                     )
 
+                    if (MayakConfig.SIMPLE_UI) {
+                        OutlinedButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                    as? android.content.ClipboardManager
+                                val clip = clipboard?.primaryClip
+                                val pasted = if (clip != null && clip.itemCount > 0) {
+                                    clip.getItemAt(0).coerceToText(context)?.toString().orEmpty()
+                                } else {
+                                    ""
+                                }
+                                val candidate = Regex("csqtt://\\S+", RegexOption.IGNORE_CASE).find(pasted)?.value
+                                    ?: pasted.filterNot(Char::isWhitespace)
+                                if (parseCsqttLink(candidate) != null) {
+                                    linkText = candidate
+                                    linkSaveJob?.cancel()
+                                    linkSaveJob = scope.launch { settingsStore.saveCsqttLink(candidate) }
+                                    context.showRaisedToast("Ссылка вставлена", Toast.LENGTH_SHORT)
+                                } else {
+                                    context.showRaisedToast("В буфере обмена нет ссылки csqtt://", Toast.LENGTH_SHORT)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                            shape = CsqttShapes.Control,
+                        ) {
+                            Text("Вставить ссылку из буфера", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
                     if (linkText.isNotBlank() && parsedCsqttLink == null) {
                         Text(
-                            text = "Неверная ссылка CSQTT v2",
+                            text = if (MayakConfig.SIMPLE_UI) "Ссылка не распознана. Скопируйте её целиком." else "Неверная ссылка CSQTT v2",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(bottom = 12.dp),
@@ -712,6 +747,7 @@ internal fun SettingsTabContent(
                     )
                 }
 
+                if (!MayakConfig.SIMPLE_UI) {
                 Spacer(Modifier.height(4.dp))
 
                 CompactDropdownSetting(
@@ -788,6 +824,9 @@ internal fun SettingsTabContent(
                     onInfo = { transport -> showTurnTransportDetailDialog = transport },
                     onSelected = ::requestTurnTransport,
                 )
+                } else {
+                    Spacer(Modifier.height(8.dp))
+                }
 
                 TunnelWorkersControl(
                     value = currentWorkers,
@@ -1151,7 +1190,11 @@ private fun VkHashModeControls(
                 Icon(Icons.Filled.Phone, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "VK Хеши $filledHashCount/${CsqttConstants.Tunnel.MAX_VK_HASHES}",
+                    if (MayakConfig.SIMPLE_UI) {
+                        if (filledHashCount == 0) "Добавить хэш звонка VK" else "Хэши звонков VK: $filledHashCount"
+                    } else {
+                        "VK Хеши $filledHashCount/${CsqttConstants.Tunnel.MAX_VK_HASHES}"
+                    },
                     fontWeight = FontWeight.SemiBold,
                 )
             }
@@ -1165,6 +1208,8 @@ private fun VkHashModeControls(
             }
         }
     }
+
+    if (MayakConfig.SIMPLE_UI && !autoHashMode) return
 
     CompactDropdownSetting(
         title = if (autoHashMode && vkTokenActive) "Хеши" else "Режим хешей",

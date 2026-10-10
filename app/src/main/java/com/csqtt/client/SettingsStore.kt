@@ -241,7 +241,7 @@ class SettingsStore(context: Context) {
     }
     val csqttLinkMode: Flow<Boolean> = dataStore.data.map { prefs ->
         val profile = prefs[ACTIVE_PROFILE] ?: 0
-        prefs[getProfileKey(CSQTT_LINK_MODE, profile)] ?: false
+        MayakConfig.SIMPLE_UI || (prefs[getProfileKey(CSQTT_LINK_MODE, profile)] ?: false)
     }
 
     val peer: Flow<String> = dataStore.data.map { prefs ->

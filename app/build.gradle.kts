@@ -61,16 +61,20 @@ val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {
     }
 }
 
+// Set by CI (GitHub run number) so every build can be installed over the previous one.
+val mayakBuildNumber: Int? = providers.environmentVariable("MAYAK_BUILD_NUMBER").orNull?.toIntOrNull()
+
 android {
     namespace = "com.csqtt.client"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "csqtt.quic.amurcanov"
+        // Mayak: own application id, so it installs next to the original CSQTT app.
+        applicationId = "app.mayak.beacon"
         minSdk = 26
         targetSdk = 37
-        versionCode = 221
-        versionName = "2.1.9"
+        versionCode = mayakBuildNumber?.let { 1000 + it } ?: 221
+        versionName = mayakBuildNumber?.let { "1.0.$it" } ?: "1.0-dev"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

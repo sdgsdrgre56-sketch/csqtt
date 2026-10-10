@@ -1,3 +1,7 @@
+> **Маяк** — изменённая некоммерческая сборка CSQTT с упрощённым интерфейсом (ветка `app`).
+> Оригинальный проект и автор: [amurcanov/csqtt](https://github.com/amurcanov/csqtt).
+> Лицензия прежняя — PolyForm Noncommercial 1.0.0, все уведомления автора сохранены.
+
 <div align="center">
 
 # CSQTT
