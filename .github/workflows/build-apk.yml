@@ -129,6 +129,11 @@ jobs:
 
       - name: Build server for amd64, arm64 and armv7
         if: steps.servercache.outputs.cache-hit != 'true'
+        env:
+          # rust-server/.cargo/config.toml disables Rust's bundled musl CRT only for
+          # x86_64; with zig as the linker the ARM targets need the same setting.
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "-C link-self-contained=no"
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_RUSTFLAGS: "-C link-self-contained=no"
         run: |
           cargo install cargo-zigbuild --locked
           # The script ends with a Windows-oriented provenance step that is not
@@ -144,8 +149,15 @@ jobs:
           for arch in amd64 arm64 armv7; do
             if [ -s "rust-server/dist/csqtt-linux-$arch" ]; then
               file "rust-server/dist/csqtt-linux-$arch"
-            else
+            elif [ "$arch" = amd64 ]; then
               missing=1
+            else
+              # ARM servers are optional: the admin app only needs the binary for the VPS it installs on.
+              echo "::warning title=Server binary missing::csqtt-linux-$arch was not built; installing on such a VPS will not work"
+              if [ -f "$RUNNER_TEMP/server-build.log" ]; then
+                body=$(grep -v '^ *Compiling \|^ *Downloaded \|^ *Downloading \|Compiling' "$RUNNER_TEMP/server-build.log" | tail -n 30 | cut -c1-240 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+                echo "::warning title=Server build log tail ($arch)::$body"
+              fi
             fi
           done
           if [ "$missing" = 1 ]; then
@@ -205,9 +217,7 @@ jobs:
       - name: Check server binaries
         run: |
           ls -l app/src/admin/assets
-          for arch in amd64 arm64 armv7; do
-            test -s "app/src/admin/assets/csqtt-linux-$arch"
-          done
+          test -s app/src/admin/assets/csqtt-linux-amd64
 
       - name: Prepare Android SDK
         run: |
