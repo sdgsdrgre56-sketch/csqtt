@@ -285,7 +285,7 @@ private val MayakLightColorScheme = lightColorScheme(
 )
 
 private fun getAppColorScheme(isDark: Boolean): androidx.compose.material3.ColorScheme = when {
-    MayakConfig.SIMPLE_UI -> if (isDark) MayakDarkColorScheme else MayakLightColorScheme
+    MayakConfig.BRANDED -> if (isDark) MayakDarkColorScheme else MayakLightColorScheme
     isDark -> BrandDarkColorScheme
     else -> BrandLightColorScheme
 }

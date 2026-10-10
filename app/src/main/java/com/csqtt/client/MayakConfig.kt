@@ -4,20 +4,31 @@
 package com.csqtt.client
 
 /**
- * Switches for the simplified "Mayak" build. The app always works in the
- * link ("participant") mode: the user pastes a csqtt:// link and presses one button.
+ * Switches for the two "Mayak" editions built from this source tree.
+ *
+ * - client: always works in the link ("participant") mode with a simplified UI.
+ * - admin: the owner's edition with server profiles, deploy and all tunnel settings.
  */
 internal object MayakConfig {
-    /** Hides owner/server features and advanced tunnel settings. */
-    val SIMPLE_UI: Boolean = true
+    /** True in the owner's "admin" edition. */
+    val ADMIN: Boolean = BuildConfig.MAYAK_ADMIN
+
+    /** Hides owner/server features and advanced tunnel settings (client edition). */
+    val SIMPLE_UI: Boolean = !ADMIN
+
+    /** Mayak name, header and colours instead of the upstream branding (both editions). */
+    val BRANDED: Boolean = true
 
     /** The upstream updater would offer the original CSQTT APK, so it stays off. */
     val UPSTREAM_UPDATE_CHECK: Boolean = false
 
-    /** Speed steps are 9, 18, 27 and, with two or more hashes, 45. */
+    /** Client edition: speed steps are 9, 18, 27 and, with two or more hashes, 45. */
     val MAX_WORKERS: Int = 45
 
-    const val APP_NAME = "Маяк"
+    /** Admin edition: number of server profiles shown as "Сервер 1..N". */
+    val ADMIN_SERVERS: Int = 3
+
+    val APP_NAME: String = if (ADMIN) "Маяк Админ" else "Маяк"
     const val UPSTREAM_NAME = "CSQTT"
     const val UPSTREAM_URL = "https://github.com/amurcanov/csqtt"
     const val LICENSE_URL = "https://polyformproject.org/licenses/noncommercial/1.0.0"

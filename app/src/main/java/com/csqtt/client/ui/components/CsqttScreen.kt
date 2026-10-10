@@ -66,7 +66,7 @@ fun CsqttScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (com.csqtt.client.MayakConfig.SIMPLE_UI) {
+                if (com.csqtt.client.MayakConfig.BRANDED) {
                     Text(
                         text = com.csqtt.client.MayakConfig.APP_NAME,
                         style = MaterialTheme.typography.titleLarge,
@@ -86,7 +86,7 @@ fun CsqttScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (!com.csqtt.client.MayakConfig.SIMPLE_UI) {
+                    if (!com.csqtt.client.MayakConfig.BRANDED) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_v219_by_amurcanov),
                             contentDescription = "v2.1.9 by amurcanov",

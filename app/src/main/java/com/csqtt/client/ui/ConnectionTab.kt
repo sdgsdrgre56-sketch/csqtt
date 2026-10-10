@@ -56,6 +56,7 @@ import com.csqtt.client.ConnectionStartBlocker
 import com.csqtt.client.ConnectionStartPolicy
 import com.csqtt.client.CsqttConstants
 import com.csqtt.client.MayakConfig
+import com.csqtt.client.ui.components.CsqttSegmentedControl
 import com.csqtt.client.WorkerCountPolicy
 import kotlinx.coroutines.flow.map
 import com.csqtt.client.R
@@ -309,6 +310,17 @@ internal fun ConnectionTab(
     }
 
     CsqttScreen {
+        if (MayakConfig.ADMIN) {
+            CsqttSegmentedControl(
+                options = (0 until MayakConfig.ADMIN_SERVERS).map { index -> index to "Сервер ${index + 1}" },
+                selected = tunnelAuthSettings.profile,
+                onSelected = { profile ->
+                    scope.launch { settingsStore.saveActiveProfile(profile) }
+                },
+                modifier = Modifier.height(44.dp),
+                enabled = !(tunnelRunning || tunnelStarting || tunnelStopping || autoPausedForWifi),
+            )
+        }
         Box(
             modifier = Modifier
                 .fillMaxWidth()

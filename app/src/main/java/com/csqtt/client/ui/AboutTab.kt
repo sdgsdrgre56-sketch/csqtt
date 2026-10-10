@@ -55,6 +55,7 @@ internal fun AboutTab() {
                 )
             }
 
+            if (!MayakConfig.ADMIN) {
             AppSectionCard(
                 contentPadding = PaddingValues(20.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -75,6 +76,7 @@ internal fun AboutTab() {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
             }
 
             // Attribution required by the PolyForm Noncommercial license of the

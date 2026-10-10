@@ -147,10 +147,15 @@ fun FloatingToolbar(
                     )
 
                     CompactDropdownSetting(
-                        title = "Профиль конфигурации",
+                        title = if (com.csqtt.client.MayakConfig.ADMIN) "Сервер" else "Профиль конфигурации",
                         selectedKey = activeProfile.toString(),
-                        options = (CsqttConstants.Profiles.MIN_INDEX..CsqttConstants.Profiles.MAX_INDEX)
-                            .map { profile -> profile.toString() to "Профиль $profile" },
+                        options = if (com.csqtt.client.MayakConfig.ADMIN) {
+                            (0 until com.csqtt.client.MayakConfig.ADMIN_SERVERS)
+                                .map { profile -> profile.toString() to "Сервер ${profile + 1}" }
+                        } else {
+                            (CsqttConstants.Profiles.MIN_INDEX..CsqttConstants.Profiles.MAX_INDEX)
+                                .map { profile -> profile.toString() to "Профиль $profile" }
+                        },
                         enabled = true,
                         onSelected = { profile ->
                             profile.toIntOrNull()?.let(onActiveProfileChange)

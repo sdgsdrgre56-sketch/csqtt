@@ -86,6 +86,21 @@ android {
         }
     }
 
+    // Two editions from one source tree: the simplified client and the owner's admin app.
+    flavorDimensions += "edition"
+    productFlavors {
+        create("client") {
+            dimension = "edition"
+            applicationId = "app.mayak.beacon"
+            buildConfigField("boolean", "MAYAK_ADMIN", "false")
+        }
+        create("admin") {
+            dimension = "edition"
+            applicationId = "app.mayak.admin"
+            buildConfigField("boolean", "MAYAK_ADMIN", "true")
+        }
+    }
+
     splits {
         abi {
             isEnable = true
