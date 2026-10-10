@@ -14,6 +14,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.csqtt.client.SettingsStore
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.material3.Button
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -29,7 +35,12 @@ private val RequiredNotices = listOf(
 )
 
 @Composable
-internal fun AboutTab() {
+internal fun AboutTab(settingsStore: SettingsStore? = null) {
+    var showDnsDialog by remember { mutableStateOf(false) }
+    if (showDnsDialog && settingsStore != null) {
+        AdminDnsDialog(settingsStore = settingsStore, onDismiss = { showDnsDialog = false })
+    }
+
     CsqttScreen {
         Column(
             modifier = Modifier
@@ -53,6 +64,31 @@ internal fun AboutTab() {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+
+            if (MayakConfig.ADMIN && settingsStore != null) {
+                AppSectionCard(
+                    contentPadding = PaddingValues(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Управление сервером",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "Действует для сервера, выбранного на главном экране. " +
+                            "Адрес и доступ к панели берутся из вкладки «Деплой».",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(
+                        onClick = { showDnsDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("DNS сервера", fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
 
             if (!MayakConfig.ADMIN) {

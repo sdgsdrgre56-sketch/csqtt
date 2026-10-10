@@ -522,7 +522,7 @@ fun MainScreen(
                                     isWhitelist = isWhitelist,
                                 )
                                 4 -> LogsTab(settingsStore)
-                                5 -> if (MayakConfig.BRANDED) AboutTab() else InfoTab(
+                                5 -> if (MayakConfig.BRANDED) AboutTab(settingsStore) else InfoTab(
                                     settingsStore = settingsStore,
                                     actionsExpanded = infoActionsExpanded,
                                     projectExpanded = infoProjectExpanded,
