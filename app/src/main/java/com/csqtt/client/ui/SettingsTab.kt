@@ -1209,16 +1209,27 @@ private fun VkHashModeControls(
         }
     }
 
-    if (MayakConfig.SIMPLE_UI && !autoHashMode) return
-
     CompactDropdownSetting(
-        title = if (autoHashMode && vkTokenActive) "Хеши" else "Режим хешей",
+        title = when {
+            MayakConfig.SIMPLE_UI -> "Откуда брать хэши"
+            autoHashMode && vkTokenActive -> "Хеши"
+            else -> "Режим хешей"
+        },
         selectedKey = savedHashMode ?: CsqttConstants.VkAutoHash.MODE_MANUAL,
-        options = listOf(
-            CsqttConstants.VkAutoHash.MODE_MANUAL to "Ручной",
-            CsqttConstants.VkAutoHash.MODE_AUTO_API to "Авто API",
-            CsqttConstants.VkAutoHash.MODE_AUTO_JS to "Авто ВК",
-        ),
+        options = if (MayakConfig.SIMPLE_UI) {
+            // Client edition: either paste a call link by hand, or sign in to VK once
+            // and let the app create calls and hashes on its own.
+            listOf(
+                CsqttConstants.VkAutoHash.MODE_MANUAL to "Вручную",
+                CsqttConstants.VkAutoHash.MODE_AUTO_API to "Сам, через вход в VK",
+            )
+        } else {
+            listOf(
+                CsqttConstants.VkAutoHash.MODE_MANUAL to "Ручной",
+                CsqttConstants.VkAutoHash.MODE_AUTO_API to "Авто API",
+                CsqttConstants.VkAutoHash.MODE_AUTO_JS to "Авто ВК",
+            )
+        },
         enabled = true,
         indicatorProvider = { mode ->
             when (mode) {
