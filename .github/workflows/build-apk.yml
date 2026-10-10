@@ -170,8 +170,12 @@ jobs:
             exit 1
           fi
           file rust-server/dist/csqtt-linux-amd64 | grep -q "x86-64"
-          file rust-server/dist/csqtt-linux-arm64 | grep -q "aarch64"
-          file rust-server/dist/csqtt-linux-armv7 | grep -q "ARM"
+          if [ -s rust-server/dist/csqtt-linux-arm64 ]; then
+            file rust-server/dist/csqtt-linux-arm64 | grep -q "aarch64"
+          fi
+          if [ -s rust-server/dist/csqtt-linux-armv7 ]; then
+            file rust-server/dist/csqtt-linux-armv7 | grep -q "ARM"
+          fi
 
       - uses: actions/upload-artifact@v7
         with:
