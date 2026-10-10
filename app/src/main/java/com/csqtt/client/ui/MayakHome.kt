@@ -231,18 +231,21 @@ private fun MayakUptime() {
     )
 }
 
-private val MayakSpeedSteps = listOf(9 to "Эконом", 18 to "Обычно", 27 to "Быстро")
+private val MayakSpeedSteps = listOf(9 to "Эконом", 18 to "Обычно", 27 to "Быстро", 45 to "Макс")
 
 @Composable
 private fun MayakSpeedSelector(
     workers: Int,
+    maxWorkers: Int,
     enabled: Boolean,
     onWorkersChange: (Int) -> Unit,
 ) {
+    val effectiveWorkers = workers.coerceAtMost(maxWorkers)
     val selectedStep = when {
-        workers <= 9 -> 9
-        workers <= 18 -> 18
-        else -> 27
+        effectiveWorkers <= 9 -> 9
+        effectiveWorkers <= 18 -> 18
+        effectiveWorkers <= 27 -> 27
+        else -> 45
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
@@ -261,6 +264,7 @@ private fun MayakSpeedSelector(
         ) {
             MayakSpeedSteps.forEach { (value, label) ->
                 val isSelected = value == selectedStep
+                val stepAvailable = value <= maxWorkers
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -269,7 +273,7 @@ private fun MayakSpeedSelector(
                         .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
                         .semantics { selected = isSelected }
                         .clickable(
-                            enabled = enabled && !isSelected,
+                            enabled = enabled && stepAvailable && !isSelected,
                             role = Role.RadioButton,
                             onClick = { onWorkersChange(value) },
                         ),
@@ -282,11 +286,20 @@ private fun MayakSpeedSelector(
                         color = if (isSelected) {
                             MaterialTheme.colorScheme.onPrimary
                         } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.86f else 0.5f)
+                            MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = if (enabled && stepAvailable) 0.86f else 0.4f,
+                            )
                         },
                     )
                 }
             }
+        }
+        if (maxWorkers < 45) {
+            Text(
+                text = "«Макс» доступен, когда добавлено два хэша",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -389,6 +402,7 @@ internal fun MayakHome(
     cooldownActive: Boolean,
     configurationValid: Boolean,
     workers: Int,
+    maxWorkers: Int,
     onToggleTunnel: () -> Unit,
     onWorkersChange: (Int) -> Unit,
     onPasteLink: () -> Unit,
@@ -477,6 +491,7 @@ internal fun MayakHome(
         Box(modifier = Modifier.padding(bottom = 12.dp)) {
             MayakSpeedSelector(
                 workers = workers,
+                maxWorkers = maxWorkers,
                 enabled = !active,
                 onWorkersChange = onWorkersChange,
             )

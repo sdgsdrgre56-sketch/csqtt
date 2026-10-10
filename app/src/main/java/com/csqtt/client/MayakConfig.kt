@@ -14,8 +14,8 @@ internal object MayakConfig {
     /** The upstream updater would offer the original CSQTT APK, so it stays off. */
     val UPSTREAM_UPDATE_CHECK: Boolean = false
 
-    /** Speed slider is limited to the points 9, 18 and 27. */
-    val MAX_WORKERS: Int = 27
+    /** Speed steps are 9, 18, 27 and, with two or more hashes, 45. */
+    val MAX_WORKERS: Int = 45
 
     const val APP_NAME = "Маяк"
     const val UPSTREAM_NAME = "CSQTT"

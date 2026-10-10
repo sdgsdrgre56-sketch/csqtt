@@ -56,6 +56,7 @@ import com.csqtt.client.ConnectionStartBlocker
 import com.csqtt.client.ConnectionStartPolicy
 import com.csqtt.client.CsqttConstants
 import com.csqtt.client.MayakConfig
+import com.csqtt.client.WorkerCountPolicy
 import kotlinx.coroutines.flow.map
 import com.csqtt.client.R
 import com.csqtt.client.SettingsStore
@@ -292,6 +293,9 @@ internal fun ConnectionTab(
                     cooldownActive = cooldownActive,
                     configurationValid = isValid,
                     workers = workersPerHash,
+                    maxWorkers = WorkerCountPolicy.maximumForHashes(
+                        if (linkHashes.isNotEmpty()) linkHashes.size else manualHashes.size,
+                    ).coerceAtMost(MayakConfig.MAX_WORKERS),
                     onToggleTunnel = { toggleTunnel() },
                     onWorkersChange = { value ->
                         scope.launch { settingsStore.saveWorkersPerHash(value) }
