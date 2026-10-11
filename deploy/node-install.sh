@@ -38,6 +38,10 @@
 # The config is "key=value" lines: channel, key, port, the transports
 # (vyandex= or its old name url=: a Yandex document; mailru=: a Mail.ru
 # public document; cupsonline=: the packed room list) and autoupdate=yes|no.
+# vyandex= may be given several times (up to MAX_YANDEX_DOCS): the channel
+# then carries traffic over all those documents at once, at one priority, so
+# the core spreads connections between them. (This build's addition; the
+# upstream script takes one document.)
 # apply and remove take it from a 0600 temp file, which they delete after reading, so that
 # stdin stays free for `sudo -S` (a wrong sudo password would otherwise make
 # sudo read the config as further password attempts). Secrets never appear
@@ -257,6 +261,15 @@ pick_port() {
 # ---- input ------------------------------------------------------------------
 
 CHANNEL=""; URL=""; MAILRU=""; CUPS=""; KEY=""; PORT=""; AUTOUPDATE=""
+# MORE_URLS: the Yandex documents after the first, space-separated (a valid
+# link has no spaces). URL stays the first one: it is the encryption context.
+MORE_URLS=""
+MAX_YANDEX_DOCS=8
+
+# add_url LINK: one more Yandex document for the channel.
+add_url() {
+    if [ -z "$URL" ]; then URL=$1; else MORE_URLS="${MORE_URLS:+$MORE_URLS }$1"; fi
+}
 
 # read_config [FILE]: reads stdin, or FILE and then deletes it.
 read_config() {
@@ -269,8 +282,8 @@ read_config() {
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
             channel=*) CHANNEL=${line#channel=} ;;
-            url=*) URL=${line#url=} ;;
-            vyandex=*) URL=${line#vyandex=} ;;
+            url=*) add_url "${line#url=}" ;;
+            vyandex=*) add_url "${line#vyandex=}" ;;
             mailru=*) MAILRU=${line#mailru=} ;;
             cupsonline=*) CUPS=${line#cupsonline=} ;;
             key=*) KEY=${line#key=} ;;
@@ -299,15 +312,49 @@ valid_port() {
 # check_transports: validates the chosen transports (plan and apply).
 check_transports() {
     [ -z "$URL" ] || valid_url "$URL" || fail input "адрес документа должен быть вида https://docs.yandex.ru/edit/d/..."
+    check_more_urls
     [ -z "$MAILRU" ] || valid_mailru "$MAILRU" || fail input "ссылка Mail.ru должна быть вида https://cloud.mail.ru/public/..."
     [ -z "$CUPS" ] || valid_rooms "$CUPS" || fail input "неверный список комнат cups.online"
     case "$AUTOUPDATE" in ""|yes|no) ;; *) fail input "autoupdate: yes или no" ;; esac
+}
+
+# check_more_urls: the documents after the first are valid, distinct and not
+# too many. Globbing is off while the list is split into words.
+check_more_urls() {
+    [ -n "$MORE_URLS" ] || return 0
+    count=1
+    known=" $URL "
+    set -f
+    for u in $MORE_URLS; do
+        count=$((count + 1))
+        if ! valid_url "$u"; then
+            set +f
+            fail input "адрес документа должен быть вида https://docs.yandex.ru/edit/d/..."
+        fi
+        case "$known" in
+            *" $u "*) set +f; fail input "документ Яндекса указан дважды" ;;
+        esac
+        known="$known$u "
+    done
+    set +f
+    [ "$count" -le "$MAX_YANDEX_DOCS" ] || fail input "не больше $MAX_YANDEX_DOCS документов Яндекса на канал"
+}
+
+# yandex_doc_count: how many Yandex documents the channel has.
+yandex_doc_count() {
+    [ -n "$URL" ] || { echo 0; return 0; }
+    count=1
+    set -f
+    for u in $MORE_URLS; do count=$((count + 1)); done
+    set +f
+    echo "$count"
 }
 
 # transport_names: the channel's transports for people, primary first.
 transport_names() {
     names=""
     [ -n "$URL" ] && names="Яндекс Документ"
+    [ -n "$MORE_URLS" ] && names="Яндекс Документы ($(yandex_doc_count) шт., трафик делится между ними)"
     [ -n "$MAILRU" ] && names="${names:+$names, }Mail.ru Документ"
     [ -n "$CUPS" ] && names="${names:+$names, }cups.online"
     printf '%s' "$names"
@@ -570,6 +617,15 @@ EOF
     context=$(session_context)
     [ -n "$context" ] && printf 'URL = %s\n' "$context"
     [ -n "$URL" ] && printf '\n[Transport vyandex]\nType = vyandex\nPriority = 100\nURL = %s\n' "$URL"
+    # The other documents: same type and priority, named vyandex-2, vyandex-3,
+    # ... as the apps name repeated transports, so both sides agree on names.
+    doc=1
+    set -f
+    for u in $MORE_URLS; do
+        doc=$((doc + 1))
+        printf '\n[Transport vyandex-%s]\nType = vyandex\nPriority = 100\nURL = %s\n' "$doc" "$u"
+    done
+    set +f
     [ -n "$MAILRU" ] && printf '\n[Transport mailru]\nType = mailru\nPriority = 90\nURL = %s\n' "$MAILRU"
     [ -n "$CUPS" ] && printf '\n[Transport cupsonline]\nType = cupsonline\nPriority = 70\nURL = %s\n' "$CUPS"
     printf '\n[Transport direct]\nType = direct\nPriority = 50\nListen = 0.0.0.0:%s\n' "$PORT"
