@@ -32,6 +32,12 @@ internal data class PanelDns(
     val secondary: String,
 )
 
+internal data class PanelClient(
+    val password: String,
+    val peerPort: Int,
+    val expiresAt: Long,
+)
+
 internal class PanelException(message: String) : IOException(message)
 
 /**
@@ -200,7 +206,39 @@ internal class PanelApi(context: Context, private val server: PanelServer) {
         readDns()
     }
 
+    /** Creates a person on this server; [days] 0 means no expiry. */
+    suspend fun createClient(name: String, days: Int, peerPort: Int?): PanelClient = session {
+        val body = JSONObject()
+            .put("name", name)
+            .put("days", days)
+            .put("hash", "")
+        if (peerPort != null) body.put("dtls_port", peerPort)
+        val (code, text) = request("POST", "/api/clients", body)
+        if (code != 200) {
+            throw PanelException(
+                if (text.isNotBlank() && text.length < 120) "Сервер отказал: $text" else "Сервер отказал (код $code)"
+            )
+        }
+        val json = runCatching { JSONObject(text) }.getOrNull()
+            ?: throw PanelException("Сервер прислал непонятный ответ")
+        val password = json.optString("password", "")
+        if (password.isBlank()) throw PanelException("Сервер не выдал пароль для человека")
+        PanelClient(
+            password = password,
+            peerPort = json.optInt("dtls_port", peerPort ?: CsqttConstants.Network.DEFAULT_SERVER_PEER_PORT)
+                .takeIf { it in 1..65535 }
+                ?: (peerPort ?: CsqttConstants.Network.DEFAULT_SERVER_PEER_PORT),
+            expiresAt = json.optLong("expires", 0L),
+        )
+    }
+
     companion object {
         const val CERTIFICATE_CHANGED = "Сертификат панели изменился"
+
+        /** A csqtt:// link in the same form the server panel produces. */
+        fun buildLink(host: String, peerPort: Int, password: String): String =
+            "csqtt://connect?v=2&host=" + java.net.URLEncoder.encode(host, "UTF-8") +
+                "&peer=" + peerPort +
+                "&password=" + java.net.URLEncoder.encode(password, "UTF-8")
     }
 }

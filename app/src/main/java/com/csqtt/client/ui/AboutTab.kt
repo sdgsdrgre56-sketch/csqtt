@@ -40,6 +40,10 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
     if (showDnsDialog && settingsStore != null) {
         AdminDnsDialog(settingsStore = settingsStore, onDismiss = { showDnsDialog = false })
     }
+    var showAddPersonDialog by remember { mutableStateOf(false) }
+    if (showAddPersonDialog && settingsStore != null) {
+        AdminAddPersonDialog(settingsStore = settingsStore, onDismiss = { showAddPersonDialog = false })
+    }
 
     CsqttScreen {
         Column(
@@ -77,10 +81,26 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        text = "Действует для сервера, выбранного на главном экране. " +
-                            "Адрес и доступ к панели берутся из вкладки «Деплой».",
+                        text = "Адрес и доступ к панели берутся из вкладки «Деплой» каждого сервера.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(
+                        onClick = { showAddPersonDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Добавить человека", fontWeight = FontWeight.SemiBold)
+                    }
+                    Text(
+                        text = "Заводит человека на всех серверах сразу и показывает один QR-код.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "DNS меняется на сервере, выбранном на главном экране.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                     Button(
                         onClick = { showDnsDialog = true },

@@ -5,6 +5,8 @@ package com.csqtt.client.ui
 
 import com.csqtt.client.showRaisedToast
 import com.csqtt.client.MayakConfig
+import com.csqtt.client.MayakLinks
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -186,6 +188,33 @@ internal fun SettingsTabContent(
         VkHashValidationCodec.active(allHashes, vkHashCheckResults)
     }
     val parsedCsqttLink = remember(linkText) { parseCsqttLink(linkText) }
+    val storedLinks by settingsStore.csqttLinks.collectAsStateWithLifecycle(initialValue = emptyList())
+    val storedLinkIndex by settingsStore.csqttLinkIndex.collectAsStateWithLifecycle(initialValue = 0)
+    // Client edition: several links (one per server) are shown as a summary, not as an editable field.
+    val multiServerLinks = MayakConfig.SIMPLE_UI && storedLinks.size > 1
+
+    /** Saves every csqtt:// link found in pasted or scanned text; false when there is none. */
+    fun applyLinksText(text: String): Boolean {
+        val links = MayakLinks.fromUserText(text)
+        if (links.isEmpty()) return false
+        linkSaveJob?.cancel()
+        linkText = links.first()
+        linkSaveJob = scope.launch { settingsStore.saveCsqttLinks(links) }
+        context.showRaisedToast(
+            if (links.size > 1) "Добавлено серверов: ${links.size}" else "Ссылка вставлена",
+            Toast.LENGTH_SHORT,
+        )
+        return true
+    }
+
+    val qrScanLauncher = rememberLauncherForActivityResult(
+        com.journeyapps.barcodescanner.ScanContract()
+    ) { result ->
+        val contents = result.contents
+        if (contents != null && !applyLinksText(contents)) {
+            context.showRaisedToast("В этом QR-коде нет ссылки csqtt://", Toast.LENGTH_SHORT)
+        }
+    }
     val linkHashes = parsedCsqttLink?.hashes.orEmpty()
     val filledHashCount = remember(vkHash1, vkHash2, vkHash3, vkHash4, vkHash5, vkHash6) { uniqueHashes.size }
     val combinedHashes = remember(vkHash1, vkHash2, vkHash3, vkHash4, vkHash5, vkHash6) {
@@ -535,6 +564,30 @@ internal fun SettingsTabContent(
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
                 if (participantMode) {
+                    if (multiServerLinks) {
+                        Text(
+                            text = "Серверов в ссылке: ${storedLinks.size}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Сейчас используется сервер ${storedLinkIndex + 1}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+                        )
+                        OutlinedButton(
+                            onClick = { scope.launch { settingsStore.advanceCsqttLink() } },
+                            enabled = !tunnelRunning,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                            shape = CsqttShapes.Control,
+                        ) {
+                            Text(
+                                if (tunnelRunning) "Сменить сервер можно при выключенном маяке" else "Перейти на следующий сервер",
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    } else {
                     OutlinedTextField(
                         value = linkText,
                         onValueChange = { value ->
@@ -556,6 +609,7 @@ internal fun SettingsTabContent(
                             unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
                         )
                     )
+                    }
 
                     if (MayakConfig.SIMPLE_UI) {
                         OutlinedButton(
@@ -568,21 +622,32 @@ internal fun SettingsTabContent(
                                 } else {
                                     ""
                                 }
-                                val candidate = Regex("csqtt://\\S+", RegexOption.IGNORE_CASE).find(pasted)?.value
-                                    ?: pasted.filterNot(Char::isWhitespace)
-                                if (parseCsqttLink(candidate) != null) {
-                                    linkText = candidate
-                                    linkSaveJob?.cancel()
-                                    linkSaveJob = scope.launch { settingsStore.saveCsqttLink(candidate) }
-                                    context.showRaisedToast("Ссылка вставлена", Toast.LENGTH_SHORT)
-                                } else {
+                                if (!applyLinksText(pasted)) {
                                     context.showRaisedToast("В буфере обмена нет ссылки csqtt://", Toast.LENGTH_SHORT)
                                 }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            shape = CsqttShapes.Control,
+                        ) {
+                            Text(
+                                if (multiServerLinks) "Заменить ссылкой из буфера" else "Вставить ссылку из буфера",
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                qrScanLauncher.launch(
+                                    com.journeyapps.barcodescanner.ScanOptions()
+                                        .setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
+                                        .setPrompt("Наведите камеру на QR-код")
+                                        .setBeepEnabled(false)
+                                        .setOrientationLocked(true)
+                                )
                             },
                             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
                             shape = CsqttShapes.Control,
                         ) {
-                            Text("Вставить ссылку из буфера", fontWeight = FontWeight.SemiBold)
+                            Text("Сканировать QR-код", fontWeight = FontWeight.SemiBold)
                         }
                     }
 

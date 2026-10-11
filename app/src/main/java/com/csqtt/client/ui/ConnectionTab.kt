@@ -56,6 +56,7 @@ import com.csqtt.client.ConnectionStartBlocker
 import com.csqtt.client.ConnectionStartPolicy
 import com.csqtt.client.CsqttConstants
 import com.csqtt.client.MayakConfig
+import com.csqtt.client.MayakLinks
 import com.csqtt.client.ui.components.CsqttSegmentedControl
 import com.csqtt.client.WorkerCountPolicy
 import kotlinx.coroutines.flow.map
@@ -95,6 +96,8 @@ internal fun ConnectionTab(
     val csqttLink by settingsStore.csqttLink.collectAsStateWithLifecycle(initialValue = "")
     val loadedCsqttLink by remember(settingsStore) { settingsStore.csqttLink.map<String, String?> { it } }
         .collectAsStateWithLifecycle(initialValue = null)
+    val storedLinks by settingsStore.csqttLinks.collectAsStateWithLifecycle(initialValue = emptyList())
+    val storedLinkIndex by settingsStore.csqttLinkIndex.collectAsStateWithLifecycle(initialValue = 0)
     val peer by settingsStore.peer.collectAsStateWithLifecycle(initialValue = "")
     val vkHashes by settingsStore.vkHashes.collectAsStateWithLifecycle(initialValue = "")
     val vkHashCheckResultsJson by settingsStore.vkHashCheckResults.collectAsStateWithLifecycle(initialValue = "{}")
@@ -256,6 +259,21 @@ internal fun ConnectionTab(
         }
     }
 
+    /** Saves every csqtt:// link found in pasted or scanned text; false when there is none. */
+    fun applyLinksText(text: String): Boolean {
+        val links = MayakLinks.fromUserText(text)
+        if (links.isEmpty()) return false
+        scope.launch {
+            settingsStore.saveCsqttLinks(links)
+            settingsStore.saveCsqttLinkMode(true)
+        }
+        context.showRaisedToast(
+            if (links.size > 1) "Добавлено серверов: ${links.size}" else "Ссылка вставлена",
+            Toast.LENGTH_SHORT,
+        )
+        return true
+    }
+
     fun pasteLinkFromClipboard() {
         val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
             as? android.content.ClipboardManager
@@ -265,17 +283,28 @@ internal fun ConnectionTab(
         } else {
             ""
         }
-        val candidate = Regex("csqtt://\\S+", RegexOption.IGNORE_CASE).find(pasted)?.value
-            ?: pasted.filterNot(Char::isWhitespace)
-        if (parseCsqttLink(candidate) != null) {
-            scope.launch {
-                settingsStore.saveCsqttLink(candidate)
-                settingsStore.saveCsqttLinkMode(true)
-            }
-            context.showRaisedToast("Ссылка вставлена", Toast.LENGTH_SHORT)
-        } else {
+        if (!applyLinksText(pasted)) {
             context.showRaisedToast("В буфере обмена нет ссылки csqtt://", Toast.LENGTH_SHORT)
         }
+    }
+
+    val qrScanLauncher = rememberLauncherForActivityResult(
+        com.journeyapps.barcodescanner.ScanContract()
+    ) { result ->
+        val contents = result.contents
+        if (contents != null && !applyLinksText(contents)) {
+            context.showRaisedToast("В этом QR-коде нет ссылки csqtt://", Toast.LENGTH_SHORT)
+        }
+    }
+
+    fun scanLinkQr() {
+        qrScanLauncher.launch(
+            com.journeyapps.barcodescanner.ScanOptions()
+                .setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
+                .setPrompt("Наведите камеру на QR-код")
+                .setBeepEnabled(false)
+                .setOrientationLocked(true)
+        )
     }
 
     if (MayakConfig.SIMPLE_UI) {
@@ -301,7 +330,10 @@ internal fun ConnectionTab(
                     onWorkersChange = { value ->
                         scope.launch { settingsStore.saveWorkersPerHash(value) }
                     },
+                    serverPosition = if (storedLinks.size > 1) storedLinkIndex + 1 else 0,
+                    serverCount = storedLinks.size,
                     onPasteLink = { pasteLinkFromClipboard() },
+                    onScanQr = { scanLinkQr() },
                     onEnterManually = onInvalidConfiguration,
                 )
             }

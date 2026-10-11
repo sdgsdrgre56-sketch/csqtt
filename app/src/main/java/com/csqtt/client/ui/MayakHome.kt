@@ -411,6 +411,7 @@ private fun MayakSpeedSelector(
 @Composable
 private fun MayakWelcome(
     onPasteLink: () -> Unit,
+    onScanQr: () -> Unit,
     onEnterManually: () -> Unit,
 ) {
     Column(
@@ -473,13 +474,16 @@ private fun MayakWelcome(
                 Text("Вставить из буфера", fontWeight = FontWeight.ExtraBold)
             }
             OutlinedButton(
-                onClick = onEnterManually,
+                onClick = onScanQr,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
                 shape = RoundedCornerShape(16.dp),
             ) {
-                Text("Ввести вручную", fontWeight = FontWeight.Bold)
+                Text("Сканировать QR-код", fontWeight = FontWeight.Bold)
+            }
+            TextButton(onClick = onEnterManually) {
+                Text("Ввести вручную", fontWeight = FontWeight.SemiBold)
             }
             Text(
                 text = "Ссылка начинается с csqtt://",
@@ -507,9 +511,12 @@ internal fun MayakHome(
     configurationValid: Boolean,
     workers: Int,
     maxWorkers: Int,
+    serverPosition: Int,
+    serverCount: Int,
     onToggleTunnel: () -> Unit,
     onWorkersChange: (Int) -> Unit,
     onPasteLink: () -> Unit,
+    onScanQr: () -> Unit,
     onEnterManually: () -> Unit,
 ) {
     if (linkReady == null) {
@@ -519,7 +526,7 @@ internal fun MayakHome(
     val isStarting = tunnelStarting && !tunnelRunning && !tunnelStopping
     val active = tunnelRunning || isStarting || autoPausedForWifi || tunnelStopping
     if (!linkReady && !active) {
-        MayakWelcome(onPasteLink = onPasteLink, onEnterManually = onEnterManually)
+        MayakWelcome(onPasteLink = onPasteLink, onScanQr = onScanQr, onEnterManually = onEnterManually)
         return
     }
 
@@ -593,6 +600,14 @@ internal fun MayakHome(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
+                if (serverCount > 1 && serverPosition > 0) {
+                    Text(
+                        text = "Сервер $serverPosition из $serverCount",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        textAlign = TextAlign.Center,
+                    )
+                }
             }
         }
         Box(modifier = Modifier.padding(bottom = 12.dp)) {

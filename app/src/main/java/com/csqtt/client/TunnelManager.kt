@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.sync.withLock
+import com.csqtt.client.ui.utils.parseCsqttLink
+import com.csqtt.client.ui.utils.peerAddress
 import java.io.File
 import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicBoolean
@@ -115,6 +117,15 @@ object TunnelManager {
     // Stats-path VPN start retry window: the START intent fires once from the
     // Config event, then at most once per this interval until vpnReady.
     private const val VPN_START_RETRY_MS = 10_000L
+    // Mayak client: a running tunnel that stays without streams this long
+    // moves on to the next stored server link.
+    private const val FAILOVER_ZERO_WORKERS_MS = 45_000L
+    @Volatile
+    private var failoverJob: Job? = null
+    // Server switches since the last working connection; one lap at most.
+    @Volatile
+    private var failoverStreak = 0
+    private val failoverPending = AtomicBoolean(false)
 
     private val startStopMutex = kotlinx.coroutines.sync.Mutex()
     private val lifecycleState = TunnelLifecycleState()
@@ -361,6 +372,13 @@ object TunnelManager {
                     workerRecoveryJob = null
                 }
                 if (event.active > 0) {
+                    failoverStreak = 0
+                    failoverJob?.cancel()
+                    failoverJob = null
+                } else {
+                    armServerFailover(identity)
+                }
+                if (event.active > 0) {
                     wrapAuthTimeoutCount = 0
                     val currentConfig = config.value
                     if (!vpnReady.value && currentConfig != null && currentConfig.startsWith("TUNCONF:") &&
@@ -394,6 +412,7 @@ object TunnelManager {
             is TunnelEventParser.Event.ActiveZero -> {
                 activeWorkers.value = 0
                 scheduleWorkerZeroRecovery(identity)
+                armServerFailover(identity)
             }
             is TunnelEventParser.Event.CallUnavailable -> handleUnavailableVkCall(event, identity)
             is TunnelEventParser.Event.NetworkSuspect -> verifyVkReachability(identity)
@@ -888,6 +907,7 @@ object TunnelManager {
                     stats.value = "Ожидание данных..."
                     wrapAuthTimeoutCount = 0
                     crashRestartStreak = 0
+                    failoverStreak = 0
                     processStartedAtMs = 0L
                     currentParams = params
                     strongAppContext = appContext.applicationContext
@@ -1067,15 +1087,103 @@ object TunnelManager {
                     98,
                     true,
                 )
-                TunnelStartupStage.WAITING_FOR_TURN_OR_PEER -> updateProcessLog(
-                    identity,
-                    "startup_waiting_turn",
-                    "[ДИАГНОСТИКА] TURN-креды получены, но ни один allocation/handshake с сервером не завершился",
-                    98,
-                    true,
-                )
+                TunnelStartupStage.WAITING_FOR_TURN_OR_PEER -> {
+                    updateProcessLog(
+                        identity,
+                        "startup_waiting_turn",
+                        "[ДИАГНОСТИКА] TURN-креды получены, но ни один allocation/handshake с сервером не завершился",
+                        98,
+                        true,
+                    )
+                    // VK answered and the server did not: with several links, try the next server.
+                    switchToNextServer(identity)
+                }
                 TunnelStartupStage.READY -> Unit
             }
+        }
+    }
+
+    /** Mayak client: after a working connection lost every stream, wait and then try the next server. */
+    private fun armServerFailover(identity: ProcessIdentity) {
+        if (!MayakConfig.SIMPLE_UI) return
+        // Before the first stream is ready the startup diagnostic decides.
+        if (identity.startupProgress.stage() != TunnelStartupStage.READY) return
+        if (failoverJob?.isActive == true) return
+        failoverJob = activeScope.launch {
+            delay(FAILOVER_ZERO_WORKERS_MS)
+            if (!isCurrent(identity) || !running.value || activeWorkers.value > 0) return@launch
+            if (pausedForNoNetwork.isPaused()) return@launch
+            switchToNextServer(identity)
+        }
+    }
+
+    /**
+     * Mayak client: the current server does not answer, so restart the tunnel
+     * on the next stored link. Tries each server once, then stays where it is.
+     */
+    private suspend fun switchToNextServer(identity: ProcessIdentity) {
+        if (!MayakConfig.SIMPLE_UI) return
+        if (!failoverPending.compareAndSet(false, true)) return
+        try {
+            val command = lifecycleCommand.get()
+            val context = activeContext()?.applicationContext ?: return
+            val params = currentParams ?: return
+            if (!isCurrent(identity) || !running.value) return
+            val store = activeSettingsStore ?: SettingsStore(context).also { activeSettingsStore = it }
+            if (!store.csqttLinkMode.first()) return
+            val links = store.csqttLinks.first()
+            val count = links.size
+            if (count <= 1) return
+            if (failoverStreak >= count - 1) {
+                if (failoverStreak == count - 1) {
+                    failoverStreak = count
+                    updateProcessLog(
+                        identity,
+                        "server_failover_exhausted",
+                        "[СЕРВЕР] Ни один из $count серверов не ответил. Проверьте интернет, " +
+                            "затем выключите и включите маяк",
+                        98,
+                        true,
+                    )
+                }
+                return
+            }
+            val index = store.csqttLinkIndex.first().coerceIn(0, count - 1)
+            val nextIndex = (index + 1) % count
+            val link = parseCsqttLink(links[nextIndex]) ?: return
+            val switched = params.copy(
+                peer = link.peerAddress(),
+                connectionPassword = link.password,
+                vkHashes = if (link.hashes.isNotEmpty()) link.hashes.joinToString(",") else params.vkHashes,
+            )
+            val newParams = runCatching { switched.withNewSession(context) }.getOrElse { return }
+            startStopMutex.withLock {
+                if (
+                    lifecycleCommand.get() != command ||
+                    !isCurrent(identity) ||
+                    !running.value ||
+                    currentParams != params
+                ) {
+                    return@withLock
+                }
+                val epoch = lifecycleState.requestRestart() ?: return@withLock
+                restartJob?.cancel()
+                restartJob = null
+                store.advanceCsqttLink()
+                failoverStreak += 1
+                updateLog(
+                    "server_failover",
+                    "[СЕРВЕР] Сервер ${index + 1} не отвечает · переходим на сервер ${nextIndex + 1} из $count",
+                    3,
+                    false,
+                    LogLevel.NET,
+                )
+                terminateProcessLocked(processIdentity)
+                currentParams = newParams
+                startProcessLocked(context, newParams, epoch)
+            }
+        } finally {
+            failoverPending.set(false)
         }
     }
 

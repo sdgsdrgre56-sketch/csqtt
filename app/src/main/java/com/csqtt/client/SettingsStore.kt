@@ -48,6 +48,18 @@ internal data class DeploySettingsSnapshot(
         get() = profile >= 0
 }
 
+internal data class AdminPanelProfile(
+    val index: Int,
+    val host: String,
+    val webPort: Int,
+    val peerPort: Int,
+    val webLogin: String,
+    val webPassword: String,
+) {
+    val isConfigured: Boolean
+        get() = host.isNotBlank() && webLogin.isNotBlank() && webPassword.isNotBlank()
+}
+
 internal data class TunnelAuthSnapshot(
     val profile: Int = -1,
     val connectionPassword: String = "",
@@ -68,6 +80,8 @@ class SettingsStore(context: Context) {
         private val INFO_PROJECT_EXPANDED = booleanPreferencesKey("info_project_expanded")
         private val CSQTT_LINK = stringPreferencesKey("csqtt_link")
         private val CSQTT_LINK_MODE = booleanPreferencesKey("csqtt_link_mode")
+        // Index of the link in use when several links (servers) are stored. Not per profile.
+        private val CSQTT_LINK_INDEX = intPreferencesKey("csqtt_link_index")
 
         private val PEER = stringPreferencesKey("peer")
         private val VK_HASHES = stringPreferencesKey("vk_hashes")
@@ -235,9 +249,25 @@ class SettingsStore(context: Context) {
     val loggingEnabled: Flow<Boolean> = dataStore.data.map { it[LOGGING_ENABLED] ?: true }
     val infoActionsExpanded: Flow<Boolean> = dataStore.data.map { it[INFO_ACTIONS_EXPANDED] ?: false }
     val infoProjectExpanded: Flow<Boolean> = dataStore.data.map { it[INFO_PROJECT_EXPANDED] ?: false }
+    /** The link in use. With several stored links this is the selected one. */
     val csqttLink: Flow<String> = dataStore.data.map { prefs ->
         val profile = prefs[ACTIVE_PROFILE] ?: 0
-        prefs[getProfileKey(CSQTT_LINK, profile)] ?: ""
+        val stored = prefs[getProfileKey(CSQTT_LINK, profile)] ?: ""
+        val links = MayakLinks.split(stored)
+        if (links.size <= 1) stored else links[(prefs[CSQTT_LINK_INDEX] ?: 0).mod(links.size)]
+    }
+
+    /** All stored links, one per server. */
+    val csqttLinks: Flow<List<String>> = dataStore.data.map { prefs ->
+        val profile = prefs[ACTIVE_PROFILE] ?: 0
+        MayakLinks.split(prefs[getProfileKey(CSQTT_LINK, profile)] ?: "")
+    }
+
+    /** Position of the link in use within [csqttLinks]. */
+    val csqttLinkIndex: Flow<Int> = dataStore.data.map { prefs ->
+        val profile = prefs[ACTIVE_PROFILE] ?: 0
+        val count = MayakLinks.split(prefs[getProfileKey(CSQTT_LINK, profile)] ?: "").size
+        if (count <= 1) 0 else (prefs[CSQTT_LINK_INDEX] ?: 0).mod(count)
     }
     val csqttLinkMode: Flow<Boolean> = dataStore.data.map { prefs ->
         val profile = prefs[ACTIVE_PROFILE] ?: 0
@@ -635,8 +665,59 @@ class SettingsStore(context: Context) {
         dataStore.edit { prefs ->
             val profile = prefs[ACTIVE_PROFILE] ?: 0
             prefs[getProfileKey(CSQTT_LINK, profile)] = link
+            prefs[CSQTT_LINK_INDEX] = 0
         }
     }
+
+    /** Stores one link per server and starts from the first one. */
+    suspend fun saveCsqttLinks(links: List<String>) {
+        dataStore.edit { prefs ->
+            val profile = prefs[ACTIVE_PROFILE] ?: 0
+            prefs[getProfileKey(CSQTT_LINK, profile)] = MayakLinks.join(links.take(MayakLinks.MAX_LINKS))
+            prefs[CSQTT_LINK_INDEX] = 0
+        }
+    }
+
+    /** Switches to the next stored link; returns the new position, or -1 if there is nothing to switch to. */
+    suspend fun advanceCsqttLink(): Int {
+        var result = -1
+        dataStore.edit { prefs ->
+            val profile = prefs[ACTIVE_PROFILE] ?: 0
+            val count = MayakLinks.split(prefs[getProfileKey(CSQTT_LINK, profile)] ?: "").size
+            if (count > 1) {
+                val next = ((prefs[CSQTT_LINK_INDEX] ?: 0).mod(count) + 1) % count
+                prefs[CSQTT_LINK_INDEX] = next
+                result = next
+            }
+        }
+        return result
+    }
+
+    /** Web panel address and credentials of each admin server profile (Mayak Admin). */
+    internal suspend fun adminPanelProfiles(count: Int): List<AdminPanelProfile> =
+        dataStore.data.map { prefs ->
+            (0 until count).map { profile ->
+                val manualPorts = prefs[getProfileKey(MANUAL_PORTS_ENABLED, profile)] ?: false
+                AdminPanelProfile(
+                    index = profile,
+                    host = (prefs[getProfileKey(DEPLOY_IP, profile)] ?: "").trim(),
+                    webPort = if (manualPorts) {
+                        prefs[getProfileKey(SERVER_WEB_PORT, profile)]
+                            ?: CsqttConstants.Network.DEFAULT_SERVER_WEB_PORT
+                    } else {
+                        CsqttConstants.Network.DEFAULT_SERVER_WEB_PORT
+                    },
+                    peerPort = if (manualPorts) {
+                        prefs[getProfileKey(SERVER_PEER_PORT, profile)]
+                            ?: CsqttConstants.Network.DEFAULT_SERVER_PEER_PORT
+                    } else {
+                        CsqttConstants.Network.DEFAULT_SERVER_PEER_PORT
+                    },
+                    webLogin = prefs[getProfileKey(DEPLOY_WEB_LOGIN, profile)] ?: "",
+                    webPassword = readSecret(prefs, DEPLOY_WEB_PASSWORD_ENCRYPTED, DEPLOY_WEB_PASSWORD, profile),
+                )
+            }
+        }.onIo().first()
 
     suspend fun saveCsqttLinkMode(enabled: Boolean) {
         dataStore.edit { prefs ->
