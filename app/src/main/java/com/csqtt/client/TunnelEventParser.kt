@@ -42,6 +42,17 @@ object TunnelEventParser {
         ) : Event()
 
         data class Progress(val kind: String) : Event()
+
+        /** Mayak: progress or result of the in-tunnel speed test. */
+        data class SpeedTest(
+            val state: String,
+            val mbps: Double,
+            val peakMbps: Double,
+            val pingMs: Int,
+            val percent: Int,
+            val bytes: Long,
+            val message: String,
+        ) : Event()
     }
 
     fun parse(line: String): Event? {
@@ -100,6 +111,15 @@ object TunnelEventParser {
             "CAPTCHA_DONE" -> Event.CaptchaDone(
                 success = payload.optBoolean("success", false),
                 error = payload.optString("error", "").takeIf { it.isNotBlank() }
+            )
+            "SPEEDTEST" -> Event.SpeedTest(
+                state = payload.optString("state", ""),
+                mbps = payload.optDouble("mbps", 0.0).takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
+                peakMbps = payload.optDouble("peak", 0.0).takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
+                pingMs = payload.optInt("ping", 0).coerceAtLeast(0),
+                percent = payload.optInt("percent", 0).coerceIn(0, 100),
+                bytes = payload.optLong("bytes", 0L).coerceAtLeast(0L),
+                message = payload.optString("message", ""),
             )
             "PROGRESS" -> {
                 val kind = payload.strictString("kind") ?: return null

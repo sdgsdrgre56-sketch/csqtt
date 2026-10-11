@@ -87,6 +87,11 @@ impl Events {
         );
     }
 
+    /// Mayak: progress and result of the in-tunnel speed test.
+    pub fn speed_test(&self, payload: &serde_json::Value) {
+        self.emit("SPEEDTEST", payload);
+    }
+
     pub fn active_zero(&self) {
         self.emit("ACTIVE_ZERO", &serde_json::json!({}));
     }

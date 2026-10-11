@@ -5,6 +5,7 @@ use crate::{
     client_perf::{self, Stage as PerfStage},
     flow_frame::{self, FlowSequencer},
     packet::{PacketBuf, PacketPool},
+    speedtest::SpeedHook,
     stats::Stats,
     striped_scheduler::{DispatchTicket, PacketClass, packet_class},
     tun, udp_batch,
@@ -404,6 +405,8 @@ pub struct Dispatcher {
     return_tx: PacketSender,
     cancel: CancellationToken,
     tasks: tokio::sync::Mutex<Vec<JoinHandle<()>>>,
+    // Mayak: the in-tunnel speed test (see speedtest.rs).
+    speed: SpeedHook,
 }
 
 impl Dispatcher {
@@ -426,6 +429,7 @@ impl Dispatcher {
             return_tx,
             cancel: cancel.clone(),
             tasks: tokio::sync::Mutex::new(Vec::new()),
+            speed: SpeedHook::new(),
         });
         let io_dispatcher = dispatcher.clone();
         let task = spawn_critical("test TUN dispatcher", cancel, async move {
@@ -467,6 +471,7 @@ impl Dispatcher {
             return_tx,
             cancel: cancel.clone(),
             tasks: tokio::sync::Mutex::new(Vec::new()),
+            speed: SpeedHook::new(),
         });
         if let Some(name) = tun_uds {
             crate::log_error!("[КЛИЕНТ] Запуск UDS-слушателя: {name} для получения TUN FD...");
@@ -606,6 +611,11 @@ impl Dispatcher {
         });
     }
 
+    /// Mayak: the hook the in-tunnel speed test uses.
+    pub fn speed(&self) -> &SpeedHook {
+        &self.speed
+    }
+
     pub async fn shutdown(&self) {
         self.cancel.cancel();
         for task in self.tasks.lock().await.drain(..) {
@@ -681,10 +691,25 @@ impl Dispatcher {
 
         let mut scheduler = FastPathScheduler::new();
         let mut flow_sequences = FlowSequencer::new();
+        // Mayak: packets of the in-tunnel speed test take the same road as
+        // packets read from the TUN device.
+        let mut injected = self.speed.outbound().lock().await;
         loop {
             let readiness = tokio::select! {
                 _ = self.cancel.cancelled() => return,
                 result = device.readable() => result,
+                packet = injected.recv() => {
+                    if let Some(mut packet) = packet {
+                        let length = packet.len();
+                        if frame_outbound_packet(&mut flow_sequences, &mut packet) {
+                            stats
+                                .total_bytes_up
+                                .fetch_add(length as i64, Ordering::Relaxed);
+                            self.dispatch(&mut scheduler, packet);
+                        }
+                    }
+                    continue;
+                }
             };
             let mut guard = match readiness {
                 Ok(guard) => guard,
@@ -869,6 +894,10 @@ impl Dispatcher {
                 else {
                     return;
                 };
+                // Mayak: answers to the in-tunnel speed test never reach the TUN device.
+                let Some(packet) = self.speed.divert(packet) else {
+                    continue;
+                };
                 pending = Some((packet, 0));
             }
 
@@ -896,13 +925,19 @@ impl Dispatcher {
                             pending = None;
                             break TunWriteState::Complete;
                         }
-                        pending = next_ordered_return_packet(
-                            &mut reorder,
-                            latency_receiver,
-                            priority_receiver,
-                            bulk_receiver,
-                        )
-                        .map(|packet| (packet, 0));
+                        pending = loop {
+                            let Some(packet) = next_ordered_return_packet(
+                                &mut reorder,
+                                latency_receiver,
+                                priority_receiver,
+                                bulk_receiver,
+                            ) else {
+                                break None;
+                            };
+                            if let Some(packet) = self.speed.divert(packet) {
+                                break Some((packet, 0));
+                            }
+                        };
                         if pending.is_none() {
                             break TunWriteState::Complete;
                         }
@@ -1334,6 +1369,7 @@ mod tests {
                 return_tx,
                 cancel: CancellationToken::new(),
                 tasks: tokio::sync::Mutex::new(Vec::new()),
+                speed: SpeedHook::new(),
             }),
             return_latency_rx,
             return_priority_rx,

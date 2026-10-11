@@ -58,7 +58,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.csqtt.client.MayakSpeedPhase
 import com.csqtt.client.TunnelManager
+import androidx.compose.material3.LinearProgressIndicator
 import java.util.Locale
 
 internal enum class MayakBeaconState { Off, Connecting, Connected, Waiting }
@@ -257,9 +259,8 @@ private fun formatMayakVolume(bytes: Long): String {
 
 /**
  * A quiet "check speed" button. The app itself is excluded from its own tunnel,
- * so it cannot download a test file through it; instead the dialog opens a
- * speed-test page in the browser (which does go through the tunnel) and shows
- * what the tunnel carried meanwhile.
+ * so the measurement is done by the native client, which downloads a test file
+ * through the tunnel by itself (rust-client/speedtest.rs) and reports the speed.
  */
 @Composable
 internal fun MayakSpeedCheckButton() {
@@ -272,11 +273,8 @@ internal fun MayakSpeedCheckButton() {
     }
 }
 
-// Speed test pages opened in the browser, which (unlike this app) goes through the tunnel.
+// Fallback when the built-in test cannot run: a speed test page in the browser.
 private const val MayakSpeedUrl = "https://speed.cloudflare.com/"
-private const val MayakSpeedBackupUrl = "https://openspeedtest.com/"
-// A plain 100 MB download from Helsinki: works without scripts, the tunnel counters show the speed.
-private const val MayakSpeedFileUrl = "https://hel1-speed.hetzner.com/100MB.bin"
 
 private fun openMayakSpeedPage(context: android.content.Context, url: String) {
     TunnelManager.resetSpeedPeaks()
@@ -292,57 +290,95 @@ private fun openMayakSpeedPage(context: android.content.Context, url: String) {
 @Composable
 private fun MayakSpeedDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val down by TunnelManager.speedDownBps.collectAsStateWithLifecycle()
-    val up by TunnelManager.speedUpBps.collectAsStateWithLifecycle()
-    val peakDown by TunnelManager.speedPeakDownBps.collectAsStateWithLifecycle()
-    val peakUp by TunnelManager.speedPeakUpBps.collectAsStateWithLifecycle()
-    val total by TunnelManager.sessionBytes.collectAsStateWithLifecycle()
+    val test by TunnelManager.speedTest.collectAsStateWithLifecycle()
+    val busy = test.phase == MayakSpeedPhase.Starting || test.phase == MayakSpeedPhase.Running
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Проверка скорости", fontWeight = FontWeight.Bold) },
+        title = { Text("Замер скорости", fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Максимум за замер",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = "↓ ${formatMayakRate(peakDown)}   ↑ ${formatMayakRate(peakUp)}",
-                    style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"),
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = "Сейчас: ↓ ${formatMayakRate(down)} · ↑ ${formatMayakRate(up)}\n" +
-                        "За сеанс прошло: ${formatMayakVolume(total)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = "Нажмите «Начать замер»: в браузере откроется страница проверки. " +
-                        "Дождитесь результата и вернитесь сюда — здесь будет то, что реально прошло через туннель.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = "Если страница не открылась:",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = { openMayakSpeedPage(context, MayakSpeedBackupUrl) }) {
-                        Text("Другой сайт")
+                when (test.phase) {
+                    MayakSpeedPhase.Idle -> Text(
+                        text = "Маяк скачает проверочный файл через туннель и покажет скорость. " +
+                            "Замер идёт около 10 секунд и тратит до 100 МБ трафика.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    MayakSpeedPhase.Starting -> {
+                        Text(
+                            text = "Соединяемся с сервером замера…",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     }
-                    TextButton(onClick = { openMayakSpeedPage(context, MayakSpeedFileUrl) }) {
-                        Text("Файл 100 МБ")
+                    MayakSpeedPhase.Running -> {
+                        Text(
+                            text = "Идёт замер",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = formatMayakMbps(test.mbps),
+                            style = MaterialTheme.typography.displaySmall.copy(fontFeatureSettings = "tnum"),
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        LinearProgressIndicator(
+                            progress = { test.percent / 100f },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    MayakSpeedPhase.Done -> {
+                        Text(
+                            text = "Скорость загрузки",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = formatMayakMbps(test.mbps),
+                            style = MaterialTheme.typography.displaySmall.copy(fontFeatureSettings = "tnum"),
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = "Максимум: ${formatMayakMbps(test.peakMbps)}\n" +
+                                "Отклик: ${test.pingMs} мс\n" +
+                                "Скачано: ${formatMayakVolume(test.bytes)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    MayakSpeedPhase.Error -> {
+                        Text(
+                            text = "Замер не получился",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Text(
+                            text = test.message,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        TextButton(onClick = { openMayakSpeedPage(context, MayakSpeedUrl) }) {
+                            Text("Открыть замер в браузере")
+                        }
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = { openMayakSpeedPage(context, MayakSpeedUrl) }) {
-                Text("Начать замер", fontWeight = FontWeight.Bold)
+            TextButton(
+                onClick = { TunnelManager.startSpeedTest() },
+                enabled = !busy,
+            ) {
+                Text(
+                    text = when (test.phase) {
+                        MayakSpeedPhase.Idle -> "Начать замер"
+                        MayakSpeedPhase.Starting, MayakSpeedPhase.Running -> "Идёт замер…"
+                        MayakSpeedPhase.Done, MayakSpeedPhase.Error -> "Ещё раз"
+                    },
+                    fontWeight = FontWeight.Bold,
+                )
             }
         },
         dismissButton = {
@@ -352,6 +388,13 @@ private fun MayakSpeedDialog(onDismiss: () -> Unit) {
         },
     )
 }
+
+private fun formatMayakMbps(mbps: Double): String =
+    if (mbps >= 100.0) {
+        String.format(Locale.US, "%.0f Мбит/с", mbps)
+    } else {
+        String.format(Locale.US, "%.1f Мбит/с", mbps)
+    }
 
 private val MayakSpeedSteps = listOf(9 to "Эконом", 18 to "Обычно", 27 to "Быстро", 45 to "Макс")
 

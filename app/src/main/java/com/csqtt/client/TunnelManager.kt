@@ -201,6 +201,83 @@ object TunnelManager {
     val speedPeakDownBps = MutableStateFlow(0L)
     val speedPeakUpBps = MutableStateFlow(0L)
 
+    /** Mayak: the speed test that runs inside the tunnel. */
+    val speedTest = MutableStateFlow(MayakSpeedTest())
+    @Volatile
+    private var speedTestWatchdog: Job? = null
+
+    /** Asks the native client to measure the download speed through the tunnel. */
+    fun startSpeedTest() {
+        val current = speedTest.value.phase
+        if (current == MayakSpeedPhase.Starting || current == MayakSpeedPhase.Running) return
+        val identity = processIdentity
+        if (identity == null || !running.value || activeWorkers.value <= 0) {
+            speedTest.value = MayakSpeedTest(
+                phase = MayakSpeedPhase.Error,
+                message = "Сначала включите маяк и дождитесь подключения",
+            )
+            return
+        }
+        speedTest.value = MayakSpeedTest(phase = MayakSpeedPhase.Starting)
+        speedTestWatchdog?.cancel()
+        speedTestWatchdog = activeScope.launch {
+            if (!writeProcessCommand(identity, "SPEEDTEST", "speedtest_command_error")) {
+                speedTest.value = MayakSpeedTest(
+                    phase = MayakSpeedPhase.Error,
+                    message = "Не удалось начать замер",
+                )
+                return@launch
+            }
+            // The native side always reports back; this only covers a restart in the middle.
+            delay(60_000L)
+            val phase = speedTest.value.phase
+            if (phase == MayakSpeedPhase.Starting || phase == MayakSpeedPhase.Running) {
+                speedTest.value = MayakSpeedTest(
+                    phase = MayakSpeedPhase.Error,
+                    message = "Замер не завершился. Попробуйте ещё раз",
+                )
+            }
+        }
+    }
+
+    fun clearSpeedTest() {
+        val phase = speedTest.value.phase
+        if (phase == MayakSpeedPhase.Done || phase == MayakSpeedPhase.Error) {
+            speedTest.value = MayakSpeedTest()
+        }
+    }
+
+    private fun handleSpeedTestEvent(event: TunnelEventParser.Event.SpeedTest) {
+        val previous = speedTest.value
+        speedTest.value = when (event.state) {
+            "starting" -> MayakSpeedTest(phase = MayakSpeedPhase.Starting)
+            "running" -> MayakSpeedTest(
+                phase = MayakSpeedPhase.Running,
+                mbps = event.mbps,
+                percent = event.percent,
+            )
+            "done" -> {
+                speedTestWatchdog?.cancel()
+                MayakSpeedTest(
+                    phase = MayakSpeedPhase.Done,
+                    mbps = event.mbps,
+                    peakMbps = event.peakMbps,
+                    pingMs = event.pingMs,
+                    percent = 100,
+                    bytes = event.bytes,
+                )
+            }
+            "error" -> {
+                speedTestWatchdog?.cancel()
+                MayakSpeedTest(
+                    phase = MayakSpeedPhase.Error,
+                    message = event.message.ifBlank { "Не удалось измерить скорость" },
+                )
+            }
+            else -> previous
+        }
+    }
+
     fun resetSpeedPeaks() {
         speedPeakDownBps.value = 0L
         speedPeakUpBps.value = 0L
@@ -451,6 +528,7 @@ object TunnelManager {
                     }
                 }
             }
+            is TunnelEventParser.Event.SpeedTest -> handleSpeedTestEvent(event)
             is TunnelEventParser.Event.Progress -> {
                 if (event.kind == "credentials") {
                     identity.startupProgress.credentialReceived()
@@ -1692,6 +1770,8 @@ object TunnelManager {
         nativeProcessPid = null
         currentParams = null
         activeSettingsStore = null
+        speedTestWatchdog?.cancel()
+        speedTest.value = MayakSpeedTest()
         ManlCaptchaWebViewManager.cancelCaptcha()
     }
 
@@ -1856,6 +1936,19 @@ object TunnelManager {
         return if (text.isNullOrBlank()) this::class.java.simpleName else "${this::class.java.simpleName}: $text"
     }
 }
+
+enum class MayakSpeedPhase { Idle, Starting, Running, Done, Error }
+
+/** Mayak: state of the in-tunnel speed test, in megabits per second. */
+data class MayakSpeedTest(
+    val phase: MayakSpeedPhase = MayakSpeedPhase.Idle,
+    val mbps: Double = 0.0,
+    val peakMbps: Double = 0.0,
+    val pingMs: Int = 0,
+    val percent: Int = 0,
+    val bytes: Long = 0L,
+    val message: String = "",
+)
 
 data class TunnelParams(
     val peer: String,

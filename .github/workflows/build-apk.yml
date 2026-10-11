@@ -77,7 +77,14 @@ jobs:
         working-directory: rust-client
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/build/native
-        run: cargo +1.97.1 ndk -t ${{ matrix.abi }} -P 26 build --release --locked
+        run: |
+          set -o pipefail
+          if ! cargo +1.97.1 ndk -t ${{ matrix.abi }} -P 26 build --release --locked 2>&1 | tee "$RUNNER_TEMP/native-build.log"; then
+            # Job logs are not readable from the outside, so surface the compiler errors as an annotation.
+            body=$(grep -v '^ *Compiling \|^ *Downloaded \|^ *Downloading ' "$RUNNER_TEMP/native-build.log" | grep -A16 '^error' | head -n 90 | cut -c1-220 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=Native build failed (${{ matrix.abi }})::$body"
+            exit 1
+          fi
 
       - name: Collect library
         if: steps.libcache.outputs.cache-hit != 'true'

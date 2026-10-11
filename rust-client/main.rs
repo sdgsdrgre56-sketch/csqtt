@@ -23,6 +23,8 @@ mod repair;
 #[path = "../shared/selective_fec.rs"]
 mod selective_fec;
 mod session;
+mod speedtest;
+mod speedtest_tcp;
 mod stats;
 #[path = "../shared/striped_scheduler.rs"]
 mod striped_scheduler;
@@ -264,6 +266,13 @@ async fn run(arguments: Arguments) -> Result<()> {
             return Err(error);
         }
     };
+    speedtest::install(
+        dispatcher.clone(),
+        pool.clone(),
+        stats.clone(),
+        events.clone(),
+        cancel.clone(),
+    );
     let local_port: Arc<str> = Arc::from(local_port);
     let params = Arc::new(RuntimeParams {
         peer,
@@ -304,6 +313,7 @@ async fn run(arguments: Arguments) -> Result<()> {
                 let mut fields = value.splitn(3, ':');
                 let ip = fields.next().unwrap_or_default();
                 let dns = fields.next().unwrap_or_default();
+                speedtest::set_tunnel_ip(ip);
                 crate::log_error!("[КЛИЕНТ] Tunnel IP: {ip}/32 | DNS: {dns}");
             }
             config_events.config(&config);
@@ -604,6 +614,7 @@ fn start_control_input(
                 "PAUSE" => paused.set_paused(true),
                 "RESUME" => paused.set_paused(false),
                 "FINISH_VK_CALLS" => finish_js_calls.store(true, Ordering::Release),
+                "SPEEDTEST" => speedtest::request(),
                 "STOP" => {
                     crate::log_error!("[КЛИЕНТ] Получена команда STOP");
                     cancel.cancel();
