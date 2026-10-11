@@ -1,0 +1,109 @@
+diff --git a/mobile/node.go b/mobile/node.go
+index 782d776..915ed05 100644
+--- a/mobile/node.go
++++ b/mobile/node.go
+@@ -31,6 +31,9 @@ var node struct {
+ 	// only while the wizard is connected, to reopen a connection that
+ 	// Android dropped (see nodeConn).
+ 	target *provision.Target
++	// exitMode is the backend the next plan and install ask for: "" (l4)
++	// or "l3" (see SetNodeExitMode).
++	exitMode string
+ 
+ 	verifyCancel context.CancelFunc
+ }
+@@ -158,6 +161,26 @@ func nodeConn() (*provision.Conn, error) {
+ 	return fresh, nil
+ }
+ 
++// SetNodeExitMode picks the exit backend of the channel the wizard plans and
++// installs next: "l3" for the raw-packet exit, anything else for the default
++// l4. A separate call, so the signatures of NodePlan and NodeApply stay as
++// the apps know them.
++func SetNodeExitMode(mode string) {
++	node.mu.Lock()
++	defer node.mu.Unlock()
++	if mode == "l3" {
++		node.exitMode = "l3"
++	} else {
++		node.exitMode = ""
++	}
++}
++
++func nodeExitMode() string {
++	node.mu.Lock()
++	defer node.mu.Unlock()
++	return node.exitMode
++}
++
+ // NodeNewChannel returns a fresh channel name and key: {"id", "key"}.
+ func NodeNewChannel() string {
+ 	id, err := provision.NewChannelID()
+@@ -197,7 +220,7 @@ func NodePlan(channel string, port int, transportsJSON string, autoUpdate bool)
+ 	if err != nil {
+ 		return failure(err, nil)
+ 	}
+-	plan, err := conn.Plan(provision.Channel{ID: channel, Port: port, Transports: ts, AutoUpdate: autoUpdate})
++	plan, err := conn.Plan(provision.Channel{ID: channel, Port: port, Transports: ts, AutoUpdate: autoUpdate, Mode: nodeExitMode()})
+ 	if err != nil {
+ 		return failure(err, nil)
+ 	}
+@@ -215,7 +238,7 @@ func NodeApply(channel, transportsJSON, key string, port int, autoUpdate bool, s
+ 	if err != nil {
+ 		return failure(err, nil)
+ 	}
+-	ch := provision.Channel{ID: channel, Transports: ts, Key: key, Port: port, AutoUpdate: autoUpdate}
++	ch := provision.Channel{ID: channel, Transports: ts, Key: key, Port: port, AutoUpdate: autoUpdate, Mode: nodeExitMode()}
+ 	appendLog("[NODE] Установка канала " + channel)
+ 	if err := conn.Apply(ch, sudoPassword); err != nil {
+ 		appendLog("[NODE] Установка не удалась")
+diff --git a/provision/pin.go b/provision/pin.go
+index 7f254f8..a8d4308 100644
+--- a/provision/pin.go
++++ b/provision/pin.go
+@@ -6,12 +6,13 @@ package provision
+ // changes, commit it, then point PinnedCommit at that commit.
+ const (
+ 	// This build runs its own copy of the script: upstream's at cdc6c0d plus
+-	// several Yandex documents per channel (deploy/node-install.sh on the
++	// several Yandex documents per channel and an optional L3 exit mode
++	// (deploy/node-install.sh on the
+ 	// "ya" branch of the repository below). The core binaries the script
+ 	// installs still come from upstream's releases.
+ 	PinnedRepo   = "sdgsdrgre56-sketch/csqtt"
+-	PinnedCommit = "e48fa3921fd2d2f4ee8fa47ab247fc817e01f254"
+-	PinnedSHA256 = "9d88263b5baff3875820c7e76a6d5870b20ac6f3d66a2f1f2946bc25416e5106"
++	PinnedCommit = "e2e048ef318e684c752616c2d4dd4b5f4b632ab1"
++	PinnedSHA256 = "e6bcb9233da5c419b0ee024432624b7019d9a10c7bfe57153c2b964aa4439294"
+ )
+ 
+ // Pinned returns the script location for this build.
+diff --git a/provision/provision.go b/provision/provision.go
+index 32cc7e8..f3df2c7 100644
+--- a/provision/provision.go
++++ b/provision/provision.go
+@@ -108,6 +108,10 @@ type Channel struct {
+ 	// AutoUpdate turns the server's core updater on, or off: it is one
+ 	// timer for every channel on the server.
+ 	AutoUpdate bool
++	// Mode is the exit backend: "" or "l4" (the default), or "l3", which
++	// forwards raw packets and needs raw sockets and a host-wide RST rule
++	// on the server (node-install.sh's mode=).
++	Mode string
+ }
+ 
+ // config is the channel's part of node-install.sh's config, secrets aside.
+@@ -125,6 +129,13 @@ func (ch Channel) config() (string, error) {
+ 	} else {
+ 		cfg += "autoupdate=no\n"
+ 	}
++	switch ch.Mode {
++	case "", "l4":
++	case "l3":
++		cfg += "mode=l3\n"
++	default:
++		return "", fmt.Errorf("неизвестный режим ноды %q", ch.Mode)
++	}
+ 	return cfg, nil
+ }
+ 

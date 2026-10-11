@@ -81,7 +81,7 @@ public final class NodeWizardActivity extends Activity {
     private final List<EditText> yandexInputs = new java.util.ArrayList<>();
     private LinearLayout yandexFields;
     private Button addYandexButton;
-    private CheckBox yandexCheck, mailruCheck, cupsCheck, autoUpdateCheck;
+    private CheckBox yandexCheck, mailruCheck, cupsCheck, autoUpdateCheck, l3Check;
     private Button connectButton, changeServerButton, planButton, changeButton, applyButton, verifyButton, saveButton, removeButton;
     private TextView intro, connectedHost, serverInfo, planInfo;
     private TextView keyFileInfo;
@@ -101,6 +101,8 @@ public final class NodeWizardActivity extends Activity {
     private String importedPrivateKey;
     private int channelPort;
     private boolean selectedAutoUpdate;
+    // The exit mode the shown plan was made for: L3 instead of the default L4.
+    private boolean selectedL3;
     private long savedProfileId;
 
     @Override protected void onCreate(Bundle state) {
@@ -265,6 +267,10 @@ public final class NodeWizardActivity extends Activity {
         autoUpdateCheck = choiceTile(configSection, "Автоматически обновлять ядро",
                 "Настройка общая для всех каналов VPS", R.drawable.ic_swap);
         addText(configSection, "Обновление проверяет node-v* релизы и откатывает неработающую версию.", 12, false);
+        l3Check = choiceTile(configSection, "Режим L3",
+                "Может быть быстрее. Только для сервера, на котором больше ничего нет", R.drawable.ic_codec_fast);
+        addText(configSection, "L3 меняет сетевые правила всего сервера (гасит исходящие RST) и не работает "
+                + "при включённом ufw или firewalld. Без галочки ставится обычный режим L4.", 12, false);
         sudoInput = field(configSection, "Пароль sudo (если отличается от SSH)", "",
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         planButton = button(configSection, "Показать план установки", v -> plan());
@@ -757,7 +763,7 @@ public final class NodeWizardActivity extends Activity {
         if (addYandexButton != null) addYandexButton.setEnabled(editable);
         sudoInput.setEnabled(editable);
         ((View) sudoInput.getTag()).setAlpha(editable ? 1f : 0.55f);
-        for (CheckBox check : new CheckBox[]{yandexCheck, mailruCheck, cupsCheck, autoUpdateCheck}) {
+        for (CheckBox check : new CheckBox[]{yandexCheck, mailruCheck, cupsCheck, autoUpdateCheck, l3Check}) {
             check.setEnabled(editable);
             ((View) check.getTag()).setAlpha(editable ? 1f : 0.55f);
         }
@@ -1039,6 +1045,7 @@ public final class NodeWizardActivity extends Activity {
             mailruCheck.setChecked(false);
             cupsCheck.setChecked(false);
             autoUpdateCheck.setChecked(false);
+            l3Check.setChecked(false);
             for (int i = 0; i < yandexInputs.size(); i++) {
                 yandexInputs.get(i).setText("");
                 ((View) yandexInputs.get(i).getTag()).setVisibility(i < YANDEX_ROWS_SHOWN ? View.VISIBLE : View.GONE);
@@ -1093,6 +1100,7 @@ public final class NodeWizardActivity extends Activity {
         boolean withMailru = mailruCheck.isChecked();
         boolean withCups = cupsCheck.isChecked();
         boolean autoUpdate = autoUpdateCheck.isChecked();
+        boolean l3 = l3Check.isChecked();
         if (withYandex && yandexLinks.isEmpty()) {
             showWarning("Укажите ссылку на документ Яндекса");
             return;
@@ -1117,6 +1125,7 @@ public final class NodeWizardActivity extends Activity {
             }
             if (withMailru) transports.put(new JSONObject().put("type", "mailru").put("url", mailru));
             if (withCups) transports.put(new JSONObject().put("type", "cupsonline").put("url", rooms));
+            Mobile.setNodeExitMode(l3 ? "l3" : "l4");
             JSONObject answer = response(Mobile.nodePlan(channelId, 0, transports.toString(), autoUpdate));
             answer.put("cupsRooms", rooms);
             if (ok(answer)) answer.put("transportsJson", transports.toString());
@@ -1134,6 +1143,7 @@ public final class NodeWizardActivity extends Activity {
             transportsJson = answer.optString("transportsJson");
             cupsRooms = answer.optString("cupsRooms", "");
             selectedAutoUpdate = autoUpdate;
+            selectedL3 = l3;
             StringBuilder summary = new StringBuilder("Канал " + channelId + " · порт " + channelPort);
             JSONArray actions = plan.optJSONArray("actions");
             for (int i = 0; actions != null && i < actions.length(); i++) summary.append("\n• ").append(actions.optString(i));
@@ -1170,8 +1180,12 @@ public final class NodeWizardActivity extends Activity {
         // SSH returns. Save the key and link before making that remote change.
         if (!persistProfile(false)) return;
         String sudo = sudoInput.getText().toString();
-        runJob("Установка канала на сервере…", () -> response(Mobile.nodeApply(
-                channelId, transportsJson, channelKey, channelPort, selectedAutoUpdate, sudo)), answer -> {
+        runJob("Установка канала на сервере…", () -> {
+            // The mode the user saw in the plan.
+            Mobile.setNodeExitMode(selectedL3 ? "l3" : "l4");
+            return response(Mobile.nodeApply(
+                    channelId, transportsJson, channelKey, channelPort, selectedAutoUpdate, sudo));
+        }, answer -> {
             if (!ok(answer)) {
                 showProblem("Установка не подтверждена", answer.optString("error", "Неизвестная ошибка")
                         + "\n\nЧерновик профиля сохранён. Проверьте сервер перед повторной попыткой.");
