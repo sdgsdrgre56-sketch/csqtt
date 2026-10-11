@@ -1,0 +1,270 @@
+diff --git a/mobile/node.go b/mobile/node.go
+index 915ed05..4807e8b 100644
+--- a/mobile/node.go
++++ b/mobile/node.go
+@@ -15,6 +15,7 @@ import (
+ 	"net/http"
+ 	"strings"
+ 	"sync"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/p1neappleXpress/OpenFlux/provision"
+@@ -262,6 +263,199 @@ func NodeRemove(channel, sudoPassword string) string {
+ 	return result(nil)
+ }
+ 
++// NodeSetMode switches a channel already on the VDS to the "l3" or "l4" exit
++// backend: {"mode"}. Its documents, key and port stay, so saved profiles keep
++// working. A wrong sudo password comes back with "sudo": true.
++func NodeSetMode(channel, mode, sudoPassword string) string {
++	conn, err := nodeConn()
++	if err != nil {
++		return failure(err, nil)
++	}
++	channel = strings.TrimSpace(channel)
++	if err := conn.SetMode(channel, mode, sudoPassword); err != nil {
++		return failure(err, map[string]interface{}{"sudo": errors.Is(err, provision.ErrSudoPassword)})
++	}
++	appendLog("[NODE] Канал " + channel + ": режим " + mode)
++	return result(map[string]interface{}{"mode": mode})
++}
++
++// NodeProbe asks the connected VDS about itself again: {"probe"}.
++func NodeProbe() string {
++	conn, err := nodeConn()
++	if err != nil {
++		return failure(err, nil)
++	}
++	probe, err := conn.Probe()
++	if err != nil {
++		return failure(err, nil)
++	}
++	return result(map[string]interface{}{"probe": probe})
++}
++
++// speedTestURL serves any number of bytes on request; one request is small
++// enough to finish, and the workers ask again until the time is up.
++const speedTestURL = "https://speed.cloudflare.com/__down?bytes=25000000"
++
++// speedTestConns is how many downloads run side by side, like the usual
++// speed tests do.
++const speedTestConns = 4
++
++// MeasureSpeed connects a Session client for specsJSON the way NodeVerify
++// does and downloads through the tunnel for about `seconds`, over several
++// connections at once: {"mbps", "bytes", "seconds", "connectMs", "live"}.
++// The clock starts at the first byte, so connecting and the TLS handshakes
++// are not counted. Only one connection can run at a time, so the app stops
++// its tunnel first.
++func MeasureSpeed(specsJSON, secret string, seconds int) string {
++	if ProxyIsRunning() || ExitIsRunning() || packetRunning() {
++		return failure(errors.New("сначала отключите текущее соединение"), nil)
++	}
++	if seconds < 3 {
++		seconds = 3
++	}
++	if seconds > 60 {
++		seconds = 60
++	}
++	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(seconds+100)*time.Second)
++	node.mu.Lock()
++	node.verifyCancel = cancel
++	node.mu.Unlock()
++	defer func() {
++		cancel()
++		node.mu.Lock()
++		node.verifyCancel = nil
++		node.mu.Unlock()
++	}()
++
++	appendLog("[NODE] Замер скорости: подключение")
++	started := time.Now()
++	trans, sess, err := buildSessionWith(specsJSON, secret, false, sessionOptions{strict: true})
++	if err != nil {
++		return failure(err, nil)
++	}
++	// Same order as StopProxy: the captcha side first, then the carriers.
++	defer func() {
++		detachCaptcha()
++		CancelCaptcha()
++		setAuthProxy(nil)
++		clearRoute()
++		_ = trans.Stop()
++	}()
++	if err := trans.Start(); err != nil {
++		return failure(err, nil)
++	}
++	for !trans.IsConnected() {
++		select {
++		case <-ctx.Done():
++			return failure(errors.New("нода не ответила: замер не начат"), nil)
++		case <-time.After(300 * time.Millisecond):
++		}
++	}
++	connectMs := time.Since(started).Milliseconds()
++
++	tun := tunnel.NewTCPTunnel(trans, false)
++	defer tun.Close()
++	httpClient := &http.Client{
++		Transport: &http.Transport{
++			DialContext: func(_ context.Context, _, addr string) (net.Conn, error) {
++				return tun.DialTCP(addr)
++			},
++			TLSHandshakeTimeout: 30 * time.Second,
++			DisableCompression:  true,
++			MaxConnsPerHost:     speedTestConns,
++		},
++	}
++	defer httpClient.CloseIdleConnections()
++
++	var received atomic.Int64
++	var firstByte atomic.Int64 // UnixNano of the first byte, 0 before it
++	var lastErr atomic.Value
++	loadCtx, stopLoad := context.WithCancel(ctx)
++	defer stopLoad()
++	var workers sync.WaitGroup
++	for i := 0; i < speedTestConns; i++ {
++		workers.Add(1)
++		go func() {
++			defer workers.Done()
++			buf := make([]byte, 64*1024)
++			for loadCtx.Err() == nil {
++				req, _ := http.NewRequestWithContext(loadCtx, "GET", speedTestURL, nil)
++				req.Header.Set("User-Agent", "Mozilla/5.0")
++				resp, err := httpClient.Do(req)
++				if err != nil {
++					if loadCtx.Err() == nil {
++						lastErr.Store(err.Error())
++						select {
++						case <-loadCtx.Done():
++						case <-time.After(time.Second):
++						}
++					}
++					continue
++				}
++				if resp.StatusCode != 200 {
++					lastErr.Store(fmt.Sprintf("сервер замера ответил %d", resp.StatusCode))
++					resp.Body.Close()
++					select {
++					case <-loadCtx.Done():
++					case <-time.After(time.Second):
++					}
++					continue
++				}
++				for {
++					n, rerr := resp.Body.Read(buf)
++					if n > 0 {
++						firstByte.CompareAndSwap(0, time.Now().UnixNano())
++						received.Add(int64(n))
++					}
++					if rerr != nil {
++						break
++					}
++				}
++				resp.Body.Close()
++			}
++		}()
++	}
++
++	// Wait for the first byte, then let the downloads run for the asked time.
++	appendLog("[NODE] Замер скорости: загрузка")
++	for firstByte.Load() == 0 {
++		select {
++		case <-ctx.Done():
++			stopLoad()
++			workers.Wait()
++			reason, _ := lastErr.Load().(string)
++			if reason == "" {
++				reason = "нет ответа"
++			}
++			return failure(fmt.Errorf("канал поднялся, но загрузка через него не пошла: %s", reason), nil)
++		case <-time.After(100 * time.Millisecond):
++		}
++	}
++	select {
++	case <-ctx.Done():
++	case <-time.After(time.Duration(seconds) * time.Second):
++	}
++	total := received.Load()
++	elapsed := time.Since(time.Unix(0, firstByte.Load())).Seconds()
++	live := sess.LiveTransports()
++	stopLoad()
++	workers.Wait()
++	if elapsed <= 0 {
++		elapsed = 1
++	}
++	mbps := float64(total) * 8 / elapsed / 1e6
++	mbps = float64(int64(mbps*100+0.5)) / 100
++	appendLog(fmt.Sprintf("[NODE] Замер скорости: %.2f Мбит/с (%d байт за %.1f с)", mbps, total, elapsed))
++	return result(map[string]interface{}{
++		"mbps":      mbps,
++		"bytes":     total,
++		"seconds":   float64(int64(elapsed*10+0.5)) / 10,
++		"connectMs": connectMs,
++		"conns":     speedTestConns,
++		"live":      live,
++	})
++}
++
+ // NodeCheckDocument tells whether the vyandex transport can use the
+ // document, as an anonymous visitor like the node: {"editable"}. A check
+ // Yandex wants a person to pass comes back with "captcha": true.
+diff --git a/provision/pin.go b/provision/pin.go
+index a8d4308..a36717c 100644
+--- a/provision/pin.go
++++ b/provision/pin.go
+@@ -11,8 +11,8 @@ const (
+ 	// "ya" branch of the repository below). The core binaries the script
+ 	// installs still come from upstream's releases.
+ 	PinnedRepo   = "sdgsdrgre56-sketch/csqtt"
+-	PinnedCommit = "e2e048ef318e684c752616c2d4dd4b5f4b632ab1"
+-	PinnedSHA256 = "e6bcb9233da5c419b0ee024432624b7019d9a10c7bfe57153c2b964aa4439294"
++	PinnedCommit = "b8c1eaa19eaad949768a3cb297412496c92f6bff"
++	PinnedSHA256 = "f9011a1abf16cb993970afa0226bc34ff83d9638f5380165f9c21da78ecd566a"
+ )
+ 
+ // Pinned returns the script location for this build.
+diff --git a/provision/provision.go b/provision/provision.go
+index f3df2c7..d4cde40 100644
+--- a/provision/provision.go
++++ b/provision/provision.go
+@@ -84,6 +84,18 @@ type Probe struct {
+ 	// AutoUpdate: the server's core updater (openflux-node-update.timer) is on.
+ 	AutoUpdate bool     `json:"autoupdate"`
+ 	Channels   []string `json:"channels"`
++	// Details describes each channel (this build's installer reports it).
++	Details []ChannelDetail `json:"details"`
++}
++
++// ChannelDetail is what probe tells about one installed channel: its direct
++// port, how many Yandex documents it carries (-1 when the account cannot
++// read its config) and its exit mode, "l4" or "l3".
++type ChannelDetail struct {
++	Name string `json:"name"`
++	Port int    `json:"port"`
++	Docs int    `json:"docs"`
++	Mode string `json:"mode"`
+ }
+ 
+ // Plan is what apply will change, for the confirmation screen.
+@@ -357,6 +369,19 @@ func (c *Conn) Remove(channel, sudoPassword string) error {
+ 	return c.asRoot("remove", "channel="+channel+"\n", sudoPassword)
+ }
+ 
++// SetMode switches an installed channel between the l4 and l3 exit backends
++// and restarts it. The script puts the old mode back if the node does not
++// start in the new one.
++func (c *Conn) SetMode(channel, mode, sudoPassword string) error {
++	if channel == "" || strings.ContainsAny(channel, "\r\n") {
++		return errors.New("не указан канал")
++	}
++	if mode != "l3" && mode != "l4" {
++		return fmt.Errorf("неизвестный режим ноды %q", mode)
++	}
++	return c.asRoot("mode", "channel="+channel+"\nmode="+mode+"\n", sudoPassword)
++}
++
+ func (c *Conn) asRoot(command, cfg, sudoPassword string) error {
+ 	if c.script == "" {
+ 		return errors.New("скрипт установки не загружен")

@@ -81,6 +81,10 @@ public final class NodeWizardActivity extends Activity {
     private final List<EditText> yandexInputs = new java.util.ArrayList<>();
     private LinearLayout yandexFields;
     private Button addYandexButton;
+    // The channels already on the server: mode switch and speed measurement.
+    private LinearLayout channelsBox;
+    private final List<Button> channelButtons = new java.util.ArrayList<>();
+    private final StringBuilder speedHistory = new StringBuilder();
     private CheckBox yandexCheck, mailruCheck, cupsCheck, autoUpdateCheck, l3Check;
     private Button connectButton, changeServerButton, planButton, changeButton, applyButton, verifyButton, saveButton, removeButton;
     private TextView intro, connectedHost, serverInfo, planInfo;
@@ -349,6 +353,10 @@ public final class NodeWizardActivity extends Activity {
         serverInfo.setTextSize(12);
         ui.body(serverInfo);
         card.addView(serverInfo);
+
+        channelsBox = new LinearLayout(this);
+        channelsBox.setOrientation(LinearLayout.VERTICAL);
+        card.addView(channelsBox, new LinearLayout.LayoutParams(-1, -2));
 
         changeServerButton = button(card, "Сменить сервер", v -> changeServer());
         ui.secondary(changeServerButton);
@@ -761,6 +769,7 @@ public final class NodeWizardActivity extends Activity {
         for (EditText input : yandexInputs) input.setEnabled(editable);
         mailruInput.setEnabled(editable);
         if (addYandexButton != null) addYandexButton.setEnabled(editable);
+        for (Button channelButton : channelButtons) channelButton.setEnabled(!busy);
         sudoInput.setEnabled(editable);
         ((View) sudoInput.getTag()).setAlpha(editable ? 1f : 0.55f);
         for (CheckBox check : new CheckBox[]{yandexCheck, mailruCheck, cupsCheck, autoUpdateCheck, l3Check}) {
@@ -981,6 +990,7 @@ public final class NodeWizardActivity extends Activity {
                 } else {
                     serverInfo.setText("Проверка сервера завершена");
                 }
+                renderChannels(probe);
                 passwordInput.setText("");
                 privateKeyInput.setText("");
                 passphraseInput.setText("");
@@ -1061,6 +1071,155 @@ public final class NodeWizardActivity extends Activity {
             updateControls();
             scroll.post(() -> scroll.smoothScrollTo(0, 0));
         });
+    }
+
+    // Lists the channels the server already has, each with its exit mode, a
+    // switch for it and, when a saved profile belongs to it, a speed
+    // measurement. Switching keeps the channel's documents, key and port.
+    private void renderChannels(JSONObject probe) {
+        channelsBox.removeAllViews();
+        channelButtons.clear();
+        JSONArray details = probe == null ? null : probe.optJSONArray("details");
+        if (details == null || details.length() == 0) return;
+        TextView caption = addText(channelsBox, "Каналы на сервере", 14, true);
+        ((LinearLayout.LayoutParams) caption.getLayoutParams()).topMargin = dp(12);
+        for (int i = 0; i < details.length(); i++) {
+            JSONObject d = details.optJSONObject(i);
+            if (d == null) continue;
+            String name = d.optString("name");
+            int port = d.optInt("port");
+            int docs = d.optInt("docs", -1);
+            boolean l3 = "l3".equals(d.optString("mode"));
+            Profile profile = profileForPort(port);
+            StringBuilder line = new StringBuilder(name);
+            if (port > 0) line.append(" · порт ").append(port);
+            if (docs >= 0) line.append(" · документов: ").append(docs);
+            line.append(" · режим ").append(l3 ? "L3" : "L4");
+            line.append(profile != null ? "\nПрофиль: " + profile.name : "\nПрофиля этого канала на телефоне нет");
+            TextView info = addText(channelsBox, line.toString(), 13, false);
+            info.setTextColor(ui.text);
+            ((LinearLayout.LayoutParams) info.getLayoutParams()).topMargin = dp(8);
+            ((LinearLayout.LayoutParams) info.getLayoutParams()).bottomMargin = 0;
+            String target = l3 ? "l4" : "l3";
+            Button modeButton = button(channelsBox, l3 ? "Переключить на L4" : "Переключить на L3",
+                    v -> confirmSwitchMode(name, target));
+            ui.secondary(modeButton);
+            channelButtons.add(modeButton);
+            if (profile != null) {
+                String modeLabel = l3 ? "L3" : "L4";
+                Button speedButton = button(channelsBox, "Замер скорости",
+                        v -> measureSpeed(profile, name, modeLabel));
+                ui.secondary(speedButton);
+                channelButtons.add(speedButton);
+            }
+        }
+        if (speedHistory.length() > 0) {
+            TextView history = addText(channelsBox, "Замеры:\n" + speedHistory.toString().trim(), 12, false);
+            ((LinearLayout.LayoutParams) history.getLayoutParams()).topMargin = dp(10);
+        }
+        for (Button channelButton : channelButtons) channelButton.setEnabled(!busy);
+    }
+
+    // The saved profile that dials this channel's direct port, if any.
+    private Profile profileForPort(int port) {
+        if (port <= 0) return null;
+        String suffix = ":" + port;
+        for (Profile p : new ProfileStore(secureSettings).load()) {
+            if ("direct".equals(p.transportType) && p.documentUrl.endsWith(suffix)) return p;
+            for (Profile.Transport t : p.extraTransports) {
+                if ("direct".equals(t.type) && t.value.endsWith(suffix)) return p;
+            }
+        }
+        return null;
+    }
+
+    private void confirmSwitchMode(String channel, String mode) {
+        boolean toL3 = "l3".equals(mode);
+        ui.dialog()
+                .setTitle("Переключить канал на " + (toL3 ? "L3" : "L4") + "?")
+                .setMessage("Канал " + channel + " будет перезапущен, соединение через него прервётся на несколько секунд. "
+                        + "Документы, ключ и профиль остаются прежними."
+                        + (toL3 ? "\n\nL3 добавляет на сервер правило iptables, которое гасит исходящие RST. "
+                                + "Используйте его только на сервере, где больше ничего не работает." : ""))
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton("Переключить", (dialog, which) -> switchMode(channel, mode))
+                .show();
+    }
+
+    private void switchMode(String channel, String mode) {
+        String sudo = sudoInput.getText().toString();
+        runJob("Переключение режима канала…", () -> {
+            JSONObject answer = response(Mobile.nodeSetMode(channel, mode, sudo));
+            if (ok(answer)) {
+                JSONObject fresh = response(Mobile.nodeProbe());
+                if (ok(fresh) && fresh.optJSONObject("probe") != null) answer.put("probe", fresh.optJSONObject("probe"));
+            }
+            return answer;
+        }, answer -> {
+            if (!ok(answer)) { showError(answer); return; }
+            if (answer.optJSONObject("probe") != null) renderChannels(answer.optJSONObject("probe"));
+            showSuccess("Режим переключён", "Канал " + channel + " теперь работает в режиме "
+                    + mode.toUpperCase(Locale.ROOT) + ". Профиль менять не нужно.", null);
+        });
+    }
+
+    // Downloads through the channel's documents for a few seconds and shows
+    // the rate. The profile's direct carrier is left out: on Wi-Fi it would
+    // win and the number would say nothing about the documents.
+    private void measureSpeed(Profile profile, String channel, String modeLabel) {
+        if (OpenFluxTunnelService.isRunning() || OpenFluxProxyService.isRunning()
+                || OpenFluxExitService.isRunning()) {
+            showWarning("Отключите Яндекс Маяк перед замером скорости");
+            return;
+        }
+        if (!profile.session) {
+            showWarning("Замер работает только для профилей, созданных мастером");
+            return;
+        }
+        final String specs;
+        try {
+            specs = withoutDirect(profile.sessionTransportsJson(null));
+        } catch (Exception e) {
+            showProblem("Замер не начат", e.getMessage());
+            return;
+        }
+        String secret = profile.encryptionSecret;
+        verifying = true;
+        captchaShown = false;
+        handler.post(captchaPoll);
+        runJob("Замер скорости через документы…", () -> response(Mobile.measureSpeed(specs, secret, 12)), answer -> {
+            verifying = false;
+            handler.removeCallbacks(captchaPoll);
+            if (!ok(answer)) { showError(answer); return; }
+            String mbps = String.format(Locale.ROOT, "%.2f", answer.optDouble("mbps", 0));
+            String time = new java.text.SimpleDateFormat("HH:mm", Locale.ROOT).format(new java.util.Date());
+            speedHistory.append(time).append(" · ").append(channel).append(" · ").append(modeLabel)
+                    .append(" · ").append(mbps).append(" Мбит/с\n");
+            showSuccess(mbps + " Мбит/с", "Скачивание через документы Яндекса, " + answer.optInt("conns", 4)
+                    + " соединения, " + answer.optString("seconds") + " с. Канал " + channel + ", режим " + modeLabel
+                    + ".\nПодключение заняло " + String.format(Locale.ROOT, "%.1f", answer.optLong("connectMs") / 1000.0)
+                    + " с.", null);
+            TextView history = addText(channelsBox, "Последний замер: " + mbps + " Мбит/с (" + channel + ", " + modeLabel + ")", 12, false);
+            history.setTextColor(ui.text);
+        });
+    }
+
+    private static String withoutDirect(String specs) throws Exception {
+        String trimmed = specs.trim();
+        if (trimmed.startsWith("[")) return filterDirect(new JSONArray(trimmed)).toString();
+        JSONObject wrapped = new JSONObject(trimmed);
+        JSONArray transports = wrapped.optJSONArray("transports");
+        if (transports != null) wrapped.put("transports", filterDirect(transports));
+        return wrapped.toString();
+    }
+
+    private static JSONArray filterDirect(JSONArray in) {
+        JSONArray out = new JSONArray();
+        for (int i = 0; i < in.length(); i++) {
+            JSONObject t = in.optJSONObject(i);
+            if (t != null && !"direct".equals(t.optString("type"))) out.put(t);
+        }
+        return out.length() == 0 ? in : out;
     }
 
     // Shows the next hidden document row.
