@@ -35,6 +35,10 @@
 #                                                 move every channel to the
 #                                                 newest node-v* release)
 #        node-install.sh autoupdate on|off        (run as root: the updater)
+#        node-install.sh mode CONFIG_FILE         (run as root: switch an
+#                                                 installed channel between
+#                                                 the l4 and l3 exits; this
+#                                                 build's addition)
 # The config is "key=value" lines: channel, key, port, the transports
 # (vyandex= or its old name url=: a Yandex document; mailru=: a Mail.ru
 # public document; cupsonline=: the packed room list) and autoupdate=yes|no.
@@ -428,6 +432,25 @@ check_channel() {
 
 # ---- commands ---------------------------------------------------------------
 
+# channel_details: a JSON list describing each channel: its direct port, how
+# many Yandex documents it carries (-1 when this account cannot read its
+# config) and its exit mode.
+channel_details() {
+    sep=""
+    printf '['
+    for ch in $(list_channels); do
+        port=$(cat "$CONF_ROOT/$ch/port" 2>/dev/null)
+        valid_port "$port" || port=0
+        docs=-1
+        [ -r "$CONF_ROOT/$ch/node.conf" ] && docs=$(grep -c '^Type = vyandex$' "$CONF_ROOT/$ch/node.conf")
+        chmode=l4
+        [ -d "$(dropin_dir "$ch")" ] && chmode=l3
+        printf '%s{"name":"%s","port":%s,"docs":%s,"mode":"%s"}' "$sep" "$ch" "$port" "$docs" "$chmode"
+        sep=","
+    done
+    printf ']'
+}
+
 cmd_probe() {
     arch=$(detect_arch)
     systemd=false
@@ -437,9 +460,9 @@ cmd_probe() {
     autoupdate=false
     autoupdate_on && autoupdate=true
     # shellcheck disable=SC2046
-    printf '{"ok":true,"arch":"%s","os":"%s","systemd":%s,"sudo":"%s","downloader":"%s","firewall":"%s","core":"%s","autoupdate":%s,"channels":%s}\n' \
+    printf '{"ok":true,"arch":"%s","os":"%s","systemd":%s,"sudo":"%s","downloader":"%s","firewall":"%s","core":"%s","autoupdate":%s,"channels":%s,"details":%s}\n' \
         "$arch" "$(json_escape "$os")" "$systemd" "$(sudo_mode)" "$(downloader)" "$(firewall_kind)" \
-        "$(core_to_use)" "$autoupdate" "$(json_list $(list_channels))"
+        "$(core_to_use)" "$autoupdate" "$(json_list $(list_channels))" "$(channel_details)"
 }
 
 # plan: read-only. Tells the app exactly what apply will change.
@@ -1017,6 +1040,57 @@ cmd_autoupdate() {
     printf '{"ok":true,"autoupdate":%s}\n' "$state"
 }
 
+# set_mode_files MODE: rewrites the channel's Mode line and adds or removes
+# its L3 drop-in. The caller restarts the channel.
+set_mode_files() {
+    conf="$CONF_ROOT/$CHANNEL/node.conf"
+    tmp=$(mktemp "$CONF_ROOT/$CHANNEL/.conf.XXXXXX") || return 1
+    if ! sed "s/^Mode = .*/Mode = $1/" "$conf" > "$tmp"; then rm -f "$tmp"; return 1; fi
+    if ! { chown "root:$NODE_USER" "$tmp" && chmod 0640 "$tmp" && mv -f "$tmp" "$conf"; }; then
+        rm -f "$tmp"
+        return 1
+    fi
+    if [ "$1" = l3 ]; then
+        write_l3_dropin || return 1
+    else
+        rm -rf "$(dropin_dir "$CHANNEL")"
+    fi
+    systemctl daemon-reload >/dev/null 2>&1
+    return 0
+}
+
+# mode CONFIG_FILE (channel=, mode=l3|l4): switches an installed channel to
+# the other exit backend and restarts it. Documents, key and port stay, so the
+# client's profile keeps working. A node that does not start in the new mode
+# is put back into the old one.
+cmd_mode() {
+    [ "$(id -u)" = 0 ] || fail mode "нужны права root (sudo)"
+    read_config "$@"
+    check_channel
+    case "$MODE" in l3|l4) ;; *) fail input "mode: l3 или l4" ;; esac
+    conf="$CONF_ROOT/$CHANNEL/node.conf"
+    [ -f "$conf" ] || fail mode "канала $CHANNEL нет на сервере"
+    grep -q '^Mode = ' "$conf" || fail mode "в настройках канала нет строки Mode"
+    old=l4
+    [ -d "$(dropin_dir "$CHANNEL")" ] && old=l3
+    check_l3 mode
+    if ! set_mode_files "$MODE"; then
+        set_mode_files "$old"
+        fail mode "не удалось изменить настройки канала"
+    fi
+    systemctl restart "openflux-node@$CHANNEL" >/dev/null 2>&1
+    sleep 4
+    if ! systemctl is-active --quiet "openflux-node@$CHANNEL"; then
+        logs=$(journalctl -u "openflux-node@$CHANNEL" -n 8 -o cat --no-pager 2>/dev/null | tail -n 8)
+        set_mode_files "$old"
+        systemctl restart "openflux-node@$CHANNEL" >/dev/null 2>&1
+        [ "$old" = l3 ] || drop_rst_rule_if_unused
+        fail mode "нода не запустилась в режиме $MODE, возвращён режим $old: $logs"
+    fi
+    [ "$MODE" = l3 ] || drop_rst_rule_if_unused
+    printf '{"ok":true,"channel":"%s","mode":"%s","previous":"%s"}\n' "$CHANNEL" "$MODE" "$old"
+}
+
 cmd_status() {
     read_config
     check_channel
@@ -1036,5 +1110,6 @@ case "${1:-}" in
     upgrade) cmd_upgrade ;;
     update) cmd_update ;;
     autoupdate) shift; cmd_autoupdate "$@" ;;
-    *) fail usage "usage: node-install.sh probe|plan|apply|remove|list|uninstall|status|upgrade|update|autoupdate" ;;
+    mode) shift; cmd_mode "$@" ;;
+    *) fail usage "usage: node-install.sh probe|plan|apply|remove|list|uninstall|status|upgrade|update|autoupdate|mode" ;;
 esac
