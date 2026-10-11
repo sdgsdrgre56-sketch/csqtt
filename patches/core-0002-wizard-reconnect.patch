@@ -1,0 +1,161 @@
+diff --git a/mobile/node.go b/mobile/node.go
+index 2720b5c..782d776 100644
+--- a/mobile/node.go
++++ b/mobile/node.go
+@@ -27,6 +27,10 @@ import (
+ var node struct {
+ 	mu   sync.Mutex
+ 	conn *provision.Conn
++	// target is what conn was opened with. It is kept in memory only, and
++	// only while the wizard is connected, to reopen a connection that
++	// Android dropped (see nodeConn).
++	target *provision.Target
+ 
+ 	verifyCancel context.CancelFunc
+ }
+@@ -58,12 +62,11 @@ func failure(err error, extra map[string]interface{}) string {
+ // silently.
+ func NodeConnect(host string, port int, user, password, privateKey, passphrase, hostKey string) string {
+ 	NodeDisconnect()
+-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+-	defer cancel()
+-	conn, err := provision.Dial(ctx, provision.Target{
++	target := provision.Target{
+ 		Host: strings.TrimSpace(host), Port: port, User: strings.TrimSpace(user),
+ 		Password: password, PrivateKey: privateKey, Passphrase: passphrase, HostKey: hostKey,
+-	})
++	}
++	conn, probe, err := openNode(target)
+ 	if err != nil {
+ 		var hk *provision.HostKeyError
+ 		if errors.As(err, &hk) {
+@@ -71,29 +74,42 @@ func NodeConnect(host string, port int, user, password, privateKey, passphrase,
+ 		}
+ 		return failure(err, nil)
+ 	}
++	node.mu.Lock()
++	node.conn = conn
++	node.target = &target
++	node.mu.Unlock()
++	appendLog(fmt.Sprintf("[NODE] Сервер: %s %s, каналов OpenFlux: %d", probe.OS, probe.Arch, len(probe.Channels)))
++	return result(map[string]interface{}{"probe": probe})
++}
++
++// openNode dials the VDS, has it download the pinned installer and probes
++// it: a connection the other calls can use.
++func openNode(target provision.Target) (*provision.Conn, *provision.Probe, error) {
++	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
++	defer cancel()
++	conn, err := provision.Dial(ctx, target)
++	if err != nil {
++		return nil, nil, err
++	}
+ 	appendLog("[NODE] SSH: подключено, загрузка скрипта установки")
+ 	if err := conn.FetchScript(provision.Pinned()); err != nil {
+ 		conn.Close()
+-		return failure(err, nil)
++		return nil, nil, err
+ 	}
+ 	probe, err := conn.Probe()
+ 	if err != nil {
+ 		conn.Close()
+-		return failure(err, nil)
++		return nil, nil, err
+ 	}
+ 	if !probe.Systemd {
+ 		conn.Close()
+-		return failure(errors.New("на сервере нет systemd: мастер поддерживает Debian, Ubuntu и похожие системы"), nil)
++		return nil, nil, errors.New("на сервере нет systemd: мастер поддерживает Debian, Ubuntu и похожие системы")
+ 	}
+ 	if probe.Sudo == "none" {
+ 		conn.Close()
+-		return failure(errors.New("у пользователя нет root и sudo: войдите как root или пользователь с sudo"), nil)
++		return nil, nil, errors.New("у пользователя нет root и sudo: войдите как root или пользователь с sudo")
+ 	}
+-	node.mu.Lock()
+-	node.conn = conn
+-	node.mu.Unlock()
+-	appendLog(fmt.Sprintf("[NODE] Сервер: %s %s, каналов OpenFlux: %d", probe.OS, probe.Arch, len(probe.Channels)))
+-	return result(map[string]interface{}{"probe": probe})
++	return conn, probe, nil
+ }
+ 
+ // NodeDisconnect closes the SSH connection, removing the downloaded script.
+@@ -101,19 +117,45 @@ func NodeDisconnect() {
+ 	node.mu.Lock()
+ 	conn := node.conn
+ 	node.conn = nil
++	node.target = nil
+ 	node.mu.Unlock()
+ 	if conn != nil {
+ 		conn.Close()
+ 	}
+ }
+ 
++// nodeConn returns the wizard's connection, reopened if it no longer
++// answers: Android drops an app's sockets when the network changes or the
++// app waits in the background, which happens easily between checking the
++// server and asking for the plan.
+ func nodeConn() (*provision.Conn, error) {
+ 	node.mu.Lock()
+-	defer node.mu.Unlock()
+-	if node.conn == nil {
++	conn, target := node.conn, node.target
++	node.mu.Unlock()
++	if conn == nil {
+ 		return nil, errors.New("нет подключения к серверу")
+ 	}
+-	return node.conn, nil
++	if target == nil || conn.Alive() {
++		return conn, nil
++	}
++	appendLog("[NODE] SSH: соединение оборвалось, подключаюсь заново")
++	fresh, _, err := openNode(*target)
++	if err != nil {
++		return nil, fmt.Errorf("соединение с сервером оборвалось, и открыть его заново не удалось: %v", err)
++	}
++	node.mu.Lock()
++	if node.conn != conn {
++		// Disconnected or replaced while this one was being reopened.
++		node.mu.Unlock()
++		fresh.Close()
++		return nil, errors.New("нет подключения к серверу")
++	}
++	node.conn = fresh
++	node.mu.Unlock()
++	// The old connection is dead; closing it may wait on the network.
++	go conn.Close()
++	appendLog("[NODE] SSH: соединение восстановлено")
++	return fresh, nil
+ }
+ 
+ // NodeNewChannel returns a fresh channel name and key: {"id", "key"}.
+diff --git a/provision/provision.go b/provision/provision.go
+index ad6fb5e..32cc7e8 100644
+--- a/provision/provision.go
++++ b/provision/provision.go
+@@ -229,6 +229,24 @@ func (c *Conn) Close() error {
+ 	return c.client.Close()
+ }
+ 
++// Alive tells whether the SSH connection still answers. Android destroys an
++// app's sockets when its network changes or the app is put to sleep in the
++// background; the next command then fails with nothing useful to show, so
++// callers check first and reopen the connection.
++func (c *Conn) Alive() bool {
++	done := make(chan error, 1)
++	go func() {
++		_, _, err := c.client.SendRequest("keepalive@openssh.com", true, nil)
++		done <- err
++	}()
++	select {
++	case err := <-done:
++		return err == nil
++	case <-time.After(8 * time.Second):
++		return false
++	}
++}
++
+ func (c *Conn) run(cmd string, stdin []byte) (stdout, stderr []byte, err error) {
+ 	s, err := c.client.NewSession()
+ 	if err != nil {
