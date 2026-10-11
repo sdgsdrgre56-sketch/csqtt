@@ -231,6 +231,53 @@ private fun MayakUptime() {
     )
 }
 
+private fun formatMayakRate(bitsPerSecond: Long): String = when {
+    bitsPerSecond >= 1_000_000L -> String.format(Locale.US, "%.1f Мбит/с", bitsPerSecond / 1_000_000.0)
+    bitsPerSecond >= 1_000L -> String.format(Locale.US, "%d Кбит/с", bitsPerSecond / 1_000L)
+    else -> "0 Кбит/с"
+}
+
+private fun formatMayakVolume(bytes: Long): String {
+    val megabytes = bytes / (1024.0 * 1024.0)
+    return if (megabytes >= 1024.0) {
+        String.format(Locale.US, "%.2f ГБ", megabytes / 1024.0)
+    } else {
+        String.format(Locale.US, "%.0f МБ", megabytes)
+    }
+}
+
+/** Live download/upload rate of the tunnel and the traffic carried in this session. */
+@Composable
+internal fun MayakSpeedRow() {
+    val down by TunnelManager.speedDownBps.collectAsStateWithLifecycle()
+    val up by TunnelManager.speedUpBps.collectAsStateWithLifecycle()
+    val total by TunnelManager.sessionBytes.collectAsStateWithLifecycle()
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(
+                text = "↓ ${formatMayakRate(down)}",
+                style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Text(
+                text = "↑ ${formatMayakRate(up)}",
+                style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+        }
+        Text(
+            text = "За сеанс: ${formatMayakVolume(total)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 private val MayakSpeedSteps = listOf(9 to "Эконом", 18 to "Обычно", 27 to "Быстро", 45 to "Макс")
 
 @Composable
@@ -479,6 +526,9 @@ internal fun MayakHome(
                 )
                 if (tunnelRunning || autoPausedForWifi) {
                     MayakUptime()
+                }
+                if (tunnelRunning) {
+                    MayakSpeedRow()
                 }
                 Text(
                     text = hint,

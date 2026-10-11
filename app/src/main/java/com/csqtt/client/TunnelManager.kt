@@ -181,6 +181,16 @@ object TunnelManager {
     val unreadErrorCount = MutableStateFlow(0)
     val config = MutableStateFlow<String?>(null)
     val stats = MutableStateFlow("Ожидание данных...")
+
+    /** Tunnel throughput in bits per second, derived from the client's periodic byte totals. */
+    val speedDownBps = MutableStateFlow(0L)
+    val speedUpBps = MutableStateFlow(0L)
+
+    /** Bytes carried by the tunnel since it was started. */
+    val sessionBytes = MutableStateFlow(0L)
+    private var lastStatsAtMs = 0L
+    private var lastStatsUp = 0L
+    private var lastStatsDown = 0L
     val activeWorkers = MutableStateFlow(0)
     val autoPausedForWifi = MutableStateFlow(false)
     val vpnReady = MutableStateFlow(false)
@@ -350,6 +360,21 @@ object TunnelManager {
                         ensureVpnStarted(currentConfig, identity)
                     }
                 }
+                val statsNowMs = SystemClock.elapsedRealtime()
+                val statsElapsedMs = statsNowMs - lastStatsAtMs
+                if (lastStatsAtMs != 0L && statsElapsedMs in 500L..30_000L &&
+                    event.bytesDown >= lastStatsDown && event.bytesUp >= lastStatsUp
+                ) {
+                    speedDownBps.value = (event.bytesDown - lastStatsDown) * 8000L / statsElapsedMs
+                    speedUpBps.value = (event.bytesUp - lastStatsUp) * 8000L / statsElapsedMs
+                } else {
+                    speedDownBps.value = 0L
+                    speedUpBps.value = 0L
+                }
+                lastStatsAtMs = statsNowMs
+                lastStatsUp = event.bytesUp
+                lastStatsDown = event.bytesDown
+                sessionBytes.value = event.bytesUp + event.bytesDown
                 val totalMB = (event.bytesUp + event.bytesDown) / (1024.0 * 1024.0)
                 val msg = "Активных: ${event.active} | Трафик: %.2f МБ".format(totalMB)
                 stats.value = msg
