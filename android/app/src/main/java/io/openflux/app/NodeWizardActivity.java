@@ -345,7 +345,7 @@ public final class NodeWizardActivity extends Activity {
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1f);
         titlesParams.leftMargin = dp(12);
         TextView name = new TextView(this);
-        name.setText("OpenFlux");
+        name.setText("Яндекс Маяк");
         name.setTextSize(21);
         ui.heading(name);
         titles.addView(name);
@@ -1127,7 +1127,7 @@ public final class NodeWizardActivity extends Activity {
     private void verify() {
         if (OpenFluxTunnelService.isRunning() || OpenFluxProxyService.isRunning()
                 || OpenFluxExitService.isRunning()) {
-            showWarning("Отключите OpenFlux перед проверкой нового канала");
+            showWarning("Отключите Яндекс Маяк перед проверкой нового канала");
             return;
         }
         String host = hostInput.getText().toString().trim();

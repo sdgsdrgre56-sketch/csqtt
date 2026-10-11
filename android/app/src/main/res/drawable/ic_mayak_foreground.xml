@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher foreground: a lighthouse with an amber lamp. Drawn for this build. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.8"
+        android:scaleY="0.8">
+        <path android:pathData="M50,38 L24,28 L24,48 Z" android:fillColor="#66FFC53D" />
+        <path android:pathData="M58,38 L84,28 L84,48 Z" android:fillColor="#66FFC53D" />
+        <path android:pathData="M34,82 h40 v4 h-40 Z" android:fillColor="#FFDCE3EE" />
+        <path android:pathData="M46,47 L62,47 L68,82 L40,82 Z" android:fillColor="#FFFFFFFF" />
+        <path android:pathData="M44.63,55 L63.37,55 L64.57,62 L43.43,62 Z" android:fillColor="#FFFFB020" />
+        <path android:pathData="M42.23,69 L65.77,69 L66.97,76 L41.03,76 Z" android:fillColor="#FFFFB020" />
+        <path android:pathData="M43,43 h22 v4 h-22 Z" android:fillColor="#FFDCE3EE" />
+        <path android:pathData="M47,32 h14 v11 h-14 Z" android:fillColor="#FFFFE08A" />
+        <path android:pathData="M45,32 L54,22 L63,32 Z" android:fillColor="#FFFFB020" />
+    </group>
+</vector>

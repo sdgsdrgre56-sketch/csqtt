@@ -312,7 +312,7 @@ public final class OpenFluxTunnelService extends VpnService {
 
         try {
             Builder builder = new Builder()
-                    .setSession("OpenFlux")
+                    .setSession("Яндекс Маяк")
                     .setMtu(mtu)
                     .addAddress("10.10.10.2", 24)
                     .addRoute("0.0.0.0", 0)
@@ -546,7 +546,7 @@ public final class OpenFluxTunnelService extends VpnService {
     private void createNotificationChannel() {
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(
-                CHANNEL_ID, "OpenFlux Tunnel", NotificationManager.IMPORTANCE_LOW));
+                CHANNEL_ID, "Яндекс Маяк: туннель", NotificationManager.IMPORTANCE_LOW));
     }
 
     private Notification notification(String text) {
@@ -557,7 +557,7 @@ public final class OpenFluxTunnelService extends VpnService {
         PendingIntent stopIntent = PendingIntent.getService(
                 this, 0, stop, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("OpenFlux")
+                .setContentTitle("Яндекс Маяк")
                 .setContentText(text)
                 .setSmallIcon(R.drawable.ic_openflux_notification)
                 .setOngoing(true)

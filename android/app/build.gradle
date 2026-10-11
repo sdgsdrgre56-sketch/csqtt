@@ -2,16 +2,19 @@ plugins {
     id "com.android.application"
 }
 
+def mayakBuild = (System.getenv("MAYAK_BUILD_NUMBER") ?: "0") as int
+
 android {
     namespace "io.openflux.app"
     compileSdk 35
 
     defaultConfig {
-        applicationId "io.openflux.app"
+        applicationId "ru.mayak.ya"
         minSdk 26
         targetSdk 35
-        versionCode 15
-        versionName "1.1.4"
+        // CI numbers the builds; each one installs over the previous.
+        versionCode 1000 + mayakBuild
+        versionName "1.1.4-ya" + mayakBuild
 
     }
 

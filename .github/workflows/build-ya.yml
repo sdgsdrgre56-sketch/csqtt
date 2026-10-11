@@ -1,0 +1,133 @@
+name: Build Mayak Ya APK
+
+# Builds the Go core with gomobile, assembles the signed release APKs and
+# publishes them as a pre-release so they can be downloaded by link.
+
+on:
+  push:
+    branches: [ya]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-ya-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      MAYAK_BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/mobile/go.sum
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # ubuntu-latest ships the Android SDK preinstalled (ANDROID_HOME set)
+      # but not on PATH.
+      - name: Add Android cmdline-tools to PATH
+        run: echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null || true
+
+      - name: Install Android SDK components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260908204917-8b95e45f8d3e
+          go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260908204917-8b95e45f8d3e
+
+      - name: Select signing key
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_B64" ]; then
+            echo "$SIGNING_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "::add-mask::$SIGNING_KEYSTORE_PASSWORD"
+            {
+              echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore"
+              echo "ANDROID_KEYSTORE_PASSWORD=$SIGNING_KEYSTORE_PASSWORD"
+              echo "ANDROID_KEY_ALIAS=$SIGNING_KEY_ALIAS"
+              echo "ANDROID_KEY_PASSWORD=$SIGNING_KEYSTORE_PASSWORD"
+              echo "SIGNING_KIND=private"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the private key from repository secrets."
+          else
+            {
+              echo "ANDROID_KEYSTORE_FILE=$GITHUB_WORKSPACE/ci/test-signing.p12"
+              echo "ANDROID_KEYSTORE_PASSWORD=mayak-test"
+              echo "ANDROID_KEY_ALIAS=mayak-test"
+              echo "ANDROID_KEY_PASSWORD=mayak-test"
+              echo "SIGNING_KIND=test"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the public TEST key (ci/test-signing.p12)."
+          fi
+
+      - name: Build signed APKs
+        env:
+          BUILD_TYPE: release
+        run: |
+          set -o pipefail
+          if ! GRADLE_BIN="$(command -v gradle)" ./build_android_app.sh 2>&1 | tee "$RUNNER_TEMP/build.log"; then
+            # Job logs are not readable from the outside, so surface the errors as an annotation.
+            body=$(grep -n -i -B2 -A12 -E 'error:|FAILED|What went wrong|cannot find symbol|^# ' "$RUNNER_TEMP/build.log" | head -n 90 | cut -c1-220 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g' || true)
+            if [ -z "$body" ]; then
+              body=$(tail -n 60 "$RUNNER_TEMP/build.log" | cut -c1-220 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g' || true)
+            fi
+            echo "::error title=Build failed::$body"
+            exit 1
+          fi
+
+      - name: Verify APK signatures
+        run: |
+          for apk in dist/OpenFlux-android-*-release.apk; do
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$apk"
+          done
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging dist/OpenFlux-android-arm64-v8a-release.apk | sed -n '1p'
+
+      - name: Collect APKs
+        run: |
+          mkdir -p out
+          cp dist/OpenFlux-android-arm64-v8a-release.apk "out/MayakYa-$MAYAK_BUILD_NUMBER-arm64.apk"
+          cp dist/OpenFlux-android-universal-release.apk "out/MayakYa-$MAYAK_BUILD_NUMBER-universal.apk"
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: out/*.apk
+          if-no-files-found: error
+
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="ya-build-$MAYAK_BUILD_NUMBER"
+          gh release create "$tag" out/*.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Mayak Ya build $MAYAK_BUILD_NUMBER" \
+            --notes "Automatic build from commit $GITHUB_SHA (branch ya). Signing key: $SIGNING_KIND. Based on OpenFlux-Android (GPL-3.0-or-later); the source of this build is that commit."

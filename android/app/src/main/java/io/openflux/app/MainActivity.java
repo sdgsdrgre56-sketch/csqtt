@@ -145,6 +145,7 @@ public final class MainActivity extends Activity {
     private static final String MAIN_REPO_URL = "https://github.com/p1neappleXpress/OpenFlux";
     private static final String FORK_REPO_URL = "https://github.com/damnurmum/OpenFlux-Android";
     private static final String FORK_REPO_SLUG = "damnurmum/OpenFlux-Android";
+    private static final boolean UPDATE_CHECK_ENABLED = false;
     private static final int VERSION_CHECK_PENDING = 0;
     private static final int VERSION_CHECK_LATEST = 1;
     private static final int VERSION_CHECK_OUTDATED = 2;
@@ -691,7 +692,7 @@ public final class MainActivity extends Activity {
         titles.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1f);
         titlesParams.leftMargin = dp(12);
-        TextView title = text("OpenFlux", 21, text, true);
+        TextView title = text("Яндекс Маяк", 21, text, true);
         TextView subtitle = text("Зашифрованный туннель", 12, secondary, false);
         titles.addView(title);
         titles.addView(subtitle);
@@ -743,6 +744,10 @@ public final class MainActivity extends Activity {
     }
 
     private void checkForUpdates() {
+        // This build is published from its own repository as numbered builds;
+        // the releases checked below belong to the upstream app, which cannot
+        // update this one (other package name and signing key).
+        if (!UPDATE_CHECK_ENABLED) return;
         new Thread(() -> {
             String latest = fetchLatestGithubVersion();
             if (latest == null || latest.isEmpty()) return;
@@ -1247,7 +1252,7 @@ public final class MainActivity extends Activity {
     private void openNodeWizard() {
         if (OpenFluxTunnelService.isRunning() || OpenFluxProxyService.isRunning()
                 || OpenFluxExitService.isRunning()) {
-            Toast.makeText(this, "Отключите OpenFlux перед настройкой ноды", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Отключите Яндекс Маяк перед настройкой ноды", Toast.LENGTH_LONG).show();
             return;
         }
         startActivityForResult(new Intent(this, NodeWizardActivity.class), NODE_WIZARD_REQUEST);
@@ -3255,7 +3260,7 @@ public final class MainActivity extends Activity {
         header.setOrientation(LinearLayout.VERTICAL);
 
         TextView hint = text(
-                "Выберите, какие приложения используют туннель. По умолчанию - все приложения, кроме OpenFlux. "
+                "Выберите, какие приложения используют туннель. По умолчанию - все приложения, кроме самого приложения Яндекс Маяк. "
                         + "Действует только в режиме туннеля - в режиме прокси приложения подключаются к SOCKS5 сами.",
                 12, secondary, false);
         header.addView(hint, matchWrap());
