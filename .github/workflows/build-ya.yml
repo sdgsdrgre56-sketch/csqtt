@@ -27,6 +27,14 @@ jobs:
         with:
           submodules: true
 
+      # Changes to the core submodule live in patches/ and are applied here,
+      # so the submodule keeps pointing at an upstream commit.
+      - name: Apply core patches
+        run: |
+          for p in patches/core-*.patch; do
+            git -C core apply --verbose "../$p"
+          done
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: core/go.mod

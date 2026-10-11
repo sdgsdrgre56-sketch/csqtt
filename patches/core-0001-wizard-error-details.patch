@@ -1,0 +1,51 @@
+diff --git a/provision/provision.go b/provision/provision.go
+index c3e48a0..ad6fb5e 100644
+--- a/provision/provision.go
++++ b/provision/provision.go
+@@ -388,13 +388,13 @@ func (c *Conn) script_(command string, stdin []byte, into interface{}) error {
+ 	if c.script == "" {
+ 		return errors.New("скрипт установки не загружен")
+ 	}
+-	stdout, stderr, _ := c.run("sh "+shellQuote(c.script)+" "+command, stdin)
++	stdout, stderr, runErr := c.run("sh "+shellQuote(c.script)+" "+command, stdin)
+ 	var res struct {
+ 		OK    bool   `json:"ok"`
+ 		Error string `json:"error"`
+ 	}
+ 	if err := lastJSON(stdout, &res); err != nil {
+-		return fmt.Errorf("скрипт установки не ответил: %s", firstLine(stderr))
++		return fmt.Errorf("скрипт установки не ответил: %s", scriptDiag(command, stdout, stderr, runErr, err))
+ 	}
+ 	if !res.OK {
+ 		return fmt.Errorf("%s", res.Error)
+@@ -402,6 +402,30 @@ func (c *Conn) script_(command string, stdin []byte, into interface{}) error {
+ 	return lastJSON(stdout, into)
+ }
+ 
++// scriptDiag says why a read-only script command gave no usable answer: what
++// it wrote and how the SSH command ended. probe and plan carry no secrets.
++func scriptDiag(command string, stdout, stderr []byte, runErr, parseErr error) string {
++	parts := []string{"команда " + command}
++	if s := firstLine(stderr); s != "" {
++		parts = append(parts, "stderr: "+s)
++	}
++	if runErr != nil {
++		parts = append(parts, "ssh: "+runErr.Error())
++	}
++	if out := []rune(strings.TrimSpace(string(stdout))); len(out) == 0 {
++		parts = append(parts, "вывод пуст")
++	} else {
++		if len(out) > 300 {
++			out = out[:300]
++		}
++		parts = append(parts, "вывод: "+string(out))
++	}
++	if parseErr != nil {
++		parts = append(parts, parseErr.Error())
++	}
++	return strings.Join(parts, "; ")
++}
++
+ func lastJSON(out []byte, into interface{}) error {
+ 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+ 	for i := len(lines) - 1; i >= 0; i-- {
