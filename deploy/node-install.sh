@@ -42,6 +42,11 @@
 # then carries traffic over all those documents at once, at one priority, so
 # the core spreads connections between them. (This build's addition; the
 # upstream script takes one document.)
+# mode=l3 installs the channel as an L3 exit instead of the default l4 (also
+# this build's addition): the node forwards raw packets, which upstream
+# measures as faster, but it needs raw sockets and a host-wide iptables rule
+# that drops the kernel's outgoing RSTs, and it does not work behind ufw or
+# firewalld. Meant for a server that runs nothing else.
 # apply and remove take it from a 0600 temp file, which they delete after reading, so that
 # stdin stays free for `sudo -S` (a wrong sudo password would otherwise make
 # sudo read the config as further password attempts). Secrets never appear
@@ -265,6 +270,11 @@ CHANNEL=""; URL=""; MAILRU=""; CUPS=""; KEY=""; PORT=""; AUTOUPDATE=""
 # link has no spaces). URL stays the first one: it is the encryption context.
 MORE_URLS=""
 MAX_YANDEX_DOCS=8
+# MODE: the exit backend, "" or l4 (the default) or l3.
+MODE=""
+# The rule an L3 exit needs: the kernel must not reset connections it did not
+# open. One rule serves every L3 channel on the server.
+RST_RULE="OUTPUT -p tcp --tcp-flags RST RST -j DROP"
 
 # add_url LINK: one more Yandex document for the channel.
 add_url() {
@@ -289,6 +299,7 @@ read_config() {
             key=*) KEY=${line#key=} ;;
             port=*) PORT=${line#port=} ;;
             autoupdate=*) AUTOUPDATE=${line#autoupdate=} ;;
+            mode=*) MODE=${line#mode=} ;;
             "") ;;
             *) fail input "неизвестная строка конфигурации" ;;
         esac
@@ -316,6 +327,49 @@ check_transports() {
     [ -z "$MAILRU" ] || valid_mailru "$MAILRU" || fail input "ссылка Mail.ru должна быть вида https://cloud.mail.ru/public/..."
     [ -z "$CUPS" ] || valid_rooms "$CUPS" || fail input "неверный список комнат cups.online"
     case "$AUTOUPDATE" in ""|yes|no) ;; *) fail input "autoupdate: yes или no" ;; esac
+    case "$MODE" in ""|l3|l4) ;; *) fail input "mode: l3 или l4" ;; esac
+}
+
+l3_wanted() { [ "$MODE" = l3 ]; }
+
+# check_l3 STEP: what an L3 exit needs from the server (plan and apply).
+check_l3() {
+    l3_wanted || return 0
+    have iptables || fail "$1" "для режима L3 на сервере нужен iptables"
+    [ "$(firewall_kind)" = none ] \
+        || fail "$1" "режим L3 не работает при включённом ufw или firewalld: выберите обычный режим"
+}
+
+# dropin_dir CHANNEL: the systemd drop-in folder of that channel's instance.
+dropin_dir() { printf '/etc/systemd/system/openflux-node@%s.service.d' "$1"; }
+
+# write_l3_dropin: lets this channel's instance open raw sockets and puts the
+# RST rule in place on every start (it does not survive a reboot otherwise).
+write_l3_dropin() {
+    ipt=$(command -v iptables) || return 1
+    d=$(dropin_dir "$CHANNEL")
+    mkdir -p "$d" || return 1
+    cat > "$d/l3.conf" <<EOF
+$MARKER
+# L3 exit: raw sockets, and the kernel must not answer the tunnel's
+# connections with RST.
+[Service]
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+ExecStartPre=+/bin/sh -c '$ipt -C $RST_RULE 2>/dev/null || $ipt -I $RST_RULE'
+EOF
+    chmod 0644 "$d/l3.conf"
+}
+
+# drop_rst_rule_if_unused: the RST rule goes when no L3 channel is left.
+drop_rst_rule_if_unused() {
+    have iptables || return 0
+    if [ -d "$CONF_ROOT" ] && grep -qsx 'Mode = l3' "$CONF_ROOT"/*/node.conf; then return 0; fi
+    # shellcheck disable=SC2086
+    while iptables -C $RST_RULE 2>/dev/null; do
+        iptables -D $RST_RULE 2>/dev/null || break
+    done
+    return 0
 }
 
 # check_more_urls: the documents after the first are valid, distinct and not
@@ -398,6 +452,7 @@ cmd_plan() {
     [ -d /run/systemd/system ] && have systemctl || fail plan "на сервере нет systemd"
     [ -n "$(downloader)" ] || fail plan "на сервере нет curl или wget"
     [ -d "$CONF_ROOT/$CHANNEL" ] && fail plan "канал $CHANNEL уже существует на сервере"
+    check_l3 plan
     if [ -n "$PORT" ]; then
         valid_port "$PORT" || fail plan "порт должен быть в диапазоне 1024-65535"
         if port_busy "$PORT" || port_claimed "$PORT"; then fail plan "порт $PORT занят"; fi
@@ -431,6 +486,9 @@ cmd_plan() {
         ufw) set -- "$@" "Разрешить входящий $PORT/tcp в ufw" ;;
         firewalld) set -- "$@" "Разрешить входящий $PORT/tcp в firewalld" ;;
     esac
+    if l3_wanted; then
+        set -- "$@" "Режим L3: дать службе канала право на сырые сокеты (CAP_NET_RAW) и добавить правило iptables, которое гасит исходящие RST всего сервера. Другим сервисам на этом сервере оно может мешать"
+    fi
     case "$AUTOUPDATE" in
         yes)
             if autoupdate_on; then
@@ -449,6 +507,7 @@ cmd_plan() {
 
 # Rollback state for apply: what this run created.
 CREATED_USER=0; CREATED_UNIT=0; CREATED_BIN=0; CREATED_CONF=0; CREATED_FW=""; STARTED=0
+CREATED_DROPIN=0
 
 rollback() {
     [ "$STARTED" = 1 ] && unit_stop "openflux-node@$CHANNEL"
@@ -457,6 +516,11 @@ rollback() {
         firewalld) firewall-cmd --permanent --remove-port="$PORT/tcp" >/dev/null 2>&1 && firewall-cmd --reload >/dev/null 2>&1 ;;
     esac
     [ "$CREATED_CONF" = 1 ] && rm -rf "${CONF_ROOT:?}/$CHANNEL" "${STATE_ROOT:?}/$CHANNEL"
+    if [ "$CREATED_DROPIN" = 1 ]; then
+        rm -rf "$(dropin_dir "$CHANNEL")"
+        systemctl daemon-reload >/dev/null 2>&1
+        drop_rst_rule_if_unused
+    fi
     [ "$CREATED_UNIT" = 1 ] && rm -f "$UNIT_FILE" && systemctl daemon-reload >/dev/null 2>&1
     [ "$CREATED_BIN" = 1 ] && rm -f "$BIN_DIR/openflux-$CORE_VERSION"
     [ "$CREATED_USER" = 1 ] && userdel "$NODE_USER" >/dev/null 2>&1
@@ -610,7 +674,7 @@ write_node_conf() {
     cat <<EOF
 # OpenFlux node channel $CHANNEL, written by node-install.sh
 Role = exit
-Mode = l4
+Mode = ${MODE:-l4}
 EncryptionKeyFile = $CONF_ROOT/$CHANNEL/encryption-key
 CookieStore = $STATE_ROOT/$CHANNEL/cookies.json
 EOF
@@ -641,6 +705,7 @@ cmd_apply() {
     arch=$(detect_arch)
     [ -n "$arch" ] || fail apply "архитектура $(uname -m) не поддерживается"
     [ -d "$CONF_ROOT/$CHANNEL" ] && fail apply "канал $CHANNEL уже существует на сервере"
+    check_l3 apply
     if port_busy "$PORT" || port_claimed "$PORT"; then fail apply "порт $PORT занят"; fi
     if [ -f "$UNIT_FILE" ] && ! grep -qF "$MARKER" "$UNIT_FILE"; then
         fail apply "$UNIT_FILE создан не мастером OpenFlux"
@@ -680,6 +745,10 @@ cmd_apply() {
     if [ ! -f "$UNIT_FILE" ]; then
         write_unit
         CREATED_UNIT=1
+    fi
+    if l3_wanted; then
+        CREATED_DROPIN=1
+        write_l3_dropin || apply_fail systemd "не удалось настроить службу канала для режима L3"
     fi
     systemctl daemon-reload || apply_fail systemd "systemctl daemon-reload не удался"
 
@@ -722,6 +791,12 @@ remove_channel() {
         esac
     fi
     rm -rf "${CONF_ROOT:?}/$1" "${STATE_ROOT:?}/$1"
+    # An L3 channel also has a drop-in, and maybe the last use of the RST rule.
+    if [ -d "$(dropin_dir "$1")" ]; then
+        rm -rf "$(dropin_dir "$1")"
+        systemctl daemon-reload >/dev/null 2>&1
+        drop_rst_rule_if_unused
+    fi
 }
 
 # remove_everything: what this script installed besides the channels: the
