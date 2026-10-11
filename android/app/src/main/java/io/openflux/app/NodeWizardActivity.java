@@ -73,7 +73,14 @@ public final class NodeWizardActivity extends Activity {
     private FlowStyle ui;
     private final Map<CheckBox, View> choiceFields = new HashMap<>();
     private EditText hostInput, sshPortInput, userInput, passwordInput, privateKeyInput, passphraseInput;
-    private EditText yandexInput, mailruInput, sudoInput;
+    private EditText mailruInput, sudoInput;
+    // One row per Yandex document: several documents carry the channel side
+    // by side. The first rows are shown at once, the rest on request.
+    private static final int MAX_YANDEX_DOCS = 8;
+    private static final int YANDEX_ROWS_SHOWN = 5;
+    private final List<EditText> yandexInputs = new java.util.ArrayList<>();
+    private LinearLayout yandexFields;
+    private Button addYandexButton;
     private CheckBox yandexCheck, mailruCheck, cupsCheck, autoUpdateCheck;
     private Button connectButton, changeServerButton, planButton, changeButton, applyButton, verifyButton, saveButton, removeButton;
     private TextView intro, connectedHost, serverInfo, planInfo;
@@ -230,14 +237,23 @@ public final class NodeWizardActivity extends Activity {
         addText(configSection, "Direct (TCP) будет запасным транспортом. Можно выбрать несколько дополнительных.", 13, false);
         yandexCheck = choiceTile(configSection, "Yandex Docs (Volga)",
                 "Один или несколько документов Яндекса", R.drawable.ic_yandex);
-        // Several documents carry the channel side by side: one link per line.
-        yandexInput = field(configSection, "Ссылки на документы Яндекса: по одной в строке, до 8",
-                "https://docs.yandex.ru/edit/d/…",
-                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        yandexInput.setMinLines(3);
-        ((View) yandexInput.getTag()).getLayoutParams().height = dp(200);
-        choiceFields.put(yandexCheck, (View) yandexInput.getTag());
-        ((View) yandexInput.getTag()).setVisibility(View.GONE);
+        yandexFields = new LinearLayout(this);
+        yandexFields.setOrientation(LinearLayout.VERTICAL);
+        configSection.addView(yandexFields, new LinearLayout.LayoutParams(-1, -2));
+        addText(yandexFields, "Каждому документу своя строка. Трафик делится между всеми указанными "
+                + "документами, пустые строки не учитываются.", 12, false);
+        for (int i = 1; i <= MAX_YANDEX_DOCS; i++) {
+            EditText input = field(yandexFields,
+                    "Документ Яндекса " + i + (i == 1 ? "" : " (необязательно)"),
+                    "https://docs.yandex.ru/edit/d/…",
+                    InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+            if (i > YANDEX_ROWS_SHOWN) ((View) input.getTag()).setVisibility(View.GONE);
+            yandexInputs.add(input);
+        }
+        addYandexButton = button(yandexFields, "Добавить ещё документ", v -> showMoreYandexRows());
+        ui.secondary(addYandexButton);
+        choiceFields.put(yandexCheck, yandexFields);
+        yandexFields.setVisibility(View.GONE);
         mailruCheck = choiceTile(configSection, "Mail.ru Docs",
                 "Документ в Облаке Mail.ru", R.drawable.ic_mailru);
         mailruInput = field(configSection, "Публичная ссылка Mail.ru", "https://cloud.mail.ru/public/…/…",
@@ -736,7 +752,9 @@ public final class NodeWizardActivity extends Activity {
         chooseKeyButton.setEnabled(!connected && !busy && usePrivateKey);
         for (LinearLayout row : authRows) row.setEnabled(!connected && !busy);
         boolean editable = connected && !planned && !applied && savedProfileId == 0 && !busy;
-        for (EditText input : new EditText[]{yandexInput, mailruInput}) input.setEnabled(editable);
+        for (EditText input : yandexInputs) input.setEnabled(editable);
+        mailruInput.setEnabled(editable);
+        if (addYandexButton != null) addYandexButton.setEnabled(editable);
         sudoInput.setEnabled(editable);
         ((View) sudoInput.getTag()).setAlpha(editable ? 1f : 0.55f);
         for (CheckBox check : new CheckBox[]{yandexCheck, mailruCheck, cupsCheck, autoUpdateCheck}) {
@@ -1021,7 +1039,11 @@ public final class NodeWizardActivity extends Activity {
             mailruCheck.setChecked(false);
             cupsCheck.setChecked(false);
             autoUpdateCheck.setChecked(false);
-            yandexInput.setText("");
+            for (int i = 0; i < yandexInputs.size(); i++) {
+                yandexInputs.get(i).setText("");
+                ((View) yandexInputs.get(i).getTag()).setVisibility(i < YANDEX_ROWS_SHOWN ? View.VISIBLE : View.GONE);
+            }
+            updateYandexAddButton();
             mailruInput.setText("");
             sudoInput.setText("");
             planInfo.setText("");
@@ -1034,11 +1056,37 @@ public final class NodeWizardActivity extends Activity {
         });
     }
 
+    // Shows the next hidden document row.
+    private void showMoreYandexRows() {
+        for (EditText input : yandexInputs) {
+            View row = (View) input.getTag();
+            if (row.getVisibility() != View.VISIBLE) {
+                row.setVisibility(View.VISIBLE);
+                input.requestFocus();
+                break;
+            }
+        }
+        updateYandexAddButton();
+    }
+
+    // The button stays while a document row is still hidden.
+    private void updateYandexAddButton() {
+        if (addYandexButton == null) return;
+        boolean hidden = false;
+        for (EditText input : yandexInputs) {
+            if (((View) input.getTag()).getVisibility() != View.VISIBLE) hidden = true;
+        }
+        addYandexButton.setVisibility(hidden ? View.VISIBLE : View.GONE);
+    }
+
     private void plan() {
-        // One link per line; spaces, commas and semicolons separate them too.
+        // One document per row; several links pasted into one row are split
+        // on spaces, line breaks, commas and semicolons.
         List<String> yandexLinks = new java.util.ArrayList<>();
-        for (String part : yandexInput.getText().toString().split("[\\s,;]+")) {
-            if (!part.isEmpty()) yandexLinks.add(part);
+        for (EditText input : yandexInputs) {
+            for (String part : input.getText().toString().split("[\\s,;]+")) {
+                if (!part.isEmpty()) yandexLinks.add(part);
+            }
         }
         String mailru = mailruInput.getText().toString().trim();
         boolean withYandex = yandexCheck.isChecked();
