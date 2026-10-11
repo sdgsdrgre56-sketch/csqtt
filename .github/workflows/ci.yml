@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    # The core is the upstream repository (the core/ submodule); its own CI
+    # runs the tests. Here we only check it builds for every platform.
+    name: Core CLI binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+      - name: Build cross-platform binaries
+        working-directory: core
+        run: |
+          mkdir -p ../dist
+          build() { GOOS=$1 GOARCH=$2 CGO_ENABLED=0 go build -o "../dist/openflux-$1-$2$3" .; }
+          build darwin  amd64 ""
+          build darwin  arm64 ""
+          build linux   amd64 ""
+          build linux   arm   ""
+          build linux   arm64 ""
+          build windows 386   ".exe"
+          build windows amd64 ".exe"
+          build windows arm64 ".exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openflux-${{ github.sha }}
+          path: dist/openflux-*
+          if-no-files-found: error
+          retention-days: 30
+
+  android:
+    name: Android debug APKs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/mobile/go.sum
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      # ubuntu-latest ships the Android SDK preinstalled (ANDROID_HOME set)
+      # but not on PATH - android-actions/setup-android@v3 used to add it
+      # and is, as of this writing, broken, so add it ourselves instead.
+      - run: echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+      - run: yes | sdkmanager --licenses > /dev/null || true
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - run: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260908204917-8b95e45f8d3e
+      - run: go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260908204917-8b95e45f8d3e
+      - run: GRADLE_BIN="$(command -v gradle)" ./build_android_app.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenFlux-android-debug-${{ github.sha }}
+          path: dist/OpenFlux-android-*-debug.apk
+          if-no-files-found: error
+          retention-days: 30

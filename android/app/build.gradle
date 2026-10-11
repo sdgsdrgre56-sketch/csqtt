@@ -1,0 +1,85 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "io.openflux.app"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "io.openflux.app"
+        minSdk 26
+        targetSdk 35
+        versionCode 15
+        versionName "1.1.4"
+
+    }
+
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a", "armeabi-v7a", "x86_64", "x86"
+            universalApk true
+        }
+    }
+
+    signingConfigs {
+        release {
+            def keystorePath = System.getenv("ANDROID_KEYSTORE_FILE")
+            if (keystorePath != null && !keystorePath.isBlank()) {
+                storeFile file(keystorePath)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // The JS transports OpenFlux signs (see bundledScripts below), installed
+    // when the experimental features are turned on.
+    sourceSets {
+        main {
+            assets.srcDirs += "$buildDir/generated/bundledScripts"
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+}
+
+// The same set upstream's app ships, straight from the core submodule so it
+// follows each core update; MAX (oneme) is left out, as there.
+def bundledScripts = tasks.register("bundledScripts", Copy) {
+    from("$rootDir/../core/transport/script/js") {
+        include "yandex.js*", "vyandex.js*", "boards.js*", "mailru.js*", "cupsonline.js*"
+    }
+    into "$buildDir/generated/bundledScripts/scripts"
+}
+tasks.named("preBuild") { dependsOn bundledScripts }
+
+dependencies {
+    implementation "androidx.recyclerview:recyclerview:1.4.0"
+    implementation files("libs/openflux.aar")
+    implementation "com.google.zxing:core:3.5.3"
+    // Camera scanner for openflux:// QR codes.
+    implementation "com.journeyapps:zxing-android-embedded:4.3.0"
+    // ProxyController: routes the captcha WebView through the tunnel when the
+    // check belongs to the exit node.
+    implementation "androidx.webkit:webkit:1.12.1"
+}
