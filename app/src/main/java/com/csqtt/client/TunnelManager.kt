@@ -186,6 +186,15 @@ object TunnelManager {
     val speedDownBps = MutableStateFlow(0L)
     val speedUpBps = MutableStateFlow(0L)
 
+    /** Highest rates seen since the last [resetSpeedPeaks] call. */
+    val speedPeakDownBps = MutableStateFlow(0L)
+    val speedPeakUpBps = MutableStateFlow(0L)
+
+    fun resetSpeedPeaks() {
+        speedPeakDownBps.value = 0L
+        speedPeakUpBps.value = 0L
+    }
+
     /** Bytes carried by the tunnel since it was started. */
     val sessionBytes = MutableStateFlow(0L)
     private var lastStatsAtMs = 0L
@@ -371,6 +380,8 @@ object TunnelManager {
                     speedDownBps.value = 0L
                     speedUpBps.value = 0L
                 }
+                if (speedDownBps.value > speedPeakDownBps.value) speedPeakDownBps.value = speedDownBps.value
+                if (speedUpBps.value > speedPeakUpBps.value) speedPeakUpBps.value = speedUpBps.value
                 lastStatsAtMs = statsNowMs
                 lastStatsUp = event.bytesUp
                 lastStatsDown = event.bytesDown

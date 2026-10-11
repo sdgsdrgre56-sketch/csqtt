@@ -426,7 +426,7 @@ private fun TunnelConnectionPanel(
             TunnelUptimeText(tunnelRunning = tunnelRunning || autoPausedForWifi || tunnelStopping)
 
             if (MayakConfig.ADMIN && tunnelRunning) {
-                MayakSpeedRow()
+                MayakSpeedCheckButton()
             }
 
             if (!MayakConfig.SIMPLE_UI) {

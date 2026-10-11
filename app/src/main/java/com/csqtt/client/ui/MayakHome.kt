@@ -31,6 +31,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import android.widget.Toast
+import android.net.Uri
+import android.content.Intent
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -246,36 +255,84 @@ private fun formatMayakVolume(bytes: Long): String {
     }
 }
 
-/** Live download/upload rate of the tunnel and the traffic carried in this session. */
+/**
+ * A quiet "check speed" button. The app itself is excluded from its own tunnel,
+ * so it cannot download a test file through it; instead the dialog opens a
+ * speed-test page in the browser (which does go through the tunnel) and shows
+ * what the tunnel carried meanwhile.
+ */
 @Composable
-internal fun MayakSpeedRow() {
+internal fun MayakSpeedCheckButton() {
+    var showDialog by rememberSaveable { mutableStateOf(false) }
+    TextButton(onClick = { showDialog = true }) {
+        Text("Проверить скорость", fontWeight = FontWeight.SemiBold)
+    }
+    if (showDialog) {
+        MayakSpeedDialog(onDismiss = { showDialog = false })
+    }
+}
+
+@Composable
+private fun MayakSpeedDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
     val down by TunnelManager.speedDownBps.collectAsStateWithLifecycle()
     val up by TunnelManager.speedUpBps.collectAsStateWithLifecycle()
+    val peakDown by TunnelManager.speedPeakDownBps.collectAsStateWithLifecycle()
+    val peakUp by TunnelManager.speedPeakUpBps.collectAsStateWithLifecycle()
     val total by TunnelManager.sessionBytes.collectAsStateWithLifecycle()
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(
-                text = "↓ ${formatMayakRate(down)}",
-                style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-            Text(
-                text = "↑ ${formatMayakRate(up)}",
-                style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-        }
-        Text(
-            text = "За сеанс: ${formatMayakVolume(total)}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Проверка скорости", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Максимум за замер",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "↓ ${formatMayakRate(peakDown)}   ↑ ${formatMayakRate(peakUp)}",
+                    style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"),
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "Сейчас: ↓ ${formatMayakRate(down)} · ↑ ${formatMayakRate(up)}\n" +
+                        "За сеанс прошло: ${formatMayakVolume(total)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "Нажмите «Начать замер»: в браузере откроется страница проверки. " +
+                        "Дождитесь результата и вернитесь сюда — здесь будет то, что реально прошло через туннель.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    TunnelManager.resetSpeedPeaks()
+                    try {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse("https://fast.com/ru/"))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    } catch (error: Exception) {
+                        Toast.makeText(context, "Не удалось открыть браузер", Toast.LENGTH_SHORT).show()
+                    }
+                },
+            ) {
+                Text("Начать замер", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Закрыть")
+            }
+        },
+    )
 }
 
 private val MayakSpeedSteps = listOf(9 to "Эконом", 18 to "Обычно", 27 to "Быстро", 45 to "Макс")
@@ -528,7 +585,7 @@ internal fun MayakHome(
                     MayakUptime()
                 }
                 if (tunnelRunning) {
-                    MayakSpeedRow()
+                    MayakSpeedCheckButton()
                 }
                 Text(
                     text = hint,
