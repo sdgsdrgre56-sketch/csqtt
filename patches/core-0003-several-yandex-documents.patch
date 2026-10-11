@@ -1,0 +1,74 @@
+diff --git a/provision/pin.go b/provision/pin.go
+index ab45458..7f254f8 100644
+--- a/provision/pin.go
++++ b/provision/pin.go
+@@ -5,9 +5,13 @@ package provision
+ // keeps the hash in step with deploy/node-install.sh; when the script
+ // changes, commit it, then point PinnedCommit at that commit.
+ const (
+-	PinnedRepo   = "p1neappleXpress/OpenFlux"
+-	PinnedCommit = "cdc6c0d10adc82eda3cb3ccaeee0b67ca3dd5597"
+-	PinnedSHA256 = "11b65510d0ded807f33e172357c70d787c67b02facc9eb8e37156c25f8fb2ba1"
++	// This build runs its own copy of the script: upstream's at cdc6c0d plus
++	// several Yandex documents per channel (deploy/node-install.sh on the
++	// "ya" branch of the repository below). The core binaries the script
++	// installs still come from upstream's releases.
++	PinnedRepo   = "sdgsdrgre56-sketch/csqtt"
++	PinnedCommit = "e48fa3921fd2d2f4ee8fa47ab247fc817e01f254"
++	PinnedSHA256 = "9d88263b5baff3875820c7e76a6d5870b20ac6f3d66a2f1f2946bc25416e5106"
+ )
+ 
+ // Pinned returns the script location for this build.
+diff --git a/provision/transports.go b/provision/transports.go
+index 5e176a5..17ee035 100644
+--- a/provision/transports.go
++++ b/provision/transports.go
+@@ -29,6 +29,11 @@ var transportPriority = map[string]int{"vyandex": 100, "mailru": 90, "cupsonline
+ 
+ const directPriority = 50
+ 
++// maxYandexDocs is how many Yandex documents one channel may carry
++// (node-install.sh's MAX_YANDEX_DOCS). They share one priority, so the core
++// spreads connections between them.
++const maxYandexDocs = 8
++
+ var (
+ 	volgaDocURL  = regexp.MustCompile(`^https://(docs|disk)\.yandex\.(ru|com|by|kz|uz)/edit/d/[A-Za-z0-9_-]{16,200}$`)
+ 	mailruDocURL = regexp.MustCompile(`^https://cloud\.mail\.ru/public/[A-Za-z0-9_-]{2,64}/[A-Za-z0-9_-]{2,128}$`)
+@@ -37,17 +42,20 @@ var (
+ 
+ // CheckTransports cleans the links (no query, fragment or trailing slash),
+ // checks each carrier the way node-install.sh does, and returns them in
+-// priority order. Each type may appear once; none at all leaves direct only.
++// priority order. A Yandex document may appear up to maxYandexDocs times
++// (different documents), every other type once; none at all leaves direct
++// only.
+ func CheckTransports(ts []ChannelTransport) ([]ChannelTransport, error) {
+ 	out := make([]ChannelTransport, 0, len(ts))
+ 	seen := map[string]bool{}
++	yandexDocs := map[string]bool{}
+ 	for _, t := range ts {
+ 		t.Type = strings.TrimSpace(t.Type)
+ 		t.URL = strings.TrimSpace(t.URL)
+ 		if _, ok := transportPriority[t.Type]; !ok {
+ 			return nil, fmt.Errorf("транспорт %q нельзя выбрать для ноды", t.Type)
+ 		}
+-		if seen[t.Type] {
++		if seen[t.Type] && t.Type != "vyandex" {
+ 			return nil, fmt.Errorf("транспорт %s выбран дважды", t.Type)
+ 		}
+ 		seen[t.Type] = true
+@@ -57,6 +65,13 @@ func CheckTransports(ts []ChannelTransport) ([]ChannelTransport, error) {
+ 			if !volgaDocURL.MatchString(t.URL) {
+ 				return nil, errors.New("нужна ссылка на документ Яндекса вида https://docs.yandex.ru/edit/d/…")
+ 			}
++			if yandexDocs[t.URL] {
++				return nil, errors.New("документ Яндекса указан дважды: для каждого пути нужен свой документ")
++			}
++			yandexDocs[t.URL] = true
++			if len(yandexDocs) > maxYandexDocs {
++				return nil, fmt.Errorf("не больше %d документов Яндекса на канал", maxYandexDocs)
++			}
+ 		case "mailru":
+ 			t.URL = cleanLink(t.URL)
+ 			if !mailruDocURL.MatchString(t.URL) {

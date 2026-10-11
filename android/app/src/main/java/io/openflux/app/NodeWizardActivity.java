@@ -229,9 +229,13 @@ public final class NodeWizardActivity extends Activity {
         sectionLabel(configSection, "ТРАНСПОРТЫ КАНАЛА");
         addText(configSection, "Direct (TCP) будет запасным транспортом. Можно выбрать несколько дополнительных.", 13, false);
         yandexCheck = choiceTile(configSection, "Yandex Docs (Volga)",
-                "Документ Яндекса", R.drawable.ic_yandex);
-        yandexInput = field(configSection, "Ссылка на документ Яндекса", "https://docs.yandex.ru/edit/d/…",
-                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+                "Один или несколько документов Яндекса", R.drawable.ic_yandex);
+        // Several documents carry the channel side by side: one link per line.
+        yandexInput = field(configSection, "Ссылки на документы Яндекса: по одной в строке, до 8",
+                "https://docs.yandex.ru/edit/d/…",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        yandexInput.setMinLines(3);
+        ((View) yandexInput.getTag()).getLayoutParams().height = dp(200);
         choiceFields.put(yandexCheck, (View) yandexInput.getTag());
         ((View) yandexInput.getTag()).setVisibility(View.GONE);
         mailruCheck = choiceTile(configSection, "Mail.ru Docs",
@@ -1031,13 +1035,17 @@ public final class NodeWizardActivity extends Activity {
     }
 
     private void plan() {
-        String yandex = yandexInput.getText().toString().trim();
+        // One link per line; spaces, commas and semicolons separate them too.
+        List<String> yandexLinks = new java.util.ArrayList<>();
+        for (String part : yandexInput.getText().toString().split("[\\s,;]+")) {
+            if (!part.isEmpty()) yandexLinks.add(part);
+        }
         String mailru = mailruInput.getText().toString().trim();
         boolean withYandex = yandexCheck.isChecked();
         boolean withMailru = mailruCheck.isChecked();
         boolean withCups = cupsCheck.isChecked();
         boolean autoUpdate = autoUpdateCheck.isChecked();
-        if (withYandex && yandex.isEmpty()) {
+        if (withYandex && yandexLinks.isEmpty()) {
             showWarning("Укажите ссылку на документ Яндекса");
             return;
         }
@@ -1054,7 +1062,11 @@ public final class NodeWizardActivity extends Activity {
                 rooms = created.getString("rooms");
             }
             JSONArray transports = new JSONArray();
-            if (withYandex) transports.put(new JSONObject().put("type", "vyandex").put("url", yandex));
+            if (withYandex) {
+                for (String link : yandexLinks) {
+                    transports.put(new JSONObject().put("type", "vyandex").put("url", link));
+                }
+            }
             if (withMailru) transports.put(new JSONObject().put("type", "mailru").put("url", mailru));
             if (withCups) transports.put(new JSONObject().put("type", "cupsonline").put("url", rooms));
             JSONObject answer = response(Mobile.nodePlan(channelId, 0, transports.toString(), autoUpdate));
