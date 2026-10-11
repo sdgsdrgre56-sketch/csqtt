@@ -265,7 +265,7 @@ private fun formatMayakVolume(bytes: Long): String {
 internal fun MayakSpeedCheckButton() {
     var showDialog by rememberSaveable { mutableStateOf(false) }
     TextButton(onClick = { showDialog = true }) {
-        Text("Проверить скорость", fontWeight = FontWeight.SemiBold)
+        Text("Замер скорости", fontWeight = FontWeight.SemiBold)
     }
     if (showDialog) {
         MayakSpeedDialog(onDismiss = { showDialog = false })
@@ -513,6 +513,8 @@ internal fun MayakHome(
     maxWorkers: Int,
     serverPosition: Int,
     serverCount: Int,
+    hashNotice: String?,
+    hashesKnown: Boolean,
     onToggleTunnel: () -> Unit,
     onWorkersChange: (Int) -> Unit,
     onPasteLink: () -> Unit,
@@ -591,15 +593,22 @@ internal fun MayakHome(
                 if (tunnelRunning || autoPausedForWifi) {
                     MayakUptime()
                 }
-                if (tunnelRunning) {
-                    MayakSpeedCheckButton()
-                }
                 Text(
                     text = hint,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
+                Row(horizontalArrangement = Arrangement.Center) {
+                    if (tunnelRunning) {
+                        MayakSpeedCheckButton()
+                    }
+                    MayakConnectionCheckButton(
+                        settingsStore = null,
+                        hashNotice = hashNotice,
+                        hashesKnown = hashesKnown,
+                    )
+                }
                 if (serverCount > 1 && serverPosition > 0) {
                     Text(
                         text = "Сервер $serverPosition из $serverCount",
@@ -607,6 +616,27 @@ internal fun MayakHome(
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                         textAlign = TextAlign.Center,
                     )
+                }
+            }
+        }
+        if (hashNotice != null && !active) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = hashNotice,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+                TextButton(onClick = onEnterManually) {
+                    Text("Открыть настройки", fontWeight = FontWeight.Bold)
                 }
             }
         }

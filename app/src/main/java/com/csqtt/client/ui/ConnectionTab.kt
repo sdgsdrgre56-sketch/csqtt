@@ -149,6 +149,15 @@ internal fun ConnectionTab(
         hashesReady = hashesReady,
     )
     val isValid = startBlocker == null
+    // What is wrong with the VK hash in words a person can act on; null when it is fine.
+    val hashNotice: String? = when {
+        !hashSettingsLoaded -> null
+        csqttLinkMode && linkHashes.isNotEmpty() -> null
+        autoHashMode -> if (vkTokenActive) null else "Нужен вход в VK: без него маяк не может создать хэш"
+        manualHashes.isNotEmpty() -> null
+        vkHashes.isNotBlank() -> "Хэш VK устарел. Добавьте новый хэш в настройках"
+        else -> "Нужен хэш VK. Добавьте его в настройках"
+    }
     val hashStatus = when {
         csqttLinkMode && linkHashes.isNotEmpty() -> "${linkHashes.size}/${CsqttConstants.Tunnel.MAX_VK_HASHES}"
         autoHashMode && vkTokenActive -> "Авто"
@@ -332,6 +341,8 @@ internal fun ConnectionTab(
                     },
                     serverPosition = if (storedLinks.size > 1) storedLinkIndex + 1 else 0,
                     serverCount = storedLinks.size,
+                    hashNotice = hashNotice,
+                    hashesKnown = hashSettingsLoaded,
                     onPasteLink = { pasteLinkFromClipboard() },
                     onScanQr = { scanLinkQr() },
                     onEnterManually = onInvalidConfiguration,
@@ -371,6 +382,9 @@ internal fun ConnectionTab(
                 obfsMode = obfsMode,
                 hashStatus = hashStatus,
                 workMode = workModeDisplayName(vkAuthMode),
+                settingsStore = settingsStore,
+                hashNotice = hashNotice,
+                hashesKnown = hashSettingsLoaded,
                 onToggleTunnel = { toggleTunnel() },
             )
         }
@@ -388,6 +402,9 @@ private fun TunnelConnectionPanel(
     obfsMode: String,
     hashStatus: String,
     workMode: String,
+    settingsStore: SettingsStore,
+    hashNotice: String?,
+    hashesKnown: Boolean,
     onToggleTunnel: () -> Unit,
 ) {
     val isStarting = tunnelStarting && !tunnelRunning && !tunnelStopping
@@ -457,8 +474,26 @@ private fun TunnelConnectionPanel(
 
             TunnelUptimeText(tunnelRunning = tunnelRunning || autoPausedForWifi || tunnelStopping)
 
-            if (MayakConfig.ADMIN && tunnelRunning) {
-                MayakSpeedCheckButton()
+            if (MayakConfig.ADMIN) {
+                Row(horizontalArrangement = Arrangement.Center) {
+                    if (tunnelRunning) {
+                        MayakSpeedCheckButton()
+                    }
+                    MayakConnectionCheckButton(
+                        settingsStore = settingsStore,
+                        hashNotice = hashNotice,
+                        hashesKnown = hashesKnown,
+                    )
+                }
+                if (hashNotice != null && !tunnelRunning) {
+                    Text(
+                        text = hashNotice,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center,
+                    )
+                }
             }
 
             if (!MayakConfig.SIMPLE_UI) {

@@ -535,6 +535,7 @@ object TunnelManager {
                     }
                 }
             if (remaining == 0 && isCurrent(identity)) {
+                activeContext()?.let { MayakNotices.showHashExpired(it) }
                 stop()
             }
         }
@@ -908,6 +909,7 @@ object TunnelManager {
                     wrapAuthTimeoutCount = 0
                     crashRestartStreak = 0
                     failoverStreak = 0
+                    MayakNotices.clearHashExpired(appContext)
                     processStartedAtMs = 0L
                     currentParams = params
                     strongAppContext = appContext.applicationContext
