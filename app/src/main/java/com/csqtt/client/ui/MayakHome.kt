@@ -272,6 +272,23 @@ internal fun MayakSpeedCheckButton() {
     }
 }
 
+// Speed test pages opened in the browser, which (unlike this app) goes through the tunnel.
+private const val MayakSpeedUrl = "https://speed.cloudflare.com/"
+private const val MayakSpeedBackupUrl = "https://openspeedtest.com/"
+// A plain 100 MB download from Helsinki: works without scripts, the tunnel counters show the speed.
+private const val MayakSpeedFileUrl = "https://hel1-speed.hetzner.com/100MB.bin"
+
+private fun openMayakSpeedPage(context: android.content.Context, url: String) {
+    TunnelManager.resetSpeedPeaks()
+    try {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    } catch (error: Exception) {
+        Toast.makeText(context, "Не удалось открыть браузер", Toast.LENGTH_SHORT).show()
+    }
+}
+
 @Composable
 private fun MayakSpeedDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
@@ -308,22 +325,23 @@ private fun MayakSpeedDialog(onDismiss: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Text(
+                    text = "Если страница не открылась:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { openMayakSpeedPage(context, MayakSpeedBackupUrl) }) {
+                        Text("Другой сайт")
+                    }
+                    TextButton(onClick = { openMayakSpeedPage(context, MayakSpeedFileUrl) }) {
+                        Text("Файл 100 МБ")
+                    }
+                }
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = {
-                    TunnelManager.resetSpeedPeaks()
-                    try {
-                        context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse("https://fast.com/ru/"))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                        )
-                    } catch (error: Exception) {
-                        Toast.makeText(context, "Не удалось открыть браузер", Toast.LENGTH_SHORT).show()
-                    }
-                },
-            ) {
+            TextButton(onClick = { openMayakSpeedPage(context, MayakSpeedUrl) }) {
                 Text("Начать замер", fontWeight = FontWeight.Bold)
             }
         },
