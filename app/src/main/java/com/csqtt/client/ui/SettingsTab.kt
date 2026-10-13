@@ -861,7 +861,10 @@ internal fun SettingsTabContent(
                         scope.launch { settingsStore.saveObfsMode(mode) }
                     },
                 )
+                }
 
+                // Mayak: UDP/TCP is shown in both editions, so a person whose network throttles
+                // UDP can switch to TCP themselves.
                 Spacer(Modifier.height(4.dp))
 
                 CompactDropdownSetting(
@@ -889,7 +892,7 @@ internal fun SettingsTabContent(
                     onInfo = { transport -> showTurnTransportDetailDialog = transport },
                     onSelected = ::requestTurnTransport,
                 )
-                } else {
+                if (MayakConfig.SIMPLE_UI) {
                     Spacer(Modifier.height(8.dp))
                 }
 
