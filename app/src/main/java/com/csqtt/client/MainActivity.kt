@@ -358,7 +358,7 @@ fun MainScreen(
 
         suspend fun runUpdateCheck(reason: String) {
             val checkedAt = System.currentTimeMillis()
-            val release = fetchLatestReleaseInfo(currentVersion)
+            val release = fetchMayakRelease()
             settingsStore.saveUpdateState(
                 lastCheckAt = checkedAt,
                 latestVersion = release?.versionTag ?: "",
@@ -370,7 +370,7 @@ fun MainScreen(
                 return
             }
 
-            val hasUpdate = isNewerVersion(currentVersion, release.versionTag)
+            val hasUpdate = isMayakUpdate(release)
             val postponeVer = settingsStore.updatePostponeVersion.first()
             val postponeUntil = settingsStore.updatePostponeUntil.first()
             val isPostponed = postponeVer == release.versionTag && checkedAt < postponeUntil
@@ -592,7 +592,13 @@ fun MainScreen(
                         action = UPDATE_DIALOG_ACTION_UPDATE,
                         actedAt = System.currentTimeMillis()
                     )
-                    openReleaseUrl(context, release.releaseUrl)
+                    context.showRaisedToast(
+                        "Обновляюсь… Антоха опять что-то придумал или сломал 🤣",
+                        Toast.LENGTH_LONG
+                    )
+                    if (!downloadAndInstall(context, release)) {
+                        openReleaseUrl(context, release.releaseUrl)
+                    }
                 }
             }
         )

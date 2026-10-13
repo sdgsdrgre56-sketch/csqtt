@@ -37,7 +37,9 @@ fun updateIntervalHoursToMillis(hours: Int): Long? = when {
 data class AppReleaseInfo(
     val versionTag: String,
     val releaseUrl: String,
-    val source: RemoteVersionSource
+    val source: RemoteVersionSource,
+    // Mayak: direct APK download link of the release asset, when the fork updater found one.
+    val downloadUrl: String? = null
 )
 
 enum class RemoteVersionSource {

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mayak: exposes the downloaded update APK in the app cache to the system installer. -->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

@@ -92,6 +92,10 @@ object CsqttConstants {
             "https://api.github.com/repos/amurcanov/csqtt/tags?per_page=100"
         const val GITHUB_TAG_TREE_URL_PREFIX =
             "https://github.com/amurcanov/csqtt/tree/"
+
+        // Mayak: the owner's fork, where the signed Mayak APKs are published as releases.
+        const val MAYAK_RELEASES_URL =
+            "https://api.github.com/repos/sdgsdrgre56-sketch/csqtt/releases?per_page=20"
     }
 
     object Notifications {

@@ -19,8 +19,11 @@ internal object MayakConfig {
     /** Mayak name, header and colours instead of the upstream branding (both editions). */
     val BRANDED: Boolean = true
 
-    /** The upstream updater would offer the original CSQTT APK, so it stays off. */
-    val UPSTREAM_UPDATE_CHECK: Boolean = false
+    /**
+     * Mayak checks its own fork for updates (see MayakUpdate.kt) and installs the signed Mayak APK,
+     * not the upstream CSQTT one. Turned on so every phone can update itself after a new build.
+     */
+    val UPSTREAM_UPDATE_CHECK: Boolean = true
 
     /** Client edition: speed steps are 9, 18, 27 and, with two or more hashes, 45. */
     val MAX_WORKERS: Int = 45

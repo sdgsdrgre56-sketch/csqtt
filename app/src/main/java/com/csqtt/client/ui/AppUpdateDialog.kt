@@ -42,9 +42,9 @@ fun AppUpdateDialog(
     val isTagOnly = release.source == RemoteVersionSource.Tag
     val title = if (isTagOnly) "Найден новый tag" else "Доступно обновление"
     val description = if (isTagOnly) {
-        "На GitHub обнаружен более новый tag ${release.versionTag}. Похоже, опубликованный release ещё не догнал его."
+        "Антоха опять что-то придумал или сломал 🤣 Появился новый билд ${release.versionTag}, но APK ещё собирается — попробуй чуть позже."
     } else {
-        "Вышла новая версия приложения ${release.versionTag}. Можно открыть страницу релиза и обновиться вручную."
+        "Антоха опять что-то придумал или сломал 🤣 Вышла новая версия ${release.versionTag}. Нажми «Обновить» — скачается и поставится сама."
     }
 
     Dialog(

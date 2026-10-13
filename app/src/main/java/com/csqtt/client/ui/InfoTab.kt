@@ -93,6 +93,9 @@ import com.csqtt.client.UPDATE_DIALOG_ACTION_UPDATE
 import com.csqtt.client.CSQTTColors
 import com.csqtt.client.fetchLatestReleaseInfo
 import com.csqtt.client.isNewerVersion
+import com.csqtt.client.fetchMayakRelease
+import com.csqtt.client.isMayakUpdate
+import com.csqtt.client.downloadAndInstall
 import kotlinx.coroutines.launch
 import com.csqtt.client.ui.components.CsqttScreen
 import com.csqtt.client.ui.design.CsqttSpacing
@@ -243,7 +246,7 @@ fun InfoTab(
                     isCheckingUpdates = true
                     scope.launch {
                         val checkedAt = System.currentTimeMillis()
-                        val release = fetchLatestReleaseInfo(currentVersion)
+                        val release = fetchMayakRelease()
                         val latest = release?.versionTag
                         settingsStore.saveUpdateState(
                             lastCheckAt = checkedAt,
@@ -262,7 +265,7 @@ fun InfoTab(
                             return@launch
                         }
 
-                        if (isNewerVersion(currentVersion, release.versionTag)) {
+                        if (isMayakUpdate(release)) {
                             settingsStore.saveUpdateDialogShown(release.versionTag, checkedAt)
                             pendingManualRelease = release
                         } else {
@@ -312,7 +315,13 @@ fun InfoTab(
                             action = UPDATE_DIALOG_ACTION_UPDATE,
                             actedAt = System.currentTimeMillis()
                         )
-                        openUrlInBrowser(context, release.releaseUrl)
+                        context.showRaisedToast(
+                            "Обновляюсь… Антоха опять что-то придумал или сломал 🤣",
+                            Toast.LENGTH_LONG
+                        )
+                        if (!downloadAndInstall(context, release)) {
+                            openUrlInBrowser(context, release.releaseUrl)
+                        }
                     }
                 }
             )
