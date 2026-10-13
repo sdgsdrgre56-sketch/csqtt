@@ -27,6 +27,9 @@ import java.net.URL
  */
 private const val LOG_TAG = "Mayak"
 private const val APK_MIME = "application/vnd.android.package-archive"
+private val MAYAK_TAG = Regex("build-(\\d+)")
+private val MAYAK_CLIENT_APK = Regex("Mayak-\\d+-[A-Za-z0-9_]+\\.apk")
+private val MAYAK_ADMIN_APK = Regex("MayakAdmin-\\d+-[A-Za-z0-9_]+\\.apk")
 
 /** The build number baked into this APK. CI sets versionCode to 1000 + build number. */
 fun localBuildNumber(): Int = (BuildConfig.VERSION_CODE - 1000).coerceAtLeast(0)
@@ -54,7 +57,9 @@ suspend fun fetchMayakRelease(): AppReleaseInfo? = withContext(Dispatchers.IO) {
         val release = releases.optJSONObject(i) ?: continue
         if (release.optBoolean("draft")) continue
         val tag = release.optString("tag_name").trim()
-        val number = buildNumberOf(tag) ?: continue
+        // Only Mayak's own "build-N" releases: the same repo also publishes other apps
+        // (for example "ya-build-N"), and their APKs must never be offered as a Mayak update.
+        val number = MAYAK_TAG.matchEntire(tag)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: continue
         if (number <= bestNumber) continue
 
         val assets = release.optJSONArray("assets") ?: JSONArray()
@@ -64,11 +69,11 @@ suspend fun fetchMayakRelease(): AppReleaseInfo? = withContext(Dispatchers.IO) {
             val asset = assets.optJSONObject(j) ?: continue
             val name = asset.optString("name")
             val url = asset.optString("browser_download_url").takeIf { it.isNotBlank() } ?: continue
-            if (!name.endsWith(".apk", ignoreCase = true)) continue
-            if (name.contains("Admin", ignoreCase = true) == MayakConfig.ADMIN) {
-                if (name.contains("universal", ignoreCase = true) || MayakConfig.ADMIN) apkUrl = url
-                if (fallbackApk == null) fallbackApk = url
-            }
+            // CI names them Mayak-N-universal.apk, Mayak-N-arm64.apk and MayakAdmin-N-arm64.apk.
+            val ownApk = if (MayakConfig.ADMIN) MAYAK_ADMIN_APK else MAYAK_CLIENT_APK
+            if (!ownApk.matches(name)) continue
+            if (name.contains("universal", ignoreCase = true) || MayakConfig.ADMIN) apkUrl = url
+            if (fallbackApk == null) fallbackApk = url
         }
         best = AppReleaseInfo(
             versionTag = tag,
