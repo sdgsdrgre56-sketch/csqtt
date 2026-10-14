@@ -320,9 +320,53 @@ jobs:
             echo "---"
             echo "Automatic build from commit $GITHUB_SHA. Signing key: $SIGNING_KIND."
           } > "$notes"
+          printf '%s\n' "$whatsnew" | sed '/^$/d' > "$RUNNER_TEMP/whatsnew.txt"
           gh release create "$tag" dist/*.apk \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "Mayak build $MAYAK_BUILD_NUMBER" \
             --notes-file "$notes"
+
+      # Copy of the newest build on the owner's public Yandex Disk folder "mayak", so Mayak can update
+      # itself on mobile networks with whitelists (GitHub is blocked there, Yandex is not).
+      # Runs only when the secrets YANDEX_LOGIN and YANDEX_APP_PASSWORD are set; never fails the build.
+      - name: Mirror to Yandex Disk
+        continue-on-error: true
+        env:
+          YANDEX_LOGIN: ${{ secrets.YANDEX_LOGIN }}
+          YANDEX_APP_PASSWORD: ${{ secrets.YANDEX_APP_PASSWORD }}
+        run: |
+          if [ -z "$YANDEX_LOGIN" ] || [ -z "$YANDEX_APP_PASSWORD" ]; then
+            echo "Yandex Disk secrets are not set, skipping."
+            exit 0
+          fi
+          base="https://webdav.yandex.ru/mayak"
+          put() {
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 --max-time 600 \
+              --user "$YANDEX_LOGIN:$YANDEX_APP_PASSWORD" -T "$1" "$base/$2") || code="curl-error"
+            case "$code" in
+              2??) echo "Uploaded $2"; return 0 ;;
+              *) echo "::warning::Yandex Disk upload of $2 failed: $code"; return 1 ;;
+            esac
+          }
+          whatsnew="$RUNNER_TEMP/whatsnew.txt"
+          [ -f "$whatsnew" ] || : > "$whatsnew"
+          json() {  # $1 = apk file name on the Disk
+            jq -n --argjson build "$MAYAK_BUILD_NUMBER" --arg apk "$1" --rawfile notes "$whatsnew" \
+              '{build: $build, apk: $apk, notes: ($notes | split("\n") | map(select(length > 0)))}'
+          }
+          # Mayak Admin always gets the newest build.
+          if put "dist/MayakAdmin-$MAYAK_BUILD_NUMBER-arm64.apk" "MayakAdmin-latest.apk"; then
+            json "MayakAdmin-latest.apk" > "$RUNNER_TEMP/admin.json"
+            put "$RUNNER_TEMP/admin.json" "admin.json" || true
+          fi
+          # People's Mayak only when the build is not about Mayak Admin alone (same rule as the app).
+          if [ ! -s "$whatsnew" ] || LC_ALL=C.UTF-8 grep -v -i -E '^[[:space:]]*(в маяке админ|в админке|маяк админ)' "$whatsnew" | grep -q .; then
+            if put "dist/Mayak-$MAYAK_BUILD_NUMBER-universal.apk" "Mayak-latest.apk"; then
+              json "Mayak-latest.apk" > "$RUNNER_TEMP/client.json"
+              put "$RUNNER_TEMP/client.json" "client.json" || true
+            fi
+          else
+            echo "Admin-only build: people's Mayak on Yandex Disk stays as it is."
+          fi

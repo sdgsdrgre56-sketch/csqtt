@@ -43,7 +43,9 @@ fun buildNumberOf(version: String): Int? =
  * Returns null when the check could not be made (no network, GitHub unreachable, parse error).
  */
 suspend fun fetchMayakRelease(): AppReleaseInfo? = withContext(Dispatchers.IO) {
-    val body = httpText(CsqttConstants.Update.MAYAK_RELEASES_URL) ?: return@withContext null
+    // GitHub first; when it cannot be reached (mobile whitelists), the owner's Yandex Disk.
+    val body = httpText(CsqttConstants.Update.MAYAK_RELEASES_URL)
+        ?: return@withContext fetchYandexRelease()
     val releases = try {
         JSONArray(body)
     } catch (e: Exception) {
@@ -95,6 +97,30 @@ suspend fun fetchMayakRelease(): AppReleaseInfo? = withContext(Dispatchers.IO) {
 }
 
 private const val MAX_NOTES = 8
+
+/**
+ * The newest build from the owner's public Yandex Disk folder: CI writes "client.json" and
+ * "admin.json" there ({"build": N, "apk": "<file>", "notes": [...]}) next to the APK files.
+ * Returns null when Yandex cannot be reached or has nothing.
+ */
+private fun fetchYandexRelease(): AppReleaseInfo? {
+    val text = MayakYandex.fetchText(if (MayakConfig.ADMIN) "admin.json" else "client.json") ?: return null
+    return runCatching {
+        val obj = org.json.JSONObject(text)
+        val number = obj.optInt("build", 0).takeIf { it > 0 } ?: return null
+        val apk = obj.optString("apk", "").takeIf { it.isNotBlank() } ?: return null
+        val array = obj.optJSONArray("notes") ?: JSONArray()
+        val allLines = (0 until array.length()).map { array.optString(it) }.filter { it.isNotBlank() }
+        val lines = if (MayakConfig.ADMIN) allLines else allLines.filterNot(::isAdminOnlyNote)
+        AppReleaseInfo(
+            versionTag = "build-$number",
+            releaseUrl = "",
+            source = RemoteVersionSource.Release,
+            downloadUrl = MayakYandex.downloadApiUrl(apk),
+            notes = lines.take(MAX_NOTES),
+        )
+    }.getOrNull()
+}
 
 /** A "Что нового" line about Mayak Admin only, which people's Mayak does not need. */
 internal fun isAdminOnlyNote(line: String): Boolean {
@@ -154,10 +180,16 @@ suspend fun downloadAndInstall(
 
     val apk = withContext(Dispatchers.IO) {
         try {
+            // A file on the owner's Yandex Disk is reached through a short-lived direct link.
+            val directUrl = if (MayakYandex.isDownloadApiUrl(url)) {
+                MayakYandex.resolveDirectLink(url) ?: return@withContext null
+            } else {
+                url
+            }
             val dir = File(context.cacheDir, "updates").apply { mkdirs() }
             dir.listFiles()?.forEach { it.delete() }
             val file = File(dir, "mayak-${release.versionTag}.apk")
-            var current = URL(url)
+            var current = URL(directUrl)
             var connection: HttpURLConnection
             var hops = 0
             while (true) {

@@ -150,7 +150,7 @@ internal object MayakSync {
                 if (!force && now - prefs.getLong("last_check", 0L) < CHECK_EVERY_MS) return@withContext
                 prefs.edit().putLong("last_check", now).apply()
 
-                fetchText("$RAW_BASE/announce.json")?.let { text ->
+                (fetchText("$RAW_BASE/announce.json") ?: MayakYandex.fetchText("announce.json"))?.let { text ->
                     runCatching {
                         val obj = JSONObject(text)
                         prefs.edit()
@@ -166,7 +166,10 @@ internal object MayakSync {
                 val lastApplied = prefs.getLong("list_updated", 0L)
                 for (link in links) {
                     val password = parseCsqttLink(link)?.password ?: continue
-                    val text = fetchText("$RAW_BASE/${filePath(password)}") ?: continue
+                    // GitHub first, then the same file on the owner's Yandex Disk (mobile whitelists).
+                    val text = fetchText("$RAW_BASE/${filePath(password)}")
+                        ?: MayakYandex.fetchText(yandexPersonFile(password))
+                        ?: continue
                     val list = decrypt(text, password)?.let(::decodeList) ?: continue
                     if (list.updated <= lastApplied) break
                     val fresh = withCarriedHashes(list.links.filter { parseCsqttLink(it) != null }, links)

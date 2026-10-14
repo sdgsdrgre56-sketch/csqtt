@@ -53,6 +53,10 @@ internal fun AdminChannelDialog(
     val scope = rememberCoroutineScope()
     var hasToken by remember { mutableStateOf(MayakSyncAdmin.hasToken(context)) }
     var tokenText by remember { mutableStateOf("") }
+    var hasYandex by remember { mutableStateOf(MayakSyncAdmin.hasYandex(context)) }
+    var yandexLoginText by remember { mutableStateOf(MayakSyncAdmin.yandexLogin(context)) }
+    var yandexPasswordText by remember { mutableStateOf("") }
+    val canPublish = hasToken || hasYandex
     var announcement by remember { mutableStateOf("") }
     var targetServer by remember { mutableStateOf(MayakConfig.ADMIN_SERVERS - 1) }
     var busy by remember { mutableStateOf(false) }
@@ -159,13 +163,72 @@ internal fun AdminChannelDialog(
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
+                    // --- Yandex Disk ---
+                    Text("Яндекс Диск (для белых списков)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = if (hasYandex) {
+                            "Сохранено. Объявления и списки пишутся ещё и в папку mayak на Яндекс Диске, " +
+                                "их Маяк найдёт даже на мобильном с белыми списками."
+                        } else {
+                            "Логин Яндекса и пароль приложения (тип «Файлы»). Обычный пароль от Яндекса сюда не подходит. " +
+                                "Хранится на телефоне в зашифрованном виде."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = yandexLoginText,
+                        onValueChange = { yandexLoginText = it.trim().take(100) },
+                        label = { Text("Логин Яндекса") },
+                        singleLine = true,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = yandexPasswordText,
+                        onValueChange = { yandexPasswordText = it.trim().take(100) },
+                        label = { Text(if (hasYandex) "Новый пароль приложения (если нужно)" else "Пароль приложения") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(
+                            onClick = {
+                                MayakSyncAdmin.saveYandex(context, yandexLoginText, yandexPasswordText)
+                                hasYandex = MayakSyncAdmin.hasYandex(context)
+                                yandexPasswordText = ""
+                                result = if (hasYandex) "Яндекс Диск сохранён" else "Яндекс Диск удалён"
+                                resultIsError = false
+                            },
+                            enabled = !busy && yandexLoginText.isNotBlank() && yandexPasswordText.isNotBlank(),
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Сохранить") }
+                        if (hasYandex) {
+                            OutlinedButton(
+                                onClick = {
+                                    MayakSyncAdmin.saveYandex(context, "", "")
+                                    hasYandex = false
+                                    yandexLoginText = ""
+                                    result = "Яндекс Диск удалён"
+                                    resultIsError = false
+                                },
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f),
+                            ) { Text("Удалить") }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
                     // --- announcement ---
                     Text("Объявление", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     OutlinedTextField(
                         value = announcement,
                         onValueChange = { announcement = it.take(500) },
                         label = { Text("Например: сервер 2 на ремонте до вечера") },
-                        enabled = !busy && hasToken,
+                        enabled = !busy && canPublish,
                         minLines = 2,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -173,22 +236,16 @@ internal fun AdminChannelDialog(
                         Button(
                             onClick = {
                                 val text = announcement
-                                launchTask {
-                                    MayakSyncAdmin.publishAnnouncement(context, text)
-                                    "Объявление отправлено. У людей появится в течение нескольких часов."
-                                }
+                                launchTask { MayakSyncAdmin.publishAnnouncement(context, text) }
                             },
-                            enabled = !busy && hasToken && announcement.isNotBlank(),
+                            enabled = !busy && canPublish && announcement.isNotBlank(),
                             modifier = Modifier.weight(1f),
                         ) { Text("Отправить") }
                         OutlinedButton(
                             onClick = {
-                                launchTask {
-                                    MayakSyncAdmin.publishAnnouncement(context, "")
-                                    "Объявление убрано"
-                                }
+                                launchTask { MayakSyncAdmin.publishAnnouncement(context, "") }
                             },
-                            enabled = !busy && hasToken,
+                            enabled = !busy && canPublish,
                             modifier = Modifier.weight(1f),
                         ) { Text("Убрать") }
                     }
@@ -213,7 +270,7 @@ internal fun AdminChannelDialog(
                                 }
                             }
                         },
-                        enabled = !busy && hasToken,
+                        enabled = !busy && canPublish,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Разослать списки серверов") }
 
@@ -235,7 +292,7 @@ internal fun AdminChannelDialog(
                             val target = targetServer
                             launchTask { MayakSyncAdmin.addServerForAll(context, settingsStore, target) }
                         },
-                        enabled = !busy && hasToken,
+                        enabled = !busy && canPublish,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Добавить сервер ${targetServer + 1} всем") }
 

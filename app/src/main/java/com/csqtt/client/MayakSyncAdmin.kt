@@ -35,14 +35,75 @@ internal object MayakSyncAdmin {
         return SecureStringStore(context).decrypt(stored)?.takeIf { it.isNotBlank() }
     }
 
-    /** Shows [text] as a banner in every Mayak. Empty text removes the banner. */
-    suspend fun publishAnnouncement(context: Context, text: String) = withContext(Dispatchers.IO) {
-        val token = token(context) ?: throw SyncException("Сначала вставь токен GitHub")
+    // ---- Yandex Disk (second place, reachable on mobile whitelists) -------------------------
+
+    private const val YANDEX_LOGIN_KEY = "yandex_login"
+    private const val YANDEX_PASSWORD_KEY = "yandex_app_password"
+
+    fun hasYandex(context: Context): Boolean = yandex(context) != null
+
+    fun yandexLogin(context: Context): String =
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(YANDEX_LOGIN_KEY, "").orEmpty()
+
+    fun saveYandex(context: Context, login: String, appPassword: String) {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (login.isBlank() || appPassword.isBlank()) {
+            prefs.edit().remove(YANDEX_LOGIN_KEY).remove(YANDEX_PASSWORD_KEY).apply()
+        } else {
+            prefs.edit()
+                .putString(YANDEX_LOGIN_KEY, login.trim().removeSuffix("@yandex.ru"))
+                .putString(YANDEX_PASSWORD_KEY, SecureStringStore(context).encrypt(appPassword.trim()))
+                .apply()
+        }
+    }
+
+    private fun yandex(context: Context): Pair<String, String>? {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val login = prefs.getString(YANDEX_LOGIN_KEY, null)?.takeIf { it.isNotBlank() } ?: return null
+        val password = SecureStringStore(context).decrypt(prefs.getString(YANDEX_PASSWORD_KEY, null))
+            ?.takeIf { it.isNotBlank() } ?: return null
+        return login to password
+    }
+
+    fun canPublish(context: Context): Boolean = hasToken(context) || hasYandex(context)
+
+    /**
+     * Shows [text] as a banner in every Mayak. Empty text removes the banner. Written to GitHub
+     * and to Yandex Disk (whichever is set up); fails only if it reached neither.
+     */
+    suspend fun publishAnnouncement(context: Context, text: String): String = withContext(Dispatchers.IO) {
+        val token = token(context)
+        val yandex = yandex(context)
+        if (token == null && yandex == null) throw SyncException("Сначала вставь токен GitHub или пароль Яндекс Диска")
         val body = JSONObject()
             .put("id", if (text.isBlank()) 0L else System.currentTimeMillis() / 1000L)
             .put("text", text.trim().take(500))
             .toString()
-        putFile(token, "announce.json", body, if (text.isBlank()) "Убрать объявление" else "Объявление")
+        val done = mutableListOf<String>()
+        val failed = mutableListOf<String>()
+        if (token != null) {
+            try {
+                putFile(token, "announce.json", body, if (text.isBlank()) "Убрать объявление" else "Объявление")
+                done += "GitHub"
+            } catch (failure: SyncException) {
+                failed += "GitHub: ${failure.message}"
+            }
+        }
+        if (yandex != null) {
+            try {
+                MayakYandex.putText(yandex.first, yandex.second, "announce.json", body)
+                done += "Яндекс Диск"
+            } catch (failure: MayakYandex.WriteException) {
+                failed += "Яндекс Диск: ${failure.message}"
+            }
+        }
+        if (done.isEmpty()) throw SyncException(failed.joinToString("; "))
+        buildString {
+            append(if (text.isBlank()) "Объявление убрано" else "Объявление отправлено")
+            append(" (${done.joinToString(", ")}).")
+            if (failed.isNotEmpty()) append(" Не получилось: ${failed.joinToString("; ")}")
+        }
     }
 
     data class PublishResult(val people: Int, val changedFiles: Int, val problems: List<String>)
@@ -53,7 +114,9 @@ internal object MayakSyncAdmin {
      * passwords. Files whose content did not change are left alone.
      */
     suspend fun publishPeople(context: Context, store: SettingsStore): PublishResult = withContext(Dispatchers.IO) {
-        val token = token(context) ?: throw SyncException("Сначала вставь токен GitHub")
+        val token = token(context)
+        val yandex = yandex(context)
+        if (token == null && yandex == null) throw SyncException("Сначала вставь токен GitHub или пароль Яндекс Диска")
         val problems = mutableListOf<String>()
         // name -> list of (server number, host, person)
         val byName = linkedMapOf<String, MutableList<Triple<Int, String, PanelPerson>>>()
@@ -78,7 +141,9 @@ internal object MayakSyncAdmin {
 
         val now = System.currentTimeMillis() / 1000L
         var changed = 0
-        for ((name, entries) in byName) {
+        val githubProblems = linkedSetOf<String>()
+        val yandexProblems = linkedSetOf<String>()
+        for ((_, entries) in byName) {
             val sorted = entries.sortedBy { it.first }
             val links = sorted
                 .filter { (_, _, person) -> person.enabled && (person.expiresAt == 0L || person.expiresAt > now) }
@@ -87,25 +152,45 @@ internal object MayakSyncAdmin {
                     PanelApi.buildLink(host, port, person.password, person.expiresAt)
                 }
             if (links.isEmpty()) continue // switched off or expired everywhere: leave the old list
-            for ((number, _, person) in sorted) {
-                val path = MayakSync.filePath(person.password)
-                try {
-                    val existing = getFile(token, path)
-                    val same = existing?.let { (text, _) ->
-                        MayakSync.decrypt(text, person.password)?.let(MayakSync::decodeList)?.links == links
-                    } ?: false
-                    if (same) continue
-                    val payload = MayakSync.encrypt(
+            for ((_, _, person) in sorted) {
+                val fresh by lazy {
+                    MayakSync.encrypt(
                         MayakSync.encodeList(MayakSync.PersonList(updated = now, links = links)),
                         person.password,
                     )
-                    putFile(token, path, payload, "Список серверов", existing?.second)
-                    changed += 1
-                } catch (failure: SyncException) {
-                    problems += "$name (сервер $number): ${failure.message}"
+                }
+                // The payload written to Yandex Disk is the same one GitHub holds.
+                var payload: String? = null
+                if (token != null) {
+                    val path = MayakSync.filePath(person.password)
+                    try {
+                        val existing = getFile(token, path)
+                        val same = existing?.let { (text, _) ->
+                            MayakSync.decrypt(text, person.password)?.let(MayakSync::decodeList)?.links == links
+                        } ?: false
+                        if (same) {
+                            payload = existing?.first
+                        } else {
+                            putFile(token, path, fresh, "Список серверов", existing?.second)
+                            payload = fresh
+                            changed += 1
+                        }
+                    } catch (failure: SyncException) {
+                        githubProblems += failure.message.orEmpty()
+                    }
+                }
+                if (yandex != null) {
+                    try {
+                        MayakYandex.putText(yandex.first, yandex.second, yandexPersonFile(person.password), payload ?: fresh)
+                        if (token == null) changed += 1
+                    } catch (failure: MayakYandex.WriteException) {
+                        yandexProblems += failure.message.orEmpty()
+                    }
                 }
             }
         }
+        if (githubProblems.isNotEmpty()) problems += "GitHub: " + githubProblems.joinToString("; ")
+        if (yandexProblems.isNotEmpty()) problems += "Яндекс Диск: " + yandexProblems.joinToString("; ")
         PublishResult(people = byName.size, changedFiles = changed, problems = problems)
     }
 
