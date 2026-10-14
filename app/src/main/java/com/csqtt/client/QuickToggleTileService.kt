@@ -56,7 +56,7 @@ class QuickToggleTileService : TileService() {
             }
 
             if (VpnService.prepare(this) != null) {
-                this.showRaisedToast("Откройте CSQTT и выдайте VPN-разрешение", Toast.LENGTH_LONG)
+                this.showRaisedToast("Откройте Маяк и выдайте VPN-разрешение", Toast.LENGTH_LONG)
                 openMainActivity()
                 return
             }
@@ -65,7 +65,7 @@ class QuickToggleTileService : TileService() {
                 try {
                     val intent = buildStartIntent()
                     if (intent == null) {
-                        this@QuickToggleTileService.showRaisedToast("Заполните настройки подключения в CSQTT", Toast.LENGTH_LONG)
+                        this@QuickToggleTileService.showRaisedToast("Заполните настройки подключения в Маяке", Toast.LENGTH_LONG)
                         openMainActivity()
                         return@launch
                     }

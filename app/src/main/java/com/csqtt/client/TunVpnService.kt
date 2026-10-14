@@ -165,7 +165,7 @@ class TunVpnService : VpnService() {
                     builder.addDisallowedApplication(applicationContext.packageName)
                 } catch (e: Exception) {
                     Log.e(TAG, "Unable to exclude CSQTT UID from its VPN", e)
-                    failVpn("Android не разрешил исключить CSQTT из собственного VPN")
+                    failVpn("Android не разрешил исключить Маяк из собственного VPN")
                     return
                 }
                 val excluded = transportPackages.toMutableSet()

@@ -1141,7 +1141,7 @@ class TunnelService : Service() {
         )
 
         return NotificationCompat.Builder(this, TUNNEL_NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("CSQTT")
+            .setContentTitle(MayakConfig.APP_NAME)
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_stat_c)
             .setOngoing(true)

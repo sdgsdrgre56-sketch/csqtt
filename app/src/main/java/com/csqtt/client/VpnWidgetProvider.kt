@@ -61,7 +61,7 @@ class VpnWidgetProvider : AppWidgetProvider() {
                 }
 
                 if (VpnService.prepare(context) != null) {
-                    context.showRaisedToast("Откройте CSQTT и выдайте VPN-разрешение", Toast.LENGTH_LONG)
+                    context.showRaisedToast("Откройте Маяк и выдайте VPN-разрешение", Toast.LENGTH_LONG)
                     openMainActivity(context)
                     return
                 }
@@ -70,7 +70,7 @@ class VpnWidgetProvider : AppWidgetProvider() {
                     try {
                         val startIntent = buildStartIntent(context)
                         if (startIntent == null) {
-                            context.showRaisedToast("Заполните настройки подключения в CSQTT", Toast.LENGTH_LONG)
+                            context.showRaisedToast("Заполните настройки подключения в Маяке", Toast.LENGTH_LONG)
                             openMainActivity(context)
                             return@launch
                         }
