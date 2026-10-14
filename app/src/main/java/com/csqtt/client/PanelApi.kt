@@ -38,6 +38,17 @@ internal data class PanelClient(
     val expiresAt: Long,
 )
 
+/** One person on a server as the panel lists it (Mayak Admin "Кто подключён"). */
+internal data class PanelPerson(
+    val name: String,
+    val sessions: Int,
+    val enabled: Boolean,
+    val expiresAt: Long,
+    val downBytes: Long,
+    val upBytes: Long,
+    val isMain: Boolean,
+)
+
 internal class PanelException(message: String) : IOException(message)
 
 /**
@@ -204,6 +215,30 @@ internal class PanelApi(context: Context, private val server: PanelServer) {
             )
         }
         readDns()
+    }
+
+    /**
+     * Everyone the server knows, with how many connections each has right now. Read-only: it uses
+     * the panel's own GET /api/clients, which the installed CSQTT server already provides.
+     */
+    suspend fun listPeople(): List<PanelPerson> = session {
+        val (code, text) = request("GET", "/api/clients")
+        if (code != 200) throw PanelException("Не удалось получить список людей (код $code)")
+        val array = runCatching { org.json.JSONArray(text) }.getOrNull()
+            ?: throw PanelException("Сервер прислал непонятный ответ")
+        (0 until array.length()).mapNotNull { index ->
+            val item = array.optJSONObject(index) ?: return@mapNotNull null
+            val name = item.optString("name", "").trim()
+            PanelPerson(
+                name = name.ifBlank { "Без имени" },
+                sessions = item.optInt("active_sessions", 0).coerceAtLeast(0),
+                enabled = item.optBoolean("active", true),
+                expiresAt = item.optLong("expires", 0L),
+                downBytes = item.optLong("down", 0L),
+                upBytes = item.optLong("up", 0L),
+                isMain = name == "Главный пароль",
+            )
+        }
     }
 
     /** Creates a person on this server; [days] 0 means no expiry. */

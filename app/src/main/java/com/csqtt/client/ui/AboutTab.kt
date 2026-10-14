@@ -40,6 +40,10 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
     if (showDnsDialog && settingsStore != null) {
         AdminDnsDialog(settingsStore = settingsStore, onDismiss = { showDnsDialog = false })
     }
+    var showPeopleDialog by remember { mutableStateOf(false) }
+    if (showPeopleDialog && settingsStore != null) {
+        AdminPeopleDialog(settingsStore = settingsStore, onDismiss = { showPeopleDialog = false })
+    }
     var showAddPersonDialog by remember { mutableStateOf(false) }
     if (showAddPersonDialog && settingsStore != null) {
         AdminAddPersonDialog(settingsStore = settingsStore, onDismiss = { showAddPersonDialog = false })
@@ -93,6 +97,19 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
                     }
                     Text(
                         text = "Заводит человека на всех серверах сразу и показывает один QR-код.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(
+                        onClick = { showPeopleDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                    ) {
+                        Text("Кто подключён", fontWeight = FontWeight.SemiBold)
+                    }
+                    Text(
+                        text = "Показывает людей на всех серверах, кто сейчас подключён и сколько дней осталось.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
