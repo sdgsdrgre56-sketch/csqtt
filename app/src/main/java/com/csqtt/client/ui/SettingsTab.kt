@@ -199,7 +199,14 @@ internal fun SettingsTabContent(
         if (links.isEmpty()) return false
         linkSaveJob?.cancel()
         linkText = links.first()
-        linkSaveJob = scope.launch { settingsStore.saveCsqttLinks(links) }
+        // Mayak: a scanned or pasted link must be saved even if the person leaves the tab at once.
+        linkSaveJob = null
+        scope.launch {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                settingsStore.saveCsqttLinks(links)
+                settingsStore.saveCsqttLinkMode(true)
+            }
+        }
         context.showRaisedToast(
             if (links.size > 1) "Добавлено серверов: ${links.size}" else "Ссылка вставлена",
             Toast.LENGTH_SHORT,

@@ -273,8 +273,11 @@ internal fun ConnectionTab(
         val links = MayakLinks.fromUserText(text)
         if (links.isEmpty()) return false
         scope.launch {
-            settingsStore.saveCsqttLinks(links)
-            settingsStore.saveCsqttLinkMode(true)
+            // Mayak: finish saving even if the screen is left right away.
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                settingsStore.saveCsqttLinks(links)
+                settingsStore.saveCsqttLinkMode(true)
+            }
         }
         context.showRaisedToast(
             if (links.size > 1) "Добавлено серверов: ${links.size}" else "Ссылка вставлена",
