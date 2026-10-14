@@ -3,6 +3,7 @@
 
 package com.csqtt.client.ui
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.content.pm.PackageManager
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -97,6 +98,7 @@ fun ExceptionsTab(
     val persistedSelection = remember(savedExcluded) {
         savedExcluded.split(',').filter(String::isNotBlank).toSet()
     }
+    val banksDirect by settingsStore.banksDirect.collectAsStateWithLifecycle(initialValue = true)
     var selectedPackages by remember { mutableStateOf(persistedSelection) }
     var lastSavedSelection by remember { mutableStateOf(persistedSelection) }
     var saveJob by remember { mutableStateOf<Job?>(null) }
@@ -243,6 +245,19 @@ fun ExceptionsTab(
                             selectedPackages.sorted().joinToString(","),
                             mode == RoutingMode.IncludeSelected,
                         )
+                        delay(300)
+                        TunnelManager.reloadVpn()
+                    }
+                },
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            CsqttSettingRow(
+                title = "Банки и Госуслуги напрямую",
+                description = "Т-Банк, ВТБ, Альфа, Госуслуги, Ozon, Wildberries и другие идут мимо Маяка. Сбер — через Маяк.",
+                checked = banksDirect,
+                onCheckedChange = { enabled ->
+                    scope.launch {
+                        settingsStore.saveBanksDirect(enabled)
                         delay(300)
                         TunnelManager.reloadVpn()
                     }

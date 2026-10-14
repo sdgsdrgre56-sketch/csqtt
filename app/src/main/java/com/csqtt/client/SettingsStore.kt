@@ -141,6 +141,7 @@ class SettingsStore(context: Context) {
         private val VK_ACCESS_TOKEN_USER_ID = stringPreferencesKey("vk_access_token_user_id")
 
         private val IS_WHITELIST = booleanPreferencesKey("is_whitelist")
+        private val MAYAK_BANKS_DIRECT = booleanPreferencesKey("mayak_banks_direct")
         private val SPLIT_TUNNEL_WHITELIST_MIGRATED = booleanPreferencesKey("split_tunnel_whitelist_migrated")
         private val EXTRA_WORKERS = booleanPreferencesKey("extra_workers")
         private val AUTO_JS_RISK_ACKNOWLEDGED = booleanPreferencesKey("auto_js_risk_acknowledged")
@@ -451,6 +452,13 @@ class SettingsStore(context: Context) {
     val vkAccessTokenUserId: Flow<String> = dataStore.data.map { prefs ->
         val profile = prefs[ACTIVE_PROFILE] ?: 0
         prefs[getProfileKey(VK_ACCESS_TOKEN_USER_ID, profile)] ?: ""
+    }
+
+    /** Mayak: banks and government apps bypass the tunnel (on by default). */
+    val banksDirect: Flow<Boolean> = dataStore.data.map { prefs -> prefs[MAYAK_BANKS_DIRECT] ?: true }
+
+    suspend fun saveBanksDirect(enabled: Boolean) {
+        dataStore.edit { prefs -> prefs[MAYAK_BANKS_DIRECT] = enabled }
     }
 
     val isWhitelist: Flow<Boolean> = dataStore.data.map { prefs ->

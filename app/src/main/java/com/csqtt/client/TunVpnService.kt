@@ -109,6 +109,7 @@ class TunVpnService : VpnService() {
             val settingsStore = SettingsStore(applicationContext)
             val savedExcluded = settingsStore.excludedApps.first()
             val isWhitelist = settingsStore.isWhitelist.first()
+            val directApps = if (settingsStore.banksDirect.first()) MayakDirectApps.BANKS_AND_GOV else emptySet()
             val userSelected = savedExcluded.split(",").filter { it.isNotEmpty() }.toSet()
             val transportPackages = setOf(
                 applicationContext.packageName,
@@ -138,8 +139,8 @@ class TunVpnService : VpnService() {
 
             if (isWhitelist) {
                 val installedIncluded = userSelected
-                    .filter { pkg -> 
-                        pkg !in transportPackages && isPackageInstalled(pkg) 
+                    .filter { pkg ->
+                        pkg !in transportPackages && pkg !in directApps && isPackageInstalled(pkg)
                     }
                     .toSet()
                 if (installedIncluded.isEmpty()) {
@@ -170,6 +171,7 @@ class TunVpnService : VpnService() {
                 }
                 val excluded = transportPackages.toMutableSet()
                 excluded.addAll(userSelected)
+                excluded.addAll(directApps)
                 excluded
                     .filter { it != applicationContext.packageName && isPackageInstalled(it) }
                     .forEach { pkg ->
