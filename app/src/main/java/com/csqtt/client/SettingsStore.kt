@@ -3,6 +3,7 @@
 
 package com.csqtt.client
 
+import com.csqtt.client.ui.utils.parseCsqttLink
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.datastore.preferences.core.MutablePreferences
@@ -699,6 +700,24 @@ class SettingsStore(context: Context) {
             prefs[CSQTT_LINK_INDEX] = if (left.isEmpty()) 0 else position.mod(left.size)
         }
         return remaining
+    }
+
+    /**
+     * Mayak: replaces the stored links with a list the admin published (see MayakSync). Stays on
+     * the same server if it is still in the list, otherwise starts from the first one.
+     */
+    suspend fun replaceCsqttLinksKeepingServer(links: List<String>) {
+        dataStore.edit { prefs ->
+            val profile = prefs[ACTIVE_PROFILE] ?: 0
+            val key = getProfileKey(CSQTT_LINK, profile)
+            val old = MayakLinks.split(prefs[key] ?: "")
+            val oldHost = old.getOrNull((prefs[CSQTT_LINK_INDEX] ?: 0).mod(old.size.coerceAtLeast(1)))
+                ?.let { parseCsqttLink(it)?.host }
+            val fresh = links.take(MayakLinks.MAX_LINKS)
+            prefs[key] = MayakLinks.join(fresh)
+            val position = fresh.indexOfFirst { parseCsqttLink(it)?.host == oldHost }
+            prefs[CSQTT_LINK_INDEX] = if (position >= 0) position else 0
+        }
     }
 
     /** Switches to the next stored link; returns the new position, or -1 if there is nothing to switch to. */

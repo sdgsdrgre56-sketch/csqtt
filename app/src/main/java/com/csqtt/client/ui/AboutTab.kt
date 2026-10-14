@@ -40,6 +40,10 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
     if (showDnsDialog && settingsStore != null) {
         AdminDnsDialog(settingsStore = settingsStore, onDismiss = { showDnsDialog = false })
     }
+    var showChannelDialog by remember { mutableStateOf(false) }
+    if (showChannelDialog && settingsStore != null) {
+        AdminChannelDialog(settingsStore = settingsStore, onDismiss = { showChannelDialog = false })
+    }
     var showPeopleDialog by remember { mutableStateOf(false) }
     if (showPeopleDialog && settingsStore != null) {
         AdminPeopleDialog(settingsStore = settingsStore, onDismiss = { showPeopleDialog = false })
@@ -110,6 +114,19 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
                     }
                     Text(
                         text = "Показывает людей на всех серверах, кто сейчас подключён и сколько дней осталось.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(
+                        onClick = { showChannelDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                    ) {
+                        Text("Связь с людьми", fontWeight = FontWeight.SemiBold)
+                    }
+                    Text(
+                        text = "Объявления, новый сервер всем и рассылка списков серверов без новых ссылок.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -128,6 +128,12 @@ internal fun AdminPeopleDialog(
             entries = entries,
             onDone = {
                 selectedName = null
+                // The change (new end date, removal) also goes to the person's phone.
+                if (com.csqtt.client.MayakSyncAdmin.hasToken(context)) {
+                    scope.launch {
+                        runCatching { com.csqtt.client.MayakSyncAdmin.publishPeople(context, settingsStore) }
+                    }
+                }
                 refresh()
             },
             onDismiss = { selectedName = null },

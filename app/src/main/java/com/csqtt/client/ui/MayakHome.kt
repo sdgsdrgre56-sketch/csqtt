@@ -3,6 +3,7 @@
 
 package com.csqtt.client.ui
 
+import androidx.compose.runtime.collectAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -692,6 +693,33 @@ internal fun MayakHome(
                         },
                         textAlign = TextAlign.Center,
                     )
+                }
+            }
+        }
+        // Mayak: an announcement from the admin, until the person closes it.
+        val announcement by com.csqtt.client.MayakSync.announcement.collectAsState()
+        val announcementContext = androidx.compose.ui.platform.LocalContext.current
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            com.csqtt.client.MayakSync.loadAnnouncement(announcementContext)
+        }
+        announcement?.let { note ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = "📢 " + note.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+                TextButton(onClick = { com.csqtt.client.MayakSync.closeAnnouncement(announcementContext) }) {
+                    Text("Понятно", fontWeight = FontWeight.Bold)
                 }
             }
         }

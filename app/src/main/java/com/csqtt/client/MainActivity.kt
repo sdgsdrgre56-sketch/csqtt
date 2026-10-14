@@ -386,6 +386,9 @@ fun MainScreen(
         }
 
         runUpdateCheck("startup")
+        // Mayak: new server list and announcement from the admin (client edition only).
+        MayakSync.loadAnnouncement(context)
+        runCatching { MayakSync.syncClient(context, settingsStore) }
 
         while (isActive) {
             val now = System.currentTimeMillis()
@@ -395,6 +398,7 @@ fun MainScreen(
             delay(waitMs)
             if (isActive) {
                 runUpdateCheck("periodic")
+                runCatching { MayakSync.syncClient(context, settingsStore) }
             }
         }
     }
