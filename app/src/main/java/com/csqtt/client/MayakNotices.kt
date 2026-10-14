@@ -46,6 +46,42 @@ internal object MayakNotices {
         }
     }
 
+    private const val LINK_NOTIFICATION_ID = 9102
+
+    /** Tells the person that the access period of a link is over and the link was removed. */
+    fun showLinkExpired(context: Context, remaining: Int) {
+        runCatching {
+            val appContext = context.applicationContext
+            val manager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "Важные сообщения", NotificationManager.IMPORTANCE_HIGH),
+            )
+            val openIntent = Intent(appContext, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            val openPendingIntent = PendingIntent.getActivity(
+                appContext,
+                LINK_NOTIFICATION_ID,
+                openIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val text = if (remaining > 0) {
+                "Срок доступа по одной из ссылок закончился, она удалена. Маяк работает через другой сервер."
+            } else {
+                "Срок доступа закончился, ссылка удалена и Маяк выключился. Попроси новую ссылку."
+            }
+            val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stat_c)
+                .setContentTitle("Срок доступа закончился")
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(openPendingIntent)
+                .setAutoCancel(true)
+                .build()
+            manager.notify(LINK_NOTIFICATION_ID, notification)
+        }
+    }
+
     fun clearHashExpired(context: Context) {
         runCatching {
             val manager = context.applicationContext

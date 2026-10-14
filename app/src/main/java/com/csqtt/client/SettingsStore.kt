@@ -678,6 +678,29 @@ class SettingsStore(context: Context) {
         }
     }
 
+    /**
+     * Mayak: removes the stored link [link] (an expired one). The position stays on the link that
+     * followed it. Returns how many links are left.
+     */
+    suspend fun removeCsqttLink(link: String): Int {
+        var remaining = 0
+        dataStore.edit { prefs ->
+            val profile = prefs[ACTIVE_PROFILE] ?: 0
+            val key = getProfileKey(CSQTT_LINK, profile)
+            val links = MayakLinks.split(prefs[key] ?: "")
+            val position = links.indexOf(link)
+            if (position < 0) {
+                remaining = links.size
+                return@edit
+            }
+            val left = links.filterIndexed { i, _ -> i != position }
+            remaining = left.size
+            prefs[key] = MayakLinks.join(left)
+            prefs[CSQTT_LINK_INDEX] = if (left.isEmpty()) 0 else position.mod(left.size)
+        }
+        return remaining
+    }
+
     /** Switches to the next stored link; returns the new position, or -1 if there is nothing to switch to. */
     suspend fun advanceCsqttLink(): Int {
         var result = -1

@@ -161,7 +161,7 @@ internal fun AdminAddPersonDialog(
                         )
                         ServerOutcome(
                             number,
-                            PanelApi.buildLink(profile.host, client.peerPort, client.password),
+                            PanelApi.buildLink(profile.host, client.peerPort, client.password, client.expiresAt),
                             "создан",
                         )
                     } catch (failure: kotlinx.coroutines.CancellationException) {

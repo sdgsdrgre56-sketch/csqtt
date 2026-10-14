@@ -1175,8 +1175,9 @@ object TunnelManager {
                         98,
                         true,
                     )
-                    // VK answered and the server did not: with several links, try the next server.
-                    switchToNextServer(identity)
+                    // VK answered and the server did not. If this link's access period is over,
+                    // drop it; otherwise, with several links, try the next server.
+                    if (!dropExpiredLink(identity)) switchToNextServer(identity)
                 }
                 TunnelStartupStage.READY -> Unit
             }
@@ -1194,6 +1195,77 @@ object TunnelManager {
             if (!isCurrent(identity) || !running.value || activeWorkers.value > 0) return@launch
             if (pausedForNoNetwork.isPaused()) return@launch
             switchToNextServer(identity)
+        }
+    }
+
+    /**
+     * Mayak client: the server of the current link did not answer and the access period written
+     * into the link ("exp") is over, so the link is dead: remove it from the phone. Only both
+     * together remove a link, so an extended access (server still answers) or a wrong phone clock
+     * (link not yet expired) keeps it. With other links left the tunnel moves on to the next one,
+     * otherwise it turns off and the person is asked for a new link. Returns true if it acted.
+     */
+    private suspend fun dropExpiredLink(identity: ProcessIdentity): Boolean {
+        if (!MayakConfig.SIMPLE_UI) return false
+        if (!failoverPending.compareAndSet(false, true)) return false
+        try {
+            val command = lifecycleCommand.get()
+            val context = activeContext()?.applicationContext ?: return false
+            val params = currentParams ?: return false
+            if (!isCurrent(identity) || !running.value) return false
+            val store = activeSettingsStore ?: SettingsStore(context).also { activeSettingsStore = it }
+            if (!store.csqttLinkMode.first()) return false
+            val links = store.csqttLinks.first()
+            if (links.isEmpty()) return false
+            val index = store.csqttLinkIndex.first().coerceIn(0, links.size - 1)
+            val current = links[index]
+            val parsed = parseCsqttLink(current) ?: return false
+            val nowSeconds = System.currentTimeMillis() / 1000L
+            if (parsed.expiresAt <= 0L || nowSeconds <= parsed.expiresAt) return false
+
+            val remaining = store.removeCsqttLink(current)
+            MayakNotices.showLinkExpired(context, remaining)
+            updateLog(
+                "link_expired",
+                "[СЕРВЕР] Срок доступа по ссылке сервера ${index + 1} закончился · ссылка удалена",
+                3,
+                false,
+                LogLevel.NET,
+            )
+            if (remaining == 0) {
+                if (isCurrent(identity)) stop()
+                return true
+            }
+
+            val nextLinks = store.csqttLinks.first()
+            val nextIndex = store.csqttLinkIndex.first().coerceIn(0, nextLinks.size - 1)
+            val link = parseCsqttLink(nextLinks[nextIndex]) ?: return true
+            val switched = params.copy(
+                peer = link.peerAddress(),
+                connectionPassword = link.password,
+                vkHashes = if (link.hashes.isNotEmpty()) link.hashes.joinToString(",") else params.vkHashes,
+            )
+            val newParams = runCatching { switched.withNewSession(context) }.getOrElse { return true }
+            startStopMutex.withLock {
+                if (
+                    lifecycleCommand.get() != command ||
+                    !isCurrent(identity) ||
+                    !running.value ||
+                    currentParams != params
+                ) {
+                    return@withLock
+                }
+                val epoch = lifecycleState.requestRestart() ?: return@withLock
+                restartJob?.cancel()
+                restartJob = null
+                failoverStreak = 0
+                terminateProcessLocked(processIdentity)
+                currentParams = newParams
+                startProcessLocked(context, newParams, epoch)
+            }
+            return true
+        } finally {
+            failoverPending.set(false)
         }
     }
 

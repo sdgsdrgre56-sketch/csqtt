@@ -236,9 +236,11 @@ internal class PanelApi(context: Context, private val server: PanelServer) {
         const val CERTIFICATE_CHANGED = "Сертификат панели изменился"
 
         /** A csqtt:// link in the same form the server panel produces. */
-        fun buildLink(host: String, peerPort: Int, password: String): String =
+        fun buildLink(host: String, peerPort: Int, password: String, expiresAt: Long = 0L): String =
             "csqtt://connect?v=2&host=" + java.net.URLEncoder.encode(host, "UTF-8") +
                 "&peer=" + peerPort +
-                "&password=" + java.net.URLEncoder.encode(password, "UTF-8")
+                "&password=" + java.net.URLEncoder.encode(password, "UTF-8") +
+                // Mayak: the end of access, so the client can drop the link once it no longer works.
+                (if (expiresAt > 0L) "&exp=$expiresAt" else "")
     }
 }
