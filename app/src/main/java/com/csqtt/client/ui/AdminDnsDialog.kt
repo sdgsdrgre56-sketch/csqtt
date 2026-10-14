@@ -45,6 +45,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.csqtt.client.CsqttConstants
 import com.csqtt.client.DeploySettingsSnapshot
+import com.csqtt.client.MayakConfig
 import com.csqtt.client.PanelApi
 import com.csqtt.client.PanelDns
 import com.csqtt.client.PanelException
@@ -119,6 +120,8 @@ internal fun AdminDnsDialog(
     var notice by remember { mutableStateOf<String?>(null) }
     var customPrimary by remember { mutableStateOf("") }
     var customSecondary by remember { mutableStateOf("") }
+    // Mayak: apply to every configured server at once (on by default).
+    var allServers by remember { mutableStateOf(true) }
 
     fun api(): PanelApi = PanelApi(
         context,
@@ -155,6 +158,55 @@ internal fun AdminDnsDialog(
         }
     }
 
+    /** Applies DNS on the selected server, or on every configured server when [allServers] is on. */
+    fun applyDns(title: String, providerId: String?, primary: String, secondary: String) {
+        if (!allServers) {
+            perform(successNotice = "Применено: $title") { panel -> panel.setDns(providerId, primary, secondary) }
+            return
+        }
+        if (busy) return
+        busy = true
+        error = null
+        notice = null
+        scope.launch {
+            try {
+                val done = mutableListOf<Int>()
+                val failed = mutableListOf<String>()
+                val profiles = settingsStore.adminPanelProfiles(MayakConfig.ADMIN_SERVERS)
+                for (profile in profiles) {
+                    if (!profile.isConfigured) continue
+                    val number = profile.index + 1
+                    try {
+                        val result = PanelApi(
+                            context,
+                            PanelServer(profile.host, profile.webPort, profile.webLogin, profile.webPassword),
+                        ).setDns(providerId, primary, secondary)
+                        done += number
+                        if (profile.index == deploy.profile) current = result
+                    } catch (failure: kotlinx.coroutines.CancellationException) {
+                        throw failure
+                    } catch (failure: PanelException) {
+                        failed += "сервер $number: ${failure.message}"
+                    } catch (failure: Exception) {
+                        failed += "сервер $number: не удалось выполнить запрос"
+                    }
+                }
+                notice = when {
+                    done.isEmpty() && failed.isEmpty() -> null
+                    done.isEmpty() -> null
+                    else -> "Применено «$title» на серверах: ${done.joinToString(", ")}"
+                }
+                error = when {
+                    done.isEmpty() && failed.isEmpty() -> "Нет настроенных серверов"
+                    failed.isEmpty() -> null
+                    else -> "Не получилось: " + failed.joinToString("; ")
+                }
+            } finally {
+                busy = false
+            }
+        }
+    }
+
     LaunchedEffect(deploy.isLoaded, deploy.profile) {
         if (deploy.isLoaded) {
             current = null
@@ -177,7 +229,7 @@ internal fun AdminDnsDialog(
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    text = "DNS сервера ${deploy.profile.coerceAtLeast(0) + 1}",
+                    text = if (allServers) "DNS серверов" else "DNS сервера ${deploy.profile.coerceAtLeast(0) + 1}",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
@@ -240,6 +292,22 @@ internal fun AdminDnsDialog(
                     )
                 }
 
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !busy, role = Role.Checkbox) { allServers = !allServers }
+                        .padding(bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    androidx.compose.material3.Checkbox(checked = allServers, onCheckedChange = null)
+                    Text(
+                        text = "Менять на всех серверах сразу",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                 Column(
@@ -253,12 +321,10 @@ internal fun AdminDnsDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable(
-                                    enabled = !busy && !selected,
+                                    enabled = !busy && (allServers || !selected),
                                     role = Role.RadioButton,
                                     onClick = {
-                                        perform(successNotice = "Применено: ${preset.title}") { panel ->
-                                            panel.setDns(preset.providerId, preset.primary, preset.secondary)
-                                        }
+                                        applyDns(preset.title, preset.providerId, preset.primary, preset.secondary)
                                     },
                                 )
                                 .padding(vertical = 6.dp),
@@ -314,9 +380,7 @@ internal fun AdminDnsDialog(
                     )
                     Button(
                         onClick = {
-                            perform(successNotice = "Применены свои DNS") { panel ->
-                                panel.setDns(null, customPrimary, customSecondary)
-                            }
+                            applyDns("свои DNS", null, customPrimary, customSecondary)
                         },
                         enabled = !busy && isIpv4(customPrimary) &&
                             (customSecondary.isEmpty() || isIpv4(customSecondary)),

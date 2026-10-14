@@ -4,6 +4,7 @@
 package com.csqtt.client.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,6 +57,14 @@ private data class ServerPeople(
     val serverNumber: Int,
     val people: List<PanelPerson>?,
     val error: String?,
+    val server: PanelServer? = null,
+)
+
+/** One person as found on one server, for actions across all servers. */
+private data class PersonOnServer(
+    val serverNumber: Int,
+    val server: PanelServer,
+    val person: PanelPerson,
 )
 
 private val OnlineGreen = Color(0xFF43A047)
@@ -79,12 +93,10 @@ internal fun AdminPeopleDialog(
                 for (profile in profiles) {
                     if (!profile.isConfigured) continue
                     val number = profile.index + 1
+                    val panelServer = PanelServer(profile.host, profile.webPort, profile.webLogin, profile.webPassword)
                     results += try {
-                        val api = PanelApi(
-                            context,
-                            PanelServer(profile.host, profile.webPort, profile.webLogin, profile.webPassword),
-                        )
-                        ServerPeople(number, api.listPeople(), null)
+                        val api = PanelApi(context, panelServer)
+                        ServerPeople(number, api.listPeople(), null, panelServer)
                     } catch (failure: kotlinx.coroutines.CancellationException) {
                         throw failure
                     } catch (failure: PanelException) {
@@ -102,6 +114,25 @@ internal fun AdminPeopleDialog(
     }
 
     LaunchedEffect(Unit) { refresh() }
+
+    var selectedName by remember { mutableStateOf<String?>(null) }
+    selectedName?.let { name ->
+        val entries = servers.flatMap { server ->
+            val panelServer = server.server ?: return@flatMap emptyList<PersonOnServer>()
+            server.people.orEmpty()
+                .filter { !it.isMain && it.name == name }
+                .map { PersonOnServer(server.serverNumber, panelServer, it) }
+        }
+        PersonActionsDialog(
+            name = name,
+            entries = entries,
+            onDone = {
+                selectedName = null
+                refresh()
+            },
+            onDismiss = { selectedName = null },
+        )
+    }
 
     // People are created with the same name on every server, so the total counts names.
     val onlineNames = servers
@@ -152,7 +183,12 @@ internal fun AdminPeopleDialog(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    servers.forEach { server -> ServerSection(server) }
+                    Text(
+                        text = "Нажми на человека, чтобы продлить, выключить или удалить его на всех серверах.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    servers.forEach { server -> ServerSection(server, onPerson = { selectedName = it.name }) }
                 }
 
                 Row(
@@ -193,7 +229,7 @@ internal fun AdminPeopleDialog(
 }
 
 @Composable
-private fun ServerSection(server: ServerPeople) {
+private fun ServerSection(server: ServerPeople, onPerson: (PanelPerson) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val people = server.people
         val online = people?.count { it.sessions > 0 } ?: 0
@@ -223,17 +259,18 @@ private fun ServerSection(server: ServerPeople) {
         }
         // Connected first, then by name.
         people.sortedWith(compareByDescending<PanelPerson> { it.sessions > 0 }.thenBy { it.name.lowercase() })
-            .forEach { person -> PersonRow(person) }
+            .forEach { person -> PersonRow(person, onClick = { if (!person.isMain) onPerson(person) }) }
     }
 }
 
 @Composable
-private fun PersonRow(person: PanelPerson) {
+private fun PersonRow(person: PanelPerson, onClick: () -> Unit) {
     val connected = person.sessions > 0
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = !person.isMain, onClick = onClick)
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -287,4 +324,142 @@ private fun formatTraffic(bytes: Long): String {
     if (gb >= 1.0) return String.format(java.util.Locale.US, "%.1f ГБ", gb)
     val mb = bytes / 1_048_576.0
     return String.format(java.util.Locale.US, "%.0f МБ", mb)
+}
+
+/** What to do with one person, applied on every server where that name exists. */
+private enum class PersonAction { EXTEND, DISABLE, ENABLE, DELETE }
+
+@Composable
+private fun PersonActionsDialog(
+    name: String,
+    entries: List<PersonOnServer>,
+    onDone: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current.applicationContext
+    val scope = rememberCoroutineScope()
+    var daysText by remember { mutableStateOf("30") }
+    var busy by remember { mutableStateOf(false) }
+    var report by remember { mutableStateOf<String?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val days = daysText.toIntOrNull()
+    val anyEnabled = entries.any { it.person.enabled }
+
+    fun run(action: PersonAction) {
+        if (busy || entries.isEmpty()) return
+        busy = true
+        report = null
+        scope.launch {
+            val done = mutableListOf<Int>()
+            val failed = mutableListOf<String>()
+            try {
+                for (entry in entries) {
+                    try {
+                        val api = PanelApi(context, entry.server)
+                        when (action) {
+                            PersonAction.EXTEND -> {
+                                val add = days ?: 0
+                                val left = if (entry.person.expiresAt > 0L) {
+                                    accessDaysLeft(entry.person.expiresAt).coerceAtLeast(0)
+                                } else {
+                                    0
+                                }
+                                // 0 makes the access unlimited; otherwise add to what is left.
+                                api.setPersonDays(entry.person, if (add == 0) 0 else (left + add).coerceAtMost(3650))
+                            }
+                            PersonAction.DISABLE -> api.setPersonEnabled(entry.person, false)
+                            PersonAction.ENABLE -> api.setPersonEnabled(entry.person, true)
+                            PersonAction.DELETE -> api.deletePerson(entry.person)
+                        }
+                        done += entry.serverNumber
+                    } catch (failure: kotlinx.coroutines.CancellationException) {
+                        throw failure
+                    } catch (failure: PanelException) {
+                        failed += "сервер ${entry.serverNumber}: ${failure.message}"
+                    } catch (failure: Exception) {
+                        failed += "сервер ${entry.serverNumber}: не удалось выполнить запрос"
+                    }
+                }
+            } finally {
+                busy = false
+            }
+            if (failed.isEmpty()) {
+                onDone()
+            } else {
+                report = (if (done.isNotEmpty()) "Готово на серверах: ${done.joinToString(", ")}. " else "") +
+                    "Не получилось: " + failed.joinToString("; ")
+            }
+        }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Удалить $name?") },
+            text = { Text("Человек будет удалён на всех серверах, его ссылки перестанут работать. Это не отменить.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    run(PersonAction.DELETE)
+                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Отмена") } },
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text(name, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Есть на серверах: " + entries.joinToString(", ") { it.serverNumber.toString() },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = daysText,
+                    onValueChange = { value -> daysText = value.filter(Char::isDigit).take(3) },
+                    label = { Text("На сколько дней продлить (0 — без срока)") },
+                    singleLine = true,
+                    enabled = !busy,
+                    isError = days == null || days !in 0..999,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = { run(PersonAction.EXTEND) },
+                    enabled = !busy && days != null && days in 0..999,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (days == 0) "Сделать без срока" else "Продлить на ${days ?: 0} дн.")
+                }
+                OutlinedButton(
+                    onClick = { run(if (anyEnabled) PersonAction.DISABLE else PersonAction.ENABLE) },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (anyEnabled) "Выключить на всех серверах" else "Включить на всех серверах")
+                }
+                OutlinedButton(
+                    onClick = { confirmDelete = true },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Удалить на всех серверах", color = MaterialTheme.colorScheme.error)
+                }
+                if (busy) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text("Меняю на серверах…", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                report?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss, enabled = !busy) { Text("Закрыть") }
+        },
+    )
 }

@@ -47,6 +47,12 @@ internal data class PanelPerson(
     val downBytes: Long,
     val upBytes: Long,
     val isMain: Boolean,
+    // Needed to change this person on the server; never shown on screen.
+    val password: String = "",
+    val vkHashes: String = "",
+    val dtlsPort: Int = 0,
+    val wgPort: Int = 0,
+    val localPort: Int = 0,
 )
 
 internal class PanelException(message: String) : IOException(message)
@@ -237,8 +243,55 @@ internal class PanelApi(context: Context, private val server: PanelServer) {
                 downBytes = item.optLong("down", 0L),
                 upBytes = item.optLong("up", 0L),
                 isMain = name == "Главный пароль",
+                password = item.optString("password", ""),
+                vkHashes = item.optString("vk_hashes", ""),
+                dtlsPort = item.optInt("dtls_port", 0),
+                wgPort = item.optInt("wg_port", 0),
+                localPort = item.optInt("local_port", 0),
             )
         }
+    }
+
+    private fun personPath(password: String, suffix: String = ""): String =
+        "/api/clients/" + java.net.URLEncoder.encode(password, "UTF-8").replace("+", "%20") + suffix
+
+    private fun checkPersonAnswer(code: Int, text: String, what: String) {
+        when (code) {
+            200 -> Unit
+            404 -> throw PanelException("Этого человека на сервере уже нет")
+            else -> throw PanelException(
+                if (text.isNotBlank() && text.length < 120) "Сервер не дал $what: $text" else "Сервер не дал $what (код $code)"
+            )
+        }
+    }
+
+    /** Turns the person on or off. The panel only has a toggle, so it is called only when needed. */
+    suspend fun setPersonEnabled(person: PanelPerson, enabled: Boolean) = session {
+        if (person.enabled == enabled) return@session
+        val (code, text) = request("POST", personPath(person.password, "/toggle"))
+        checkPersonAnswer(code, text, if (enabled) "включить" else "выключить")
+    }
+
+    suspend fun deletePerson(person: PanelPerson) = session {
+        val (code, text) = request("DELETE", personPath(person.password))
+        if (code == 404) return@session
+        checkPersonAnswer(code, text, "удалить")
+    }
+
+    /**
+     * Sets the access to [days] days from now (0 = no end). Everything else about the person
+     * (name, VK hashes, ports) is sent back unchanged, because the panel replaces all of it.
+     */
+    suspend fun setPersonDays(person: PanelPerson, days: Int) = session {
+        val body = JSONObject()
+            .put("name", person.name)
+            .put("days", days.coerceIn(0, 3650))
+            .put("hash", person.vkHashes)
+        if (person.dtlsPort in 1..65535) body.put("dtls_port", person.dtlsPort)
+        if (person.wgPort in 1..65535) body.put("wg_port", person.wgPort)
+        if (person.localPort in 0..65535) body.put("local_port", person.localPort)
+        val (code, text) = request("POST", personPath(person.password), body)
+        checkPersonAnswer(code, text, "изменить срок")
     }
 
     /** Creates a person on this server; [days] 0 means no expiry. */
