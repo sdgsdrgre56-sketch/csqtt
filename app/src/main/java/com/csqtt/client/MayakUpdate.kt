@@ -53,6 +53,9 @@ suspend fun fetchMayakRelease(): AppReleaseInfo? = withContext(Dispatchers.IO) {
 
     var best: AppReleaseInfo? = null
     var bestNumber = -1
+    val local = localBuildNumber()
+    // "Что нового" of every build the person has not installed yet, keyed by build number.
+    val notesByBuild = java.util.TreeMap<Int, List<String>>(Comparator.reverseOrder())
     for (i in 0 until releases.length()) {
         val release = releases.optJSONObject(i) ?: continue
         if (release.optBoolean("draft")) continue
@@ -60,6 +63,10 @@ suspend fun fetchMayakRelease(): AppReleaseInfo? = withContext(Dispatchers.IO) {
         // Only Mayak's own "build-N" releases: the same repo also publishes other apps
         // (for example "ya-build-N"), and their APKs must never be offered as a Mayak update.
         val number = MAYAK_TAG.matchEntire(tag)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: continue
+        if (number > local) {
+            val lines = whatsNewLines(release.optString("body"))
+            if (lines.isNotEmpty()) notesByBuild[number] = lines
+        }
         if (number <= bestNumber) continue
 
         val assets = release.optJSONArray("assets") ?: JSONArray()
@@ -83,7 +90,27 @@ suspend fun fetchMayakRelease(): AppReleaseInfo? = withContext(Dispatchers.IO) {
         )
         bestNumber = number
     }
-    best
+    best?.copy(notes = notesByBuild.values.flatten().distinct().take(MAX_NOTES))
+}
+
+private const val MAX_NOTES = 8
+
+/**
+ * The "- " lines under the "Что нового:" heading that CI writes into the release notes
+ * (taken from "Что нового: ..." lines of the commit messages). Stops at a blank line or "---".
+ */
+internal fun whatsNewLines(body: String): List<String> {
+    val lines = body.replace("\r", "").lines()
+    val start = lines.indexOfFirst { it.trim().equals("Что нового:", ignoreCase = true) }
+    if (start < 0) return emptyList()
+    val result = mutableListOf<String>()
+    for (line in lines.drop(start + 1)) {
+        val trimmed = line.trim()
+        if (trimmed.isEmpty() || trimmed.startsWith("---")) break
+        val text = trimmed.removePrefix("-").removePrefix("•").trim()
+        if (text.isNotEmpty()) result += text.take(160)
+    }
+    return result
 }
 
 /** True when the fork has a build newer than the one running now. */

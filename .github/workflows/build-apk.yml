@@ -294,9 +294,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="build-$MAYAK_BUILD_NUMBER"
+          # "Что нового" for the in-app update dialog: every line of the pushed commit messages
+          # that starts with "Что нового:". The app reads the "- " lines under that heading.
+          notes="$RUNNER_TEMP/release-notes.md"
+          whatsnew=$(jq -r '.commits[]?.message // empty' "$GITHUB_EVENT_PATH" \
+            | sed -n 's/^[[:space:]]*Что нового:[[:space:]]*//p' | sed '/^$/d' | head -n 12)
+          {
+            if [ -n "$whatsnew" ]; then
+              echo "Что нового:"
+              printf '%s\n' "$whatsnew" | sed 's/^/- /'
+              echo
+            fi
+            echo "---"
+            echo "Automatic build from commit $GITHUB_SHA. Signing key: $SIGNING_KIND."
+          } > "$notes"
           gh release create "$tag" dist/*.apk \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "Mayak build $MAYAK_BUILD_NUMBER" \
-            --notes "Automatic build from commit $GITHUB_SHA. Signing key: $SIGNING_KIND."
+            --notes-file "$notes"

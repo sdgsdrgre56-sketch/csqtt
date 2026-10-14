@@ -39,7 +39,9 @@ data class AppReleaseInfo(
     val releaseUrl: String,
     val source: RemoteVersionSource,
     // Mayak: direct APK download link of the release asset, when the fork updater found one.
-    val downloadUrl: String? = null
+    val downloadUrl: String? = null,
+    // Mayak: "Что нового" lines of every build newer than the installed one, newest first.
+    val notes: List<String> = emptyList()
 )
 
 enum class RemoteVersionSource {

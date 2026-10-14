@@ -99,6 +99,26 @@ fun AppUpdateDialog(
                     lineHeight = 20.sp
                 )
 
+                // Mayak: what changed since the installed build, from the release notes.
+                if (release.notes.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Что нового:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        release.notes.forEach { line ->
+                            Text(
+                                text = "• $line",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 20.sp
+                            )
+                        }
+                    }
+                }
+
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
 
                 Row(
