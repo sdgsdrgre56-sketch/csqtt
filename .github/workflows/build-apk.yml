@@ -258,6 +258,18 @@ jobs:
               echo "SIGNING_KIND=private"
             } >> "$GITHUB_ENV"
             echo "Signing with the private key from repository secrets."
+          elif [ -n "$SIGNING_KEYSTORE_PASSWORD" ] && [ -f ci/release-signing.p12 ]; then
+            # Mayak's own key: the keystore in the repo is encrypted (PKCS12, AES-256) with a long
+            # random password that only lives in the SIGNING_KEYSTORE_PASSWORD secret.
+            echo "::add-mask::$SIGNING_KEYSTORE_PASSWORD"
+            {
+              echo "KEYSTORE_FILE=$GITHUB_WORKSPACE/ci/release-signing.p12"
+              echo "KEYSTORE_PASSWORD=$SIGNING_KEYSTORE_PASSWORD"
+              echo "KEY_ALIAS=${SIGNING_KEY_ALIAS:-mayak}"
+              echo "KEY_PASSWORD=$SIGNING_KEYSTORE_PASSWORD"
+              echo "SIGNING_KIND=private"
+            } >> "$GITHUB_ENV"
+            echo "Signing with Mayak's own key (ci/release-signing.p12)."
           else
             {
               echo "KEYSTORE_FILE=$GITHUB_WORKSPACE/ci/test-signing.p12"
