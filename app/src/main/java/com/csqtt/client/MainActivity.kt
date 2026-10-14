@@ -315,6 +315,7 @@ fun MainScreen(
         initialValue = DEFAULT_UPDATE_CHECK_INTERVAL_HOURS
     )
     var pendingRelease by remember { mutableStateOf<AppReleaseInfo?>(null) }
+    var installingRelease by remember { mutableStateOf<AppReleaseInfo?>(null) }
     val currentVersion = remember { "v${BuildConfig.VERSION_NAME.removePrefix("v")}" }
     val safeBottomInset = with(density) { WindowInsets.safeDrawing.getBottom(density).toDp() }
     val navToolbarHeight = 66.dp
@@ -569,6 +570,11 @@ fun MainScreen(
         }
     }
 
+    installingRelease?.let { release ->
+        com.csqtt.client.ui.MayakUpdateProgressDialog(release = release, onClose = { installingRelease = null })
+    }
+    com.csqtt.client.ui.MayakUpdatedNotice()
+
     pendingRelease?.let { release ->
         AppUpdateDialog(
             release = release,
@@ -596,15 +602,8 @@ fun MainScreen(
                         action = UPDATE_DIALOG_ACTION_UPDATE,
                         actedAt = System.currentTimeMillis()
                     )
-                    context.showRaisedToast(
-                        "Обновляюсь… Антоха опять что-то придумал или сломал 🤣",
-                        Toast.LENGTH_LONG
-                    )
-                    // No web page: if it did not work, say why and keep the dialog to try again.
-                    downloadAndInstall(context, release)?.let { problem ->
-                        context.showRaisedToast(problem, Toast.LENGTH_LONG)
-                        pendingRelease = release
-                    }
+                    // The "Обновляюсь…" window downloads and installs, with a progress bar.
+                    installingRelease = release
                 }
             }
         )

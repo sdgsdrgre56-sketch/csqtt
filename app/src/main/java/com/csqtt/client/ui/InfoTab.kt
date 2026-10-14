@@ -159,6 +159,7 @@ fun InfoTab(
     val currentVersion = remember { "v${BuildConfig.VERSION_NAME.removePrefix("v")}" }
     var isCheckingUpdates by remember { mutableStateOf(false) }
     var pendingManualRelease by remember { mutableStateOf<com.csqtt.client.AppReleaseInfo?>(null) }
+    var installingManualRelease by remember { mutableStateOf<com.csqtt.client.AppReleaseInfo?>(null) }
     var showCryptoDialog by remember { mutableStateOf(false) }
     val updateLatestVersion by settingsStore.updateLatestVersion.collectAsStateWithLifecycle(initialValue = "")
     val updateLastError by settingsStore.updateLastError.collectAsStateWithLifecycle(initialValue = "")
@@ -288,6 +289,10 @@ fun InfoTab(
             )
         }
 
+        installingManualRelease?.let { release ->
+            MayakUpdateProgressDialog(release = release, onClose = { installingManualRelease = null })
+        }
+
         pendingManualRelease?.let { release ->
             AppUpdateDialog(
                 release = release,
@@ -315,14 +320,7 @@ fun InfoTab(
                             action = UPDATE_DIALOG_ACTION_UPDATE,
                             actedAt = System.currentTimeMillis()
                         )
-                        context.showRaisedToast(
-                            "Обновляюсь… Антоха опять что-то придумал или сломал 🤣",
-                            Toast.LENGTH_LONG
-                        )
-                        downloadAndInstall(context, release)?.let { problem ->
-                            context.showRaisedToast(problem, Toast.LENGTH_LONG)
-                            pendingManualRelease = release
-                        }
+                        installingManualRelease = release
                     }
                 }
             )

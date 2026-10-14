@@ -63,10 +63,11 @@ suspend fun fetchMayakRelease(): AppReleaseInfo? = withContext(Dispatchers.IO) {
         // Only Mayak's own "build-N" releases: the same repo also publishes other apps
         // (for example "ya-build-N"), and their APKs must never be offered as a Mayak update.
         val number = MAYAK_TAG.matchEntire(tag)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: continue
-        if (number > local) {
-            val lines = whatsNewLines(release.optString("body"))
-            if (lines.isNotEmpty()) notesByBuild[number] = lines
-        }
+        val allLines = whatsNewLines(release.optString("body"))
+        // People's Mayak skips builds that only changed Mayak Admin and does not list admin news.
+        val lines = if (MayakConfig.ADMIN) allLines else allLines.filterNot(::isAdminOnlyNote)
+        if (!MayakConfig.ADMIN && allLines.isNotEmpty() && lines.isEmpty()) continue
+        if (number > local && lines.isNotEmpty()) notesByBuild[number] = lines
         if (number <= bestNumber) continue
 
         val assets = release.optJSONArray("assets") ?: JSONArray()
@@ -94,6 +95,12 @@ suspend fun fetchMayakRelease(): AppReleaseInfo? = withContext(Dispatchers.IO) {
 }
 
 private const val MAX_NOTES = 8
+
+/** A "Что нового" line about Mayak Admin only, which people's Mayak does not need. */
+internal fun isAdminOnlyNote(line: String): Boolean {
+    val text = line.trim().lowercase()
+    return text.startsWith("в маяке админ") || text.startsWith("в админке") || text.startsWith("маяк админ")
+}
 
 /**
  * The "- " lines under the "Что нового:" heading that CI writes into the release notes
@@ -124,7 +131,11 @@ fun isMayakUpdate(release: AppReleaseInfo): Boolean {
  * install in the Android dialog. Never opens a web page. Returns null when the installer was
  * opened, otherwise a short message saying what to do before pressing "Обновить" again.
  */
-suspend fun downloadAndInstall(context: Context, release: AppReleaseInfo): String? {
+suspend fun downloadAndInstall(
+    context: Context,
+    release: AppReleaseInfo,
+    onProgress: (downloaded: Long, total: Long) -> Unit = { _, _ -> },
+): String? {
     val url = release.downloadUrl
         ?: return "Новая версия ещё собирается. Попробуй чуть позже."
 
@@ -173,8 +184,25 @@ suspend fun downloadAndInstall(context: Context, release: AppReleaseInfo): Strin
                 }
                 break
             }
+            val total = connection.contentLengthLong
             connection.inputStream.use { input ->
-                file.outputStream().use { output -> input.copyTo(output) }
+                file.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var done = 0L
+                    var reported = -1L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        done += read
+                        // Report about every 256 KB so the bar moves smoothly without flooding.
+                        if (done - reported >= 256 * 1024) {
+                            reported = done
+                            onProgress(done, total)
+                        }
+                    }
+                    onProgress(done, total)
+                }
             }
             connection.disconnect()
             if (file.length() < 1_000_000L) {
