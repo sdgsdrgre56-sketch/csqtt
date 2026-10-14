@@ -115,6 +115,63 @@ internal fun AdminPeopleDialog(
 
     LaunchedEffect(Unit) { refresh() }
 
+    var confirmUnbindAll by remember { mutableStateOf(false) }
+    var unbindReport by remember { mutableStateOf<String?>(null) }
+
+    fun unbindEveryone() {
+        if (busy) return
+        busy = true
+        unbindReport = null
+        scope.launch {
+            var done = 0
+            val failed = mutableListOf<String>()
+            try {
+                for (server in servers) {
+                    val panelServer = server.server ?: continue
+                    val api = PanelApi(context, panelServer)
+                    for (person in server.people.orEmpty()) {
+                        if (person.isMain) continue
+                        try {
+                            api.unbindPerson(person)
+                            done += 1
+                        } catch (failure: kotlinx.coroutines.CancellationException) {
+                            throw failure
+                        } catch (failure: Exception) {
+                            failed += "${person.name} (сервер ${server.serverNumber})"
+                        }
+                    }
+                }
+            } finally {
+                busy = false
+            }
+            unbindReport = if (failed.isEmpty()) {
+                "Телефоны отвязаны: $done. Каждого пустит первый телефон, с которого он подключится."
+            } else {
+                "Отвязано: $done. Не получилось: ${failed.joinToString(", ")}"
+            }
+        }
+    }
+
+    if (confirmUnbindAll) {
+        AlertDialog(
+            onDismissRequest = { confirmUnbindAll = false },
+            title = { Text("Отвязать телефоны у всех?") },
+            text = {
+                Text(
+                    "Нужно, если люди переустановили Маяк и сервер их не пускает. Ссылки и сроки не меняются. " +
+                        "Каждого человека снова привяжет первый телефон, с которого он подключится."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmUnbindAll = false
+                    unbindEveryone()
+                }) { Text("Отвязать") }
+            },
+            dismissButton = { TextButton(onClick = { confirmUnbindAll = false }) { Text("Отмена") } },
+        )
+    }
+
     var selectedName by remember { mutableStateOf<String?>(null) }
     selectedName?.let { name ->
         val entries = servers.flatMap { server ->
@@ -194,6 +251,16 @@ internal fun AdminPeopleDialog(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    OutlinedButton(
+                        onClick = { confirmUnbindAll = true },
+                        enabled = !busy && servers.any { it.people != null },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Отвязать телефоны у всех")
+                    }
+                    unbindReport?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
                     servers.forEach { server -> ServerSection(server, onPerson = { selectedName = it.name }) }
                 }
 
@@ -333,7 +400,7 @@ private fun formatTraffic(bytes: Long): String {
 }
 
 /** What to do with one person, applied on every server where that name exists. */
-private enum class PersonAction { EXTEND, DISABLE, ENABLE, DELETE }
+private enum class PersonAction { EXTEND, DISABLE, ENABLE, DELETE, UNBIND }
 
 @Composable
 private fun PersonActionsDialog(
@@ -376,6 +443,7 @@ private fun PersonActionsDialog(
                             PersonAction.DISABLE -> api.setPersonEnabled(entry.person, false)
                             PersonAction.ENABLE -> api.setPersonEnabled(entry.person, true)
                             PersonAction.DELETE -> api.deletePerson(entry.person)
+                            PersonAction.UNBIND -> api.unbindPerson(entry.person)
                         }
                         done += entry.serverNumber
                     } catch (failure: kotlinx.coroutines.CancellationException) {
@@ -439,6 +507,19 @@ private fun PersonActionsDialog(
                 ) {
                     Text(if (days == 0) "Сделать без срока" else "Продлить на ${days ?: 0} дн.")
                 }
+                OutlinedButton(
+                    onClick = { run(PersonAction.UNBIND) },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Отвязать телефон")
+                }
+                Text(
+                    text = "Если Маяк переустановили или человек сменил телефон, сервер его не пускает. " +
+                        "После отвязки первый подключившийся телефон станет его.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 OutlinedButton(
                     onClick = { run(if (anyEnabled) PersonAction.DISABLE else PersonAction.ENABLE) },
                     enabled = !busy,

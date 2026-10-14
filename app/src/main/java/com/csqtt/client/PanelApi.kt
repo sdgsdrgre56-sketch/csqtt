@@ -272,6 +272,15 @@ internal class PanelApi(context: Context, private val server: PanelServer) {
         checkPersonAnswer(code, text, if (enabled) "включить" else "выключить")
     }
 
+    /**
+     * Forgets which phone the person is tied to, so the next phone that connects is accepted.
+     * Needed after Mayak was reinstalled: Android then gives the app a new device ID.
+     */
+    suspend fun unbindPerson(person: PanelPerson) = session {
+        val (code, text) = request("POST", personPath(person.password, "/unbind"))
+        checkPersonAnswer(code, text, "отвязать телефон")
+    }
+
     suspend fun deletePerson(person: PanelPerson) = session {
         val (code, text) = request("DELETE", personPath(person.password))
         if (code == 404) return@session
