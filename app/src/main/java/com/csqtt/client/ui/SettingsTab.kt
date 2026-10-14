@@ -201,12 +201,7 @@ internal fun SettingsTabContent(
         linkText = links.first()
         // Mayak: a scanned or pasted link must be saved even if the person leaves the tab at once.
         linkSaveJob = null
-        scope.launch {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                settingsStore.saveCsqttLinks(links)
-                settingsStore.saveCsqttLinkMode(true)
-            }
-        }
+        MayakLinks.saveInBackground(settingsStore, links)
         context.showRaisedToast(
             if (links.size > 1) "Добавлено серверов: ${links.size}" else "Ссылка вставлена",
             Toast.LENGTH_SHORT,

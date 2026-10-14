@@ -272,13 +272,8 @@ internal fun ConnectionTab(
     fun applyLinksText(text: String): Boolean {
         val links = MayakLinks.fromUserText(text)
         if (links.isEmpty()) return false
-        scope.launch {
-            // Mayak: finish saving even if the screen is left right away.
-            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                settingsStore.saveCsqttLinks(links)
-                settingsStore.saveCsqttLinkMode(true)
-            }
-        }
+        // Mayak: saved outside the screen, so a result from the QR camera is never lost.
+        MayakLinks.saveInBackground(settingsStore, links)
         context.showRaisedToast(
             if (links.size > 1) "Добавлено серверов: ${links.size}" else "Ссылка вставлена",
             Toast.LENGTH_SHORT,

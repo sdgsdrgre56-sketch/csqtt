@@ -3,6 +3,8 @@
 
 package com.csqtt.client
 
+import kotlinx.coroutines.launch
+
 import com.csqtt.client.ui.utils.parseCsqttLink
 
 /**
@@ -10,6 +12,24 @@ import com.csqtt.client.ui.utils.parseCsqttLink
  * text (lines, a QR code) and stored newline-separated in the link setting.
  */
 internal object MayakLinks {
+    /**
+     * Saves links outside any screen. A screen's scope can already be cancelled when a result
+     * arrives (for example after the QR camera, when Android recreated the screen), and the
+     * scanned links were then silently lost.
+     */
+    private val saveScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+    )
+
+    fun saveInBackground(store: SettingsStore, links: List<String>) {
+        saveScope.launch {
+            runCatching {
+                store.saveCsqttLinks(links)
+                store.saveCsqttLinkMode(true)
+            }
+        }
+    }
+
     const val MAX_LINKS = 6
 
     private val LinkRegex = Regex("csqtt://[^\\s\"'<>]+", RegexOption.IGNORE_CASE)
