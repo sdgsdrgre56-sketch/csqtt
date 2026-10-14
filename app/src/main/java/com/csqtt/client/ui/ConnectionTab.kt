@@ -355,7 +355,8 @@ internal fun ConnectionTab(
     CsqttScreen {
         if (MayakConfig.ADMIN) {
             CsqttSegmentedControl(
-                options = (0 until MayakConfig.ADMIN_SERVERS).map { index -> index to "Сервер ${index + 1}" },
+                // Mayak: with five servers "Сервер N" does not fit a phone width, so the buttons show the number.
+                options = (0 until MayakConfig.ADMIN_SERVERS).map { index -> index to "${index + 1}" },
                 selected = tunnelAuthSettings.profile,
                 onSelected = { profile ->
                     scope.launch { settingsStore.saveActiveProfile(profile) }

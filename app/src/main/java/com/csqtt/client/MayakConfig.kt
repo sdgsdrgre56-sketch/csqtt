@@ -29,7 +29,7 @@ internal object MayakConfig {
     val MAX_WORKERS: Int = 45
 
     /** Admin edition: number of server profiles shown as "Сервер 1..N". */
-    val ADMIN_SERVERS: Int = 3
+    val ADMIN_SERVERS: Int = 5
 
     val APP_NAME: String = if (ADMIN) "Маяк Админ" else "Маяк"
     const val UPSTREAM_NAME = "CSQTT"
