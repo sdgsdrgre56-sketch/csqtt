@@ -126,6 +126,8 @@ object TunnelManager {
     @Volatile
     private var failoverStreak = 0
     private var syncJob: kotlinx.coroutines.Job? = null
+    // Mayak: the server list is checked once per connection, not on every stats update.
+    @Volatile private var syncedThisConnection = false
     private val failoverPending = AtomicBoolean(false)
 
     private val startStopMutex = kotlinx.coroutines.sync.Mutex()
@@ -454,8 +456,9 @@ object TunnelManager {
                     failoverJob?.cancel()
                     failoverJob = null
                     // Mayak: the tunnel works, so GitHub is reachable; check for a newer server
-                    // list and announcement (at most every few hours, see MayakSync).
-                    if (MayakConfig.SIMPLE_UI && syncJob?.isActive != true) {
+                    // list and announcement each time Mayak connects (see MayakSync).
+                    if (MayakConfig.SIMPLE_UI && !syncedThisConnection && syncJob?.isActive != true) {
+                        syncedThisConnection = true
                         val ctx = activeContext()?.applicationContext
                         val store = activeSettingsStore
                         if (ctx != null && store != null) {
@@ -997,6 +1000,7 @@ object TunnelManager {
                     wrapAuthTimeoutCount = 0
                     crashRestartStreak = 0
                     failoverStreak = 0
+                    syncedThisConnection = false
                     MayakNotices.clearHashExpired(appContext)
                     processStartedAtMs = 0L
                     currentParams = params

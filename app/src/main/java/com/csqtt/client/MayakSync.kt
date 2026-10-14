@@ -48,7 +48,9 @@ internal object MayakSync {
     private const val RAW_BASE = "https://raw.githubusercontent.com/$OWNER/$REPO/$BRANCH"
     private const val LOG_TAG = "Mayak"
     private const val PREFS = "mayak_sync"
-    private const val CHECK_EVERY_MS = 3L * 60 * 60 * 1000
+    // Checked every time Mayak connects and when the app opens; this only stops a burst of
+    // reconnects from asking GitHub again and again.
+    private const val CHECK_EVERY_MS = 2L * 60 * 1000
     private const val KEY_ITERATIONS = 20_000
 
     // ---- shared crypto ----------------------------------------------------------------------
@@ -134,8 +136,9 @@ internal object MayakSync {
     }
 
     /**
-     * Mayak client: fetches the announcement and this phone's server list. Runs at most every few
-     * hours unless [force]. Quietly does nothing when GitHub cannot be reached.
+     * Mayak client: fetches the announcement and this phone's server list. Runs each time Mayak
+     * connects and when the app opens (at most every 2 minutes unless [force]). Quietly does nothing
+     * when GitHub cannot be reached.
      */
     suspend fun syncClient(context: Context, store: SettingsStore, force: Boolean = false) {
         if (!MayakConfig.SIMPLE_UI) return

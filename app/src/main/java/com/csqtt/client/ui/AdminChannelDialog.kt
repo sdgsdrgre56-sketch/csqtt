@@ -98,7 +98,7 @@ internal fun AdminChannelDialog(
                 Text("Связь с людьми", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(
                     text = "Объявления и списки серверов доходят до Маяка у людей сами, без новых ссылок. " +
-                        "Маяк проверяет их раз в несколько часов.",
+                        "Маяк проверяет их при каждом включении.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
