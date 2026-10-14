@@ -319,8 +319,9 @@ fun InfoTab(
                             "Обновляюсь… Антоха опять что-то придумал или сломал 🤣",
                             Toast.LENGTH_LONG
                         )
-                        if (!downloadAndInstall(context, release)) {
-                            openUrlInBrowser(context, release.releaseUrl)
+                        downloadAndInstall(context, release)?.let { problem ->
+                            context.showRaisedToast(problem, Toast.LENGTH_LONG)
+                            pendingManualRelease = release
                         }
                     }
                 }

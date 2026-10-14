@@ -600,8 +600,10 @@ fun MainScreen(
                         "Обновляюсь… Антоха опять что-то придумал или сломал 🤣",
                         Toast.LENGTH_LONG
                     )
-                    if (!downloadAndInstall(context, release)) {
-                        openReleaseUrl(context, release.releaseUrl)
+                    // No web page: if it did not work, say why and keep the dialog to try again.
+                    downloadAndInstall(context, release)?.let { problem ->
+                        context.showRaisedToast(problem, Toast.LENGTH_LONG)
+                        pendingRelease = release
                     }
                 }
             }

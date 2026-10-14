@@ -120,13 +120,27 @@ fun isMayakUpdate(release: AppReleaseInfo): Boolean {
 }
 
 /**
- * Downloads the release APK and hands it to the system installer. The person still confirms the
- * install in the Android dialog; this only removes the manual "open the page, find the file,
- * tap it" steps. Returns false (so the caller can fall back to opening the release page) when the
- * APK link is missing, the download fails, or the installer cannot be launched.
+ * Downloads the release APK and hands it to the system installer; the person only confirms the
+ * install in the Android dialog. Never opens a web page. Returns null when the installer was
+ * opened, otherwise a short message saying what to do before pressing "Обновить" again.
  */
-suspend fun downloadAndInstall(context: Context, release: AppReleaseInfo): Boolean {
-    val url = release.downloadUrl ?: return false
+suspend fun downloadAndInstall(context: Context, release: AppReleaseInfo): String? {
+    val url = release.downloadUrl
+        ?: return "Новая версия ещё собирается. Попробуй чуть позже."
+
+    // Ask for the "install unknown apps" permission first, so nothing is downloaded for nothing.
+    if (!context.packageManager.canRequestPackageInstalls()) {
+        try {
+            context.startActivity(
+                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+            Log.w(LOG_TAG, "[WARN] Update: cannot open install-permission settings", e)
+        }
+        return "Включи «Разрешить установку» для Маяка, вернись и нажми «Обновить» ещё раз."
+    }
+
     val apk = withContext(Dispatchers.IO) {
         try {
             val dir = File(context.cacheDir, "updates").apply { mkdirs() }
@@ -137,14 +151,14 @@ suspend fun downloadAndInstall(context: Context, release: AppReleaseInfo): Boole
             var hops = 0
             while (true) {
                 connection = (current.openConnection() as HttpURLConnection).apply {
-                    instanceFollowRedirects = true
+                    instanceFollowRedirects = false
                     connectTimeout = 15_000
                     readTimeout = 60_000
                     setRequestProperty("User-Agent", "Mayak/${BuildConfig.VERSION_NAME}")
                     setRequestProperty("Accept", "application/octet-stream")
                 }
                 val code = connection.responseCode
-                if (code in 300..399 && hops < 5) {
+                if (code in 300..399 && hops < 8) {
                     val location = connection.getHeaderField("Location")
                     connection.disconnect()
                     if (location.isNullOrBlank()) return@withContext null
@@ -173,37 +187,22 @@ suspend fun downloadAndInstall(context: Context, release: AppReleaseInfo): Boole
             Log.w(LOG_TAG, "[WARN] Update: download failed", e)
             null
         }
-    } ?: return false
+    } ?: return "Не получилось скачать обновление. Проверь интернет (или включи Маяк) и нажми «Обновить» ещё раз."
 
-    return launchInstaller(context, apk)
+    return if (launchInstaller(context, apk)) null else "Не получилось открыть установку. Нажми «Обновить» ещё раз."
 }
 
-private fun launchInstaller(context: Context, apk: File): Boolean {
-    // Android O+ needs the app to be allowed to install unknown apps. If it is not, send the
-    // person to that one toggle first; they can tap "Обновить" again afterwards.
-    if (!context.packageManager.canRequestPackageInstalls()) {
-        try {
-            context.startActivity(
-                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        } catch (e: Exception) {
-            Log.w(LOG_TAG, "[WARN] Update: cannot open install-permission settings", e)
-        }
-        return false
+private fun launchInstaller(context: Context, apk: File): Boolean = try {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.updates", apk)
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, APK_MIME)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
     }
-    return try {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.updates", apk)
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, APK_MIME)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
-        true
-    } catch (e: Exception) {
-        Log.w(LOG_TAG, "[WARN] Update: cannot launch installer", e)
-        false
-    }
+    context.startActivity(intent)
+    true
+} catch (e: Exception) {
+    Log.w(LOG_TAG, "[WARN] Update: cannot launch installer", e)
+    false
 }
 
 private fun httpText(url: String): String? {
