@@ -346,6 +346,7 @@ internal fun ConnectionTab(
                     onPasteLink = { pasteLinkFromClipboard() },
                     onScanQr = { scanLinkQr() },
                     onEnterManually = onInvalidConfiguration,
+                    accessUntil = loadedCsqttLink?.let { parseCsqttLink(it)?.expiresAt } ?: 0L,
                 )
             }
         }

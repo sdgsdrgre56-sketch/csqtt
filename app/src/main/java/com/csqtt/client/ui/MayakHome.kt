@@ -581,6 +581,8 @@ internal fun MayakHome(
     onPasteLink: () -> Unit,
     onScanQr: () -> Unit,
     onEnterManually: () -> Unit,
+    // Mayak: end of access of the current link (unix seconds), 0 when the link has no term.
+    accessUntil: Long = 0L,
 ) {
     if (linkReady == null) {
         Box(modifier = Modifier.fillMaxSize())
@@ -678,6 +680,19 @@ internal fun MayakHome(
                         textAlign = TextAlign.Center,
                     )
                 }
+                if (accessUntil > 0L) {
+                    val daysLeft = accessDaysLeft(accessUntil)
+                    Text(
+                        text = accessText(daysLeft),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (daysLeft <= 3) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        },
+                        textAlign = TextAlign.Center,
+                    )
+                }
             }
         }
         if (hashNotice != null && !active) {
@@ -709,5 +724,28 @@ internal fun MayakHome(
                 onWorkersChange = onWorkersChange,
             )
         }
+    }
+}
+
+/** Whole days left until [untilSeconds], rounded up; 0 or less when the access is over. */
+internal fun accessDaysLeft(untilSeconds: Long, nowMillis: Long = System.currentTimeMillis()): Int {
+    val leftSeconds = untilSeconds - nowMillis / 1000L
+    if (leftSeconds <= 0L) return 0
+    return ((leftSeconds + 86_399L) / 86_400L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+}
+
+internal fun accessText(daysLeft: Int): String = when {
+    daysLeft <= 0 -> "Срок доступа закончился"
+    else -> "Доступ ещё $daysLeft ${russianDays(daysLeft)}"
+}
+
+private fun russianDays(n: Int): String {
+    val lastTwo = n % 100
+    val last = n % 10
+    return when {
+        lastTwo in 11..14 -> "дней"
+        last == 1 -> "день"
+        last in 2..4 -> "дня"
+        else -> "дней"
     }
 }
