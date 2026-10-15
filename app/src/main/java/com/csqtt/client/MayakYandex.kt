@@ -4,7 +4,6 @@
 
 package com.csqtt.client
 
-import android.util.Base64
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -12,14 +11,14 @@ import java.net.URLEncoder
 
 /**
  * Reading needs no account: the folder is public ("Поделиться" → link), and files inside it are
- * fetched through Yandex's public API. Writing (CI and Mayak Admin) goes through WebDAV with the
- * owner's Yandex login and an app password ("Пароль приложения", type "Файлы").
+ * fetched through Yandex's public API. Writing (CI and Mayak Admin) goes through the Disk REST API
+ * with the owner's OAuth token (cloud_api:disk.write).
  */
 internal object MayakYandex {
     /** The owner's public folder "mayak". */
     const val PUBLIC_FOLDER = "https://disk.yandex.ru/d/i7uxPmhYZdXpVQ"
     private const val API = "https://cloud-api.yandex.net/v1/disk/public/resources/download"
-    private const val WEBDAV = "https://webdav.yandex.ru/mayak"
+    private const val RESOURCES = "https://cloud-api.yandex.net/v1/disk/resources"
 
     private fun enc(value: String): String = URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
@@ -82,29 +81,37 @@ internal object MayakYandex {
 
     class WriteException(message: String) : Exception(message)
 
-    /** Writes [content] to "mayak/[path]" (WebDAV PUT). Blocking. */
-    fun putText(login: String, password: String, path: String, content: String) {
-        val code = request(login, password, "PUT", "$WEBDAV/${path.trim('/')}", content.toByteArray(Charsets.UTF_8))
-        if (code !in 200..299) throw WriteException(writeError(code))
+    /**
+     * Writes [content] to "mayak/[path]" through the Disk REST API with the owner's OAuth token
+     * (WebDAV is only for paid Yandex 360 plans now). Blocking.
+     */
+    fun putText(token: String, path: String, content: String) {
+        val name = path.trim('/')
+        val target = "$RESOURCES/upload?path=${enc("disk:/mayak/$name")}&overwrite=true"
+        val (code, text) = request(token, "GET", target, null)
+        if (code != 200) throw WriteException(writeError(code))
+        val href = runCatching { JSONObject(text).optString("href") }.getOrNull()
+            ?.takeIf { it.isNotBlank() } ?: throw WriteException("Яндекс Диск не дал ссылку для записи")
+        val (putCode, _) = request(null, "PUT", href, content.toByteArray(Charsets.UTF_8))
+        if (putCode !in 200..299) throw WriteException(writeError(putCode))
     }
 
     private fun writeError(code: Int): String = when (code) {
         -1 -> "Нет связи с Яндекс Диском"
-        401 -> "Яндекс не принял логин или пароль приложения"
-        403 -> "Яндекс запретил запись (проверь, что пароль приложения для «Файлов»)"
+        401 -> "Яндекс не принял токен (возможно, он устарел, сделай новый)"
+        403 -> "Токену не хватает прав на запись в Диск"
         404, 409 -> "На Яндекс Диске нет папки mayak"
         507 -> "На Яндекс Диске закончилось место"
         else -> "Яндекс Диск ответил кодом $code"
     }
 
-    private fun request(login: String, password: String, method: String, url: String, body: ByteArray?): Int {
+    private fun request(token: String?, method: String, url: String, body: ByteArray?): Pair<Int, String> {
         val connection = (URL(url).openConnection() as HttpURLConnection)
         return try {
             connection.requestMethod = method
             connection.connectTimeout = 15_000
             connection.readTimeout = 30_000
-            val auth = Base64.encodeToString("$login:$password".toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-            connection.setRequestProperty("Authorization", "Basic $auth")
+            if (token != null) connection.setRequestProperty("Authorization", "OAuth $token")
             connection.setRequestProperty("User-Agent", "MayakAdmin/${BuildConfig.VERSION_NAME}")
             if (body != null) {
                 connection.doOutput = true
@@ -112,9 +119,16 @@ internal object MayakYandex {
                 connection.setRequestProperty("Content-Type", "application/octet-stream")
                 connection.outputStream.use { it.write(body) }
             }
-            connection.responseCode
+            val code = connection.responseCode
+            val text = if (code in 200..299) {
+                runCatching { connection.inputStream.bufferedReader().use { it.readText().take(16 * 1024) } }
+                    .getOrDefault("")
+            } else {
+                ""
+            }
+            code to text
         } catch (e: java.io.IOException) {
-            -1
+            -1 to ""
         } finally {
             connection.disconnect()
         }

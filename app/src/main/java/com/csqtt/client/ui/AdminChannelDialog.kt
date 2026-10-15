@@ -54,8 +54,7 @@ internal fun AdminChannelDialog(
     var hasToken by remember { mutableStateOf(MayakSyncAdmin.hasToken(context)) }
     var tokenText by remember { mutableStateOf("") }
     var hasYandex by remember { mutableStateOf(MayakSyncAdmin.hasYandex(context)) }
-    var yandexLoginText by remember { mutableStateOf(MayakSyncAdmin.yandexLogin(context)) }
-    var yandexPasswordText by remember { mutableStateOf("") }
+    var yandexTokenText by remember { mutableStateOf("") }
     val canPublish = hasToken || hasYandex
     var announcement by remember { mutableStateOf("") }
     var targetServer by remember { mutableStateOf(MayakConfig.ADMIN_SERVERS - 1) }
@@ -167,27 +166,19 @@ internal fun AdminChannelDialog(
                     Text("Яндекс Диск (для белых списков)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
                         text = if (hasYandex) {
-                            "Сохранено. Объявления и списки пишутся ещё и в папку mayak на Яндекс Диске, " +
+                            "Токен сохранён. Объявления и списки пишутся ещё и в папку mayak на Яндекс Диске, " +
                                 "их Маяк найдёт даже на мобильном с белыми списками."
                         } else {
-                            "Логин Яндекса и пароль приложения (тип «Файлы»). Обычный пароль от Яндекса сюда не подходит. " +
+                            "Нужен токен Яндекс Диска (тот же, что в секрете YANDEX_TOKEN на GitHub). " +
                                 "Хранится на телефоне в зашифрованном виде."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     OutlinedTextField(
-                        value = yandexLoginText,
-                        onValueChange = { yandexLoginText = it.trim().take(100) },
-                        label = { Text("Логин Яндекса") },
-                        singleLine = true,
-                        enabled = !busy,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = yandexPasswordText,
-                        onValueChange = { yandexPasswordText = it.trim().take(100) },
-                        label = { Text(if (hasYandex) "Новый пароль приложения (если нужно)" else "Пароль приложения") },
+                        value = yandexTokenText,
+                        onValueChange = { yandexTokenText = it.trim().take(300) },
+                        label = { Text(if (hasYandex) "Новый токен Яндекса (если нужно заменить)" else "Токен Яндекс Диска") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         enabled = !busy,
@@ -196,22 +187,21 @@ internal fun AdminChannelDialog(
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
                             onClick = {
-                                MayakSyncAdmin.saveYandex(context, yandexLoginText, yandexPasswordText)
+                                MayakSyncAdmin.saveYandex(context, yandexTokenText)
                                 hasYandex = MayakSyncAdmin.hasYandex(context)
-                                yandexPasswordText = ""
-                                result = if (hasYandex) "Яндекс Диск сохранён" else "Яндекс Диск удалён"
+                                yandexTokenText = ""
+                                result = if (hasYandex) "Токен Яндекса сохранён" else "Токен Яндекса удалён"
                                 resultIsError = false
                             },
-                            enabled = !busy && yandexLoginText.isNotBlank() && yandexPasswordText.isNotBlank(),
+                            enabled = !busy && yandexTokenText.isNotBlank(),
                             modifier = Modifier.weight(1f),
                         ) { Text("Сохранить") }
                         if (hasYandex) {
                             OutlinedButton(
                                 onClick = {
-                                    MayakSyncAdmin.saveYandex(context, "", "")
+                                    MayakSyncAdmin.saveYandex(context, "")
                                     hasYandex = false
-                                    yandexLoginText = ""
-                                    result = "Яндекс Диск удалён"
+                                    result = "Токен Яндекса удалён"
                                     resultIsError = false
                                 },
                                 enabled = !busy,

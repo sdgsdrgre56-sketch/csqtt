@@ -330,21 +330,26 @@ jobs:
 
       # Copy of the newest build on the owner's public Yandex Disk folder "mayak", so Mayak can update
       # itself on mobile networks with whitelists (GitHub is blocked there, Yandex is not).
-      # Runs only when the secrets YANDEX_LOGIN and YANDEX_APP_PASSWORD are set; never fails the build.
+      # Uses the Disk REST API with the OAuth token in secret YANDEX_TOKEN (WebDAV is paid-only now).
+      # Skipped when the secret is not set; never fails the build.
       - name: Mirror to Yandex Disk
         continue-on-error: true
         env:
-          YANDEX_LOGIN: ${{ secrets.YANDEX_LOGIN }}
-          YANDEX_APP_PASSWORD: ${{ secrets.YANDEX_APP_PASSWORD }}
+          YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
         run: |
-          if [ -z "$YANDEX_LOGIN" ] || [ -z "$YANDEX_APP_PASSWORD" ]; then
-            echo "Yandex Disk secrets are not set, skipping."
+          if [ -z "$YANDEX_TOKEN" ]; then
+            echo "Secret YANDEX_TOKEN is not set, skipping."
             exit 0
           fi
-          base="https://webdav.yandex.ru/mayak"
-          put() {
-            code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 --max-time 600 \
-              --user "$YANDEX_LOGIN:$YANDEX_APP_PASSWORD" -T "$1" "$base/$2") || code="curl-error"
+          api="https://cloud-api.yandex.net/v1/disk/resources/upload"
+          put() {  # $1 = local file, $2 = name inside disk:/mayak/
+            href=$(curl -sS --retry 3 --max-time 60 -H "Authorization: OAuth $YANDEX_TOKEN" \
+              --get --data-urlencode "path=disk:/mayak/$2" --data "overwrite=true" "$api" | jq -r '.href // empty')
+            if [ -z "$href" ]; then
+              echo "::warning::Yandex Disk did not give an upload link for $2 (token or folder problem)"
+              return 1
+            fi
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 --max-time 900 -T "$1" "$href") || code="curl-error"
             case "$code" in
               2??) echo "Uploaded $2"; return 0 ;;
               *) echo "::warning::Yandex Disk upload of $2 failed: $code"; return 1 ;;
@@ -356,7 +361,7 @@ jobs:
             jq -n --argjson build "$MAYAK_BUILD_NUMBER" --arg apk "$1" --rawfile notes "$whatsnew" \
               '{build: $build, apk: $apk, notes: ($notes | split("\n") | map(select(length > 0)))}'
           }
-          # Mayak Admin always gets the newest build.
+          # Mayak Admin always gets the newest build. The APK goes first, then the file that points to it.
           if put "dist/MayakAdmin-$MAYAK_BUILD_NUMBER-arm64.apk" "MayakAdmin-latest.apk"; then
             json "MayakAdmin-latest.apk" > "$RUNNER_TEMP/admin.json"
             put "$RUNNER_TEMP/admin.json" "admin.json" || true

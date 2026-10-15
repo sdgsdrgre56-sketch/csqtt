@@ -37,33 +37,25 @@ internal object MayakSyncAdmin {
 
     // ---- Yandex Disk (second place, reachable on mobile whitelists) -------------------------
 
-    private const val YANDEX_LOGIN_KEY = "yandex_login"
-    private const val YANDEX_PASSWORD_KEY = "yandex_app_password"
+    private const val YANDEX_TOKEN_KEY = "yandex_token"
 
     fun hasYandex(context: Context): Boolean = yandex(context) != null
 
-    fun yandexLogin(context: Context): String =
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(YANDEX_LOGIN_KEY, "").orEmpty()
-
-    fun saveYandex(context: Context, login: String, appPassword: String) {
+    /** Saves the Yandex Disk OAuth token; blank removes it. */
+    fun saveYandex(context: Context, token: String) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (login.isBlank() || appPassword.isBlank()) {
-            prefs.edit().remove(YANDEX_LOGIN_KEY).remove(YANDEX_PASSWORD_KEY).apply()
+        // Old WebDAV login/app password (no longer usable) are dropped either way.
+        val edit = prefs.edit().remove("yandex_login").remove("yandex_app_password")
+        if (token.isBlank()) {
+            edit.remove(YANDEX_TOKEN_KEY).apply()
         } else {
-            prefs.edit()
-                .putString(YANDEX_LOGIN_KEY, login.trim().removeSuffix("@yandex.ru"))
-                .putString(YANDEX_PASSWORD_KEY, SecureStringStore(context).encrypt(appPassword.trim()))
-                .apply()
+            edit.putString(YANDEX_TOKEN_KEY, SecureStringStore(context).encrypt(token.trim())).apply()
         }
     }
 
-    private fun yandex(context: Context): Pair<String, String>? {
+    private fun yandex(context: Context): String? {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val login = prefs.getString(YANDEX_LOGIN_KEY, null)?.takeIf { it.isNotBlank() } ?: return null
-        val password = SecureStringStore(context).decrypt(prefs.getString(YANDEX_PASSWORD_KEY, null))
-            ?.takeIf { it.isNotBlank() } ?: return null
-        return login to password
+        return SecureStringStore(context).decrypt(prefs.getString(YANDEX_TOKEN_KEY, null))?.takeIf { it.isNotBlank() }
     }
 
     fun canPublish(context: Context): Boolean = hasToken(context) || hasYandex(context)
@@ -75,7 +67,7 @@ internal object MayakSyncAdmin {
     suspend fun publishAnnouncement(context: Context, text: String): String = withContext(Dispatchers.IO) {
         val token = token(context)
         val yandex = yandex(context)
-        if (token == null && yandex == null) throw SyncException("Сначала вставь токен GitHub или пароль Яндекс Диска")
+        if (token == null && yandex == null) throw SyncException("Сначала вставь токен GitHub или токен Яндекс Диска")
         val body = JSONObject()
             .put("id", if (text.isBlank()) 0L else System.currentTimeMillis() / 1000L)
             .put("text", text.trim().take(500))
@@ -92,7 +84,7 @@ internal object MayakSyncAdmin {
         }
         if (yandex != null) {
             try {
-                MayakYandex.putText(yandex.first, yandex.second, "announce.json", body)
+                MayakYandex.putText(yandex, "announce.json", body)
                 done += "Яндекс Диск"
             } catch (failure: MayakYandex.WriteException) {
                 failed += "Яндекс Диск: ${failure.message}"
@@ -116,7 +108,7 @@ internal object MayakSyncAdmin {
     suspend fun publishPeople(context: Context, store: SettingsStore): PublishResult = withContext(Dispatchers.IO) {
         val token = token(context)
         val yandex = yandex(context)
-        if (token == null && yandex == null) throw SyncException("Сначала вставь токен GitHub или пароль Яндекс Диска")
+        if (token == null && yandex == null) throw SyncException("Сначала вставь токен GitHub или токен Яндекс Диска")
         val problems = mutableListOf<String>()
         // name -> list of (server number, host, person)
         val byName = linkedMapOf<String, MutableList<Triple<Int, String, PanelPerson>>>()
@@ -181,7 +173,7 @@ internal object MayakSyncAdmin {
                 }
                 if (yandex != null) {
                     try {
-                        MayakYandex.putText(yandex.first, yandex.second, yandexPersonFile(person.password), payload ?: fresh)
+                        MayakYandex.putText(yandex, yandexPersonFile(person.password), payload ?: fresh)
                         if (token == null) changed += 1
                     } catch (failure: MayakYandex.WriteException) {
                         yandexProblems += failure.message.orEmpty()
