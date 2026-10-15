@@ -31,7 +31,9 @@ internal object MayakYandex {
     /** Turns a [downloadApiUrl] into the direct file link, or null. Blocking. */
     fun resolveDirectLink(apiUrl: String): String? {
         val text = get(apiUrl, 64 * 1024) ?: return null
-        return runCatching { JSONObject(text).optString("href").takeIf { it.isNotBlank() } }.getOrNull()
+        val href = runCatching { JSONObject(text).optString("href").takeIf { it.isNotBlank() } }.getOrNull()
+        if (href == null) lastProblem = "Яндекс не дал ссылку: ${text.take(80)}"
+        return href
     }
 
     /** A small text file from the public folder ([path] like "client.json"). Blocking. */
@@ -46,6 +48,11 @@ internal object MayakYandex {
 
     private fun get(url: String, limit: Int): String? = getBytes(url, limit)?.toString(Charsets.UTF_8)
 
+    /** What went wrong in the last read, for the "Проверить обновления" report. */
+    @Volatile
+    var lastProblem: String = ""
+        private set
+
     private fun getBytes(url: String, limit: Int): ByteArray? {
         var current = URL(url)
         repeat(6) {
@@ -55,14 +62,22 @@ internal object MayakYandex {
                 readTimeout = 15_000
                 setRequestProperty("User-Agent", "Mayak/${BuildConfig.VERSION_NAME}")
             }
+            val host = current.host
             try {
                 val code = connection.responseCode
                 if (code in 300..399) {
-                    val location = connection.getHeaderField("Location") ?: return null
+                    val location = connection.getHeaderField("Location")
+                    if (location == null) {
+                        lastProblem = "$host: переадресация без адреса"
+                        return null
+                    }
                     current = URL(current, location)
                     return@repeat
                 }
-                if (code != 200) return null
+                if (code != 200) {
+                    lastProblem = "$host: код $code"
+                    return null
+                }
                 val bytes = connection.inputStream.use { input ->
                     val out = java.io.ByteArrayOutputStream()
                     val buffer = ByteArray(8 * 1024)
@@ -73,13 +88,16 @@ internal object MayakYandex {
                     }
                     out.toByteArray()
                 }
+                lastProblem = ""
                 return bytes
             } catch (e: Exception) {
+                lastProblem = "$host: ${e.javaClass.simpleName}${e.message?.let { ": " + it.take(60) } ?: ""}"
                 return null
             } finally {
                 connection.disconnect()
             }
         }
+        lastProblem = "слишком много переадресаций"
         return null
     }
 

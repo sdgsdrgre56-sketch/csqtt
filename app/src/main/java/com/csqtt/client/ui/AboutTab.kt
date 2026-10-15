@@ -99,7 +99,7 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
                         checkReport = null
                         foundRelease = null
                         scope.launch {
-                            val result = runCatching { checkMayakUpdate() }.getOrNull()
+                            val result = runCatching { checkMayakUpdate(alwaysAskYandex = true) }.getOrNull()
                             val release = result?.release
                             foundRelease = release?.takeIf { isMayakUpdate(it) }
                             checkReport = when {

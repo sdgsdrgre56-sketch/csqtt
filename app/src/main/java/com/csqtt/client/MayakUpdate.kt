@@ -51,18 +51,19 @@ data class MayakUpdateCheck(val release: AppReleaseInfo?, val report: String)
  * GitHub first; when it fails in any way (no connection, a whitelist stub page, too slow), the
  * owner's Yandex Disk.
  */
-suspend fun checkMayakUpdate(): MayakUpdateCheck = withContext(Dispatchers.IO) {
+suspend fun checkMayakUpdate(alwaysAskYandex: Boolean = false): MayakUpdateCheck = withContext(Dispatchers.IO) {
     val github = githubWithin(GITHUB_LIMIT_MS)
-    if (github.first != null) {
+    if (github.first != null && !alwaysAskYandex) {
         return@withContext MayakUpdateCheck(github.first, "GitHub: ${github.first!!.versionTag}")
     }
     val yandex = runCatching { fetchYandexRelease() }.getOrNull()
     val report = buildString {
         append("GitHub: ").append(github.second)
-        append(". Яндекс Диск: ").append(yandex?.versionTag ?: "нет ответа")
+        append(". Яндекс Диск: ")
+        append(yandex?.versionTag ?: MayakYandex.lastProblem.ifBlank { "не разобрал ответ" })
     }
     Log.i(LOG_TAG, "Update check: $report")
-    MayakUpdateCheck(yandex, report)
+    MayakUpdateCheck(github.first ?: yandex, report)
 }
 
 private const val GITHUB_LIMIT_MS = 10_000L
@@ -185,6 +186,9 @@ private fun downloadYandexParts(
  */
 private fun fetchYandexRelease(): AppReleaseInfo? {
     val text = MayakYandex.fetchText(if (MayakConfig.ADMIN) "admin.json" else "client.json") ?: return null
+    if (!text.trimStart().startsWith("{")) {
+        Log.w(LOG_TAG, "[WARN] Update: Yandex answered not JSON: ${text.take(80)}")
+    }
     return runCatching {
         val obj = org.json.JSONObject(text)
         val number = obj.optInt("build", 0).takeIf { it > 0 } ?: return null
