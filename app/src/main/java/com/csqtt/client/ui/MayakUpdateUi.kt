@@ -46,9 +46,7 @@ import com.csqtt.client.MayakUpdateState
 import com.csqtt.client.buildNumberOf
 import com.csqtt.client.githubApkUrl
 import com.csqtt.client.githubReleasePage
-import com.csqtt.client.isOnWifi
 import com.csqtt.client.openInBrowser
-import androidx.compose.material3.OutlinedButton
 
 private fun versionName(release: AppReleaseInfo): String = "1.0.${buildNumberOf(release.versionTag) ?: "?"}"
 
@@ -103,8 +101,8 @@ internal fun MayakUpdateBanner(onOpen: () -> Unit, modifier: Modifier = Modifier
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = current.notes.firstOrNull()?.let { "$it · обновить во «Инфо» по Wi-Fi" }
-                        ?: "Обновить можно во вкладке «Инфо», по Wi-Fi",
+                    text = current.notes.firstOrNull()?.let { "$it · обновить во «Инфо»" }
+                        ?: "Обновить можно во вкладке «Инфо»",
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -126,7 +124,6 @@ internal fun MayakUpdateCard(onUpdate: (AppReleaseInfo) -> Unit) {
     val context = LocalContext.current
     val release by MayakUpdateState.available.collectAsState()
     val current = release ?: return
-    var hint by remember { mutableStateOf<String?>(null) }
     var siteHint by remember { mutableStateOf<String?>(null) }
     var siteTried by remember { mutableStateOf(false) }
     AppSectionCard(
@@ -148,26 +145,20 @@ internal fun MayakUpdateCard(onUpdate: (AppReleaseInfo) -> Unit) {
                 Text("• $line", style = MaterialTheme.typography.bodyMedium)
             }
         }
+        // Downloads right away, inside the app, on any network (Wi-Fi, plain mobile, another VPN).
         Button(
-            onClick = {
-                if (isOnWifi(context)) {
-                    hint = null
-                    onUpdate(current)
-                } else {
-                    hint = "Обновление скачивается только по Wi-Fi. Подключись к Wi-Fi и нажми ещё раз."
-                }
-            },
+            onClick = { onUpdate(current) },
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Обновить", fontWeight = FontWeight.SemiBold)
         }
         Text(
-            text = hint ?: "Скачивается только по Wi-Fi, когда тебе удобно.",
+            text = "Качается сразу. Лучше по Wi-Fi.",
             style = MaterialTheme.typography.bodySmall,
-            color = if (hint != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        // Any network: a browser goes through whatever VPN is on (Mayak's tunnel or another one).
-        OutlinedButton(
+        // Mobile whitelists with Mayak on: only a browser goes through Mayak's tunnel.
+        androidx.compose.material3.TextButton(
             onClick = {
                 // First press: the file itself (the browser starts the download by itself).
                 // Next presses: the version page, where the file can be tapped by hand.
@@ -188,12 +179,14 @@ internal fun MayakUpdateCard(onUpdate: (AppReleaseInfo) -> Unit) {
             },
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Скачать через сайт", fontWeight = FontWeight.SemiBold)
+            Text("Не качает? Скачать через браузер")
         }
-        Text(
-            text = siteHint ?: "На любой сети: откроется браузер и сам скачает файл через включённый VPN.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        siteHint?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
