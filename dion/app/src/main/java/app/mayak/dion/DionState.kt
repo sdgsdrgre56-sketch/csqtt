@@ -94,6 +94,14 @@ object DionPrefs {
     fun saveSsh(context: Context, host: String, port: Int, user: String) =
         prefs(context).edit().putString("ssh_host", host.trim()).putInt("ssh_port", port).putString("ssh_user", user.trim()).apply()
 
+    /** SSH password, encrypted with the phone's keystore key like the DION password. */
+    fun sshPassword(context: Context): String = Secret.decrypt(prefs(context).getString("ssh_password", null))
+    fun setSshPassword(context: Context, value: String) {
+        val e = prefs(context).edit()
+        if (value.isEmpty()) e.remove("ssh_password") else e.putString("ssh_password", Secret.encrypt(value))
+        e.apply()
+    }
+
     fun email(context: Context, n: Int = 0): String = prefs(context).getString("email$n", "") ?: ""
     fun password(context: Context, n: Int = 0): String = Secret.decrypt(prefs(context).getString("password$n", null))
 

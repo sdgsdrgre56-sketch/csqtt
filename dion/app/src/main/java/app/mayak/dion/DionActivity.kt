@@ -118,6 +118,7 @@ private fun DionScreen() {
     var port by remember { mutableStateOf(DionPrefs.port(context).toString()) }
     var user by remember { mutableStateOf(DionPrefs.user(context)) }
     var sshPassword by remember { mutableStateOf("") }
+    var hasSshPassword by remember { mutableStateOf(DionPrefs.sshPassword(context).isNotEmpty()) }
     var busy by remember { mutableStateOf(false) }
     var serverMessage by remember { mutableStateOf("") }
     var serverError by remember { mutableStateOf(false) }
@@ -146,13 +147,19 @@ private fun DionScreen() {
 
     fun ssh(): Ssh? {
         val p = port.toIntOrNull()
-        if (host.isBlank() || user.isBlank() || sshPassword.isEmpty() || p == null || p !in 1..65535) {
+        if (sshPassword.isNotEmpty()) {
+            DionPrefs.setSshPassword(context, sshPassword)
+            hasSshPassword = true
+            sshPassword = ""
+        }
+        val savedSsh = DionPrefs.sshPassword(context)
+        if (host.isBlank() || user.isBlank() || savedSsh.isEmpty() || p == null || p !in 1..65535) {
             serverMessage = "Заполни IP, порт, логин и пароль SSH"
             serverError = true
             return null
         }
         DionPrefs.saveSsh(context, host, p, user)
-        return Ssh(host.trim(), p, user.trim(), sshPassword)
+        return Ssh(host.trim(), p, user.trim(), savedSsh)
     }
 
     fun applyResult(result: ServerResult, okText: (ServerResult) -> String) {
@@ -404,7 +411,7 @@ private fun DionScreen() {
             }
             OutlinedTextField(
                 value = sshPassword, onValueChange = { sshPassword = it },
-                label = { Text("Пароль SSH (не сохраняется)") }, singleLine = true, enabled = !busy,
+                label = { Text(if (hasSshPassword) "Пароль SSH (сохранён, можно не вводить)" else "Пароль SSH") }, singleLine = true, enabled = !busy,
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
