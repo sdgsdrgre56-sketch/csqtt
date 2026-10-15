@@ -36,6 +36,31 @@ internal object MayakUpdateState {
     }
 }
 
+private const val MAYAK_REPO_WEB = "https://github.com/sdgsdrgre56-sketch/csqtt"
+
+/** Direct GitHub link to this edition's APK of [release] (opens as a download in a browser). */
+internal fun githubApkUrl(release: AppReleaseInfo): String {
+    val n = buildNumberOf(release.versionTag) ?: 0
+    val file = if (MayakConfig.ADMIN) "MayakAdmin-$n-arm64.apk" else "Mayak-$n-universal.apk"
+    return "$MAYAK_REPO_WEB/releases/download/build-$n/$file"
+}
+
+/** GitHub page of [release] with its download links. */
+internal fun githubReleasePage(release: AppReleaseInfo): String =
+    "$MAYAK_REPO_WEB/releases/tag/build-${buildNumberOf(release.versionTag) ?: 0}"
+
+/**
+ * Opens [url] in a browser. A browser goes through Mayak's own tunnel (Mayak itself does not), so
+ * on mobile whitelists the APK still comes, at the tunnel's speed. Returns false if nothing opened.
+ */
+internal fun openInBrowser(context: Context, url: String): Boolean = runCatching {
+    context.startActivity(
+        android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    )
+    true
+}.getOrDefault(false)
+
 /** True when the phone has Wi-Fi (or a cable): updates are downloaded only then. */
 @Suppress("DEPRECATION")
 internal fun isOnWifi(context: Context): Boolean {

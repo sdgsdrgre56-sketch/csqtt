@@ -44,7 +44,11 @@ import androidx.compose.ui.unit.dp
 import com.csqtt.client.AppReleaseInfo
 import com.csqtt.client.MayakUpdateState
 import com.csqtt.client.buildNumberOf
+import com.csqtt.client.githubApkUrl
+import com.csqtt.client.githubReleasePage
 import com.csqtt.client.isOnWifi
+import com.csqtt.client.openInBrowser
+import androidx.compose.material3.OutlinedButton
 
 private fun versionName(release: AppReleaseInfo): String = "1.0.${buildNumberOf(release.versionTag) ?: "?"}"
 
@@ -123,6 +127,8 @@ internal fun MayakUpdateCard(onUpdate: (AppReleaseInfo) -> Unit) {
     val release by MayakUpdateState.available.collectAsState()
     val current = release ?: return
     var hint by remember { mutableStateOf<String?>(null) }
+    var siteHint by remember { mutableStateOf<String?>(null) }
+    var siteTried by remember { mutableStateOf(false) }
     AppSectionCard(
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -159,6 +165,35 @@ internal fun MayakUpdateCard(onUpdate: (AppReleaseInfo) -> Unit) {
             text = hint ?: "Скачивается только по Wi-Fi, когда тебе удобно.",
             style = MaterialTheme.typography.bodySmall,
             color = if (hint != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // Any network: a browser goes through whatever VPN is on (Mayak's tunnel or another one).
+        OutlinedButton(
+            onClick = {
+                // First press: the file itself (the browser starts the download by itself).
+                // Next presses: the version page, where the file can be tapped by hand.
+                val opened = if (!siteTried) {
+                    openInBrowser(context, githubApkUrl(current))
+                } else {
+                    openInBrowser(context, githubReleasePage(current))
+                }
+                siteHint = when {
+                    !opened -> "Браузер не открылся."
+                    !siteTried -> "Браузер качает файл. Когда скачается, нажми на него, чтобы установить. " +
+                        "Если загрузка не началась, нажми ещё раз — откроется страница версии."
+                    else -> "На странице версии нажми на файл ${
+                        if (com.csqtt.client.MayakConfig.ADMIN) "MayakAdmin" else "Mayak"
+                    }-…apk."
+                }
+                siteTried = true
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Скачать через сайт", fontWeight = FontWeight.SemiBold)
+        }
+        Text(
+            text = siteHint ?: "На любой сети: откроется браузер и сам скачает файл через включённый VPN.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
