@@ -102,6 +102,7 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
                             val result = runCatching { checkMayakUpdate(alwaysAskYandex = true) }.getOrNull()
                             val release = result?.release
                             foundRelease = release?.takeIf { isMayakUpdate(it) }
+                            com.csqtt.client.MayakUpdateState.offer(release)
                             checkReport = when {
                                 result == null -> "Не получилось проверить."
                                 foundRelease != null -> "Есть версия 1.0.${buildNumberOf(release!!.versionTag)}. (${result.report})"
@@ -123,15 +124,10 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                foundRelease?.let { release ->
-                    Button(
-                        onClick = { installing = release },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Обновить до 1.0.${buildNumberOf(release.versionTag)}", fontWeight = FontWeight.SemiBold)
-                    }
-                }
             }
+
+            // New version: what is new and "Обновить" (Wi-Fi only).
+            MayakUpdateCard(onUpdate = { installing = it })
 
             if (MayakConfig.ADMIN && settingsStore != null) {
                 AppSectionCard(

@@ -315,6 +315,7 @@ fun MainScreen(
         initialValue = DEFAULT_UPDATE_CHECK_INTERVAL_HOURS
     )
     var pendingRelease by remember { mutableStateOf<AppReleaseInfo?>(null) }
+    val updateAvailable by MayakUpdateState.available.collectAsStateWithLifecycle()
     var installingRelease by remember { mutableStateOf<AppReleaseInfo?>(null) }
     val currentVersion = remember { "v${BuildConfig.VERSION_NAME.removePrefix("v")}" }
     val safeBottomInset = with(density) { WindowInsets.safeDrawing.getBottom(density).toDp() }
@@ -380,10 +381,8 @@ fun MainScreen(
                 "Update check: local=$currentVersion remote=${release.versionTag} newer=$hasUpdate postponed=$isPostponed reason=$reason"
             )
 
-            if (hasUpdate && !isPostponed) {
-                settingsStore.saveUpdateDialogShown(release.versionTag, checkedAt)
-                pendingRelease = release
-            }
+            // Mayak: no full-screen window; a blinking dot on "Инфо" and a small note instead.
+            if (hasUpdate) MayakUpdateState.offer(release)
         }
 
         runUpdateCheck("startup")
@@ -547,6 +546,15 @@ fun MainScreen(
                         }
                     }
 
+                    if (selectedTab == 0) {
+                        com.csqtt.client.ui.MayakUpdateBanner(
+                            onOpen = { selectedTab = 5 },
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(start = 16.dp, end = 16.dp, bottom = navOverlayReserve + 8.dp),
+                        )
+                    }
+
                     ProxyNavigationBar(
                         navItems = activeNavItems,
                         selectedTab = selectedTab,
@@ -554,6 +562,7 @@ fun MainScreen(
                         dragProgress = dragProgress,
                         unreadErrors = unreadErrors,
                         tunnelRunning = tunnelRunning,
+                        updateAvailable = updateAvailable != null,
                         onTabSelected = { index ->
                             if (selectedTab != index) {
                                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -617,6 +626,7 @@ private fun ProxyNavigationBar(
     dragTargetIndex: IntState,
     dragProgress: FloatState,
     unreadErrors: Int,
+    updateAvailable: Boolean = false,
     tunnelRunning: Boolean,
     onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
@@ -728,6 +738,11 @@ private fun ProxyNavigationBar(
                                     modifier = Modifier.size(22.dp),
                                     tint = iconColor
                                 )
+                                if (item.id == 5 && updateAvailable) {
+                                    com.csqtt.client.ui.MayakUpdateDot(
+                                        modifier = Modifier.offset(x = 6.dp, y = (-2).dp)
+                                    )
+                                }
                                 if (item.id == 4 && unreadErrors > 0) {
                                     Badge(
                                         containerColor = if (tunnelRunning) colors.primary else CSQTTColors.warning,
