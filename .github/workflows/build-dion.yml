@@ -178,3 +178,60 @@ jobs:
             --prerelease \
             --title "DION Маяк, сборка $DION_BUILD_NUMBER" \
             --notes "Отдельное приложение DION Маяк. Автосборка из $GITHUB_SHA."
+
+      # Copy on the owner's public Yandex Disk folder "mayak", so DION Mayak can update itself on mobile
+      # networks with whitelists (GitHub is blocked there). Same scheme as Mayak: 768 KB pieces
+      # "DionMayak-<build>-NNN.part" and dion.json with size and SHA-256. Never fails the build.
+      - name: Mirror to Yandex Disk
+        continue-on-error: true
+        env:
+          YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
+        run: |
+          if [ -z "$YANDEX_TOKEN" ]; then
+            echo "Secret YANDEX_TOKEN is not set, skipping."
+            exit 0
+          fi
+          api="https://cloud-api.yandex.net/v1/disk/resources"
+          auth="Authorization: OAuth $YANDEX_TOKEN"
+          put() {  # $1 = local file, $2 = name inside disk:/mayak/
+            for attempt in 1 2 3; do
+              href=$(curl -sS --max-time 60 -H "$auth" --get --data-urlencode "path=disk:/mayak/$2" \
+                --data "overwrite=true" "$api/upload" | jq -r '.href // empty') || href=""
+              if [ -n "$href" ]; then
+                code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 300 -T "$1" "$href") || code="curl-error"
+                case "$code" in 2??) return 0 ;; esac
+              else
+                code="no upload link"
+              fi
+              sleep $((attempt * 3))
+            done
+            echo "::warning::Yandex Disk upload of $2 failed: $code"
+            return 1
+          }
+          apk="dist/DionMayak-$DION_BUILD_NUMBER-arm64.apk"
+          work="$RUNNER_TEMP/parts-dion"
+          rm -rf "$work"; mkdir -p "$work"
+          split -b 786432 -d -a 3 "$apk" "$work/DionMayak-$DION_BUILD_NUMBER-"
+          names=()
+          for piece in "$work"/DionMayak-*; do
+            name="$(basename "$piece").part"
+            put "$piece" "$name" || exit 0
+            names+=("$name")
+          done
+          printf '%s\n' "${names[@]}" > "$work/names.txt"
+          jq -n --argjson build "$DION_BUILD_NUMBER" --argjson size "$(stat -c %s "$apk")" \
+            --arg sha256 "$(sha256sum "$apk" | cut -d' ' -f1)" --rawfile parts "$work/names.txt" \
+            '{build: $build, size: $size, sha256: $sha256, parts: ($parts | split("\n") | map(select(length > 0)))}' \
+            > "$work/dion.json"
+          put "$work/dion.json" "dion.json" || exit 0
+          echo "Mirrored DION Mayak build $DION_BUILD_NUMBER: ${#names[@]} pieces"
+          # Pieces of older DION builds are no longer referenced.
+          curl -sS --max-time 60 -H "$auth" --get --data-urlencode "path=disk:/mayak" \
+            --data "limit=2000" --data "fields=_embedded.items.name" "$api" \
+            | jq -r --arg b "$DION_BUILD_NUMBER" \
+                '._embedded.items[]?.name | select(test("^DionMayak-[0-9]+-[0-9]{3}\\.part$"))
+                 | select(startswith("DionMayak-" + $b + "-") | not)' \
+            | while read -r old; do
+                curl -sS -o /dev/null --max-time 60 -X DELETE -H "$auth" --get \
+                  --data-urlencode "path=disk:/mayak/$old" --data "permanently=true" "$api" || true
+              done

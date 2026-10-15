@@ -44,6 +44,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -128,6 +129,11 @@ private fun DionScreen() {
     val slugs = (0 until count).map { parseSlug(links[it]) }.filter { it.isNotEmpty() }
 
     LaunchedEffect(phase) { batteryFree = isIgnoringBattery(context) }
+    LaunchedEffect(Unit) { if (DionUpdate.stage.value == DionUpdate.Stage.IDLE) DionUpdate.check() }
+    val updStage by DionUpdate.stage.collectAsState()
+    val updRelease by DionUpdate.available.collectAsState()
+    val updProgress by DionUpdate.progress.collectAsState()
+    val updMessage by DionUpdate.message.collectAsState()
 
     fun saveLinks() = DionPrefs.setLinks(context, links.toList())
 
@@ -229,6 +235,16 @@ private fun DionScreen() {
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text("DION Маяк", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        updRelease?.let { rel ->
+            if (updStage == DionUpdate.Stage.AVAILABLE) {
+                Text(
+                    "Есть обновление: сборка ${rel.build}. Кнопка внизу, в «Обновления».",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
         Text(
             "VPN через несколько звонков DION сразу. Каждая комната — отдельный канал, " +
                 "соединения раскладываются по всем работающим каналам.",
@@ -442,6 +458,48 @@ private fun DionScreen() {
                     color = if (serverError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 )
             }
+        }
+
+        // --- updates ---
+        Section("Обновления") {
+            Text(
+                "Сейчас стоит сборка ${DionUpdate.localBuild()}",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (updMessage.isNotBlank()) {
+                Text(
+                    updMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (updStage == DionUpdate.Stage.FAILED) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (updStage == DionUpdate.Stage.DOWNLOADING) {
+                LinearProgressIndicator(progress = { updProgress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+            }
+            val rel = updRelease
+            if (rel != null && updStage != DionUpdate.Stage.DOWNLOADING && updStage != DionUpdate.Stage.CHECKING) {
+                Button(
+                    onClick = {
+                        if (Build.VERSION.SDK_INT >= 26 && !context.packageManager.canRequestPackageInstalls()) {
+                            toast(context, "Разреши DION Маяку устанавливать приложения и нажми ещё раз")
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")),
+                                )
+                            }
+                        } else {
+                            scope.launch { DionUpdate.downloadAndInstall(context) }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Обновить до сборки ${rel.build}") }
+            }
+            OutlinedButton(
+                onClick = { scope.launch { DionUpdate.check() } },
+                enabled = updStage != DionUpdate.Stage.CHECKING && updStage != DionUpdate.Stage.DOWNLOADING,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (updStage == DionUpdate.Stage.CHECKING) "Проверяю…" else "Проверить обновления") }
         }
 
         // --- log ---
