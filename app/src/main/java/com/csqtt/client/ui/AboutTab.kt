@@ -25,7 +25,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.csqtt.client.BuildConfig
+import com.csqtt.client.AppReleaseInfo
 import com.csqtt.client.MayakConfig
+import com.csqtt.client.buildNumberOf
+import com.csqtt.client.checkMayakUpdate
+import com.csqtt.client.isMayakUpdate
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import com.csqtt.client.ui.components.CsqttScreen
 
 private val RequiredNotices = listOf(
@@ -53,6 +60,15 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
         AdminAddPersonDialog(settingsStore = settingsStore, onDismiss = { showAddPersonDialog = false })
     }
 
+    val scope = rememberCoroutineScope()
+    var checking by remember { mutableStateOf(false) }
+    var checkReport by remember { mutableStateOf<String?>(null) }
+    var foundRelease by remember { mutableStateOf<AppReleaseInfo?>(null) }
+    var installing by remember { mutableStateOf<AppReleaseInfo?>(null) }
+    installing?.let { release ->
+        MayakUpdateProgressDialog(release = release, onClose = { installing = null })
+    }
+
     CsqttScreen {
         Column(
             modifier = Modifier
@@ -76,6 +92,45 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                OutlinedButton(
+                    onClick = {
+                        if (checking) return@OutlinedButton
+                        checking = true
+                        checkReport = null
+                        foundRelease = null
+                        scope.launch {
+                            val result = runCatching { checkMayakUpdate() }.getOrNull()
+                            val release = result?.release
+                            foundRelease = release?.takeIf { isMayakUpdate(it) }
+                            checkReport = when {
+                                result == null -> "Не получилось проверить."
+                                foundRelease != null -> "Есть версия 1.0.${buildNumberOf(release!!.versionTag)}. (${result.report})"
+                                release != null -> "Стоит последняя версия. (${result.report})"
+                                else -> "Не нашёл обновлений. (${result.report})"
+                            }
+                            checking = false
+                        }
+                    },
+                    enabled = !checking,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                ) {
+                    Text(if (checking) "Проверяю… (до полминуты)" else "Проверить обновления")
+                }
+                checkReport?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                foundRelease?.let { release ->
+                    Button(
+                        onClick = { installing = release },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Обновить до 1.0.${buildNumberOf(release.versionTag)}", fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
 
             if (MayakConfig.ADMIN && settingsStore != null) {

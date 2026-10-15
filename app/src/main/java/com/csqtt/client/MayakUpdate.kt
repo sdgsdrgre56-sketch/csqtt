@@ -42,15 +42,48 @@ fun buildNumberOf(version: String): Int? =
  * Latest Mayak release of the fork, with the APK download link for this edition.
  * Returns null when the check could not be made (no network, GitHub unreachable, parse error).
  */
-suspend fun fetchMayakRelease(): AppReleaseInfo? = withContext(Dispatchers.IO) {
-    // GitHub first; when it cannot be reached (mobile whitelists), the owner's Yandex Disk.
-    val body = httpText(CsqttConstants.Update.MAYAK_RELEASES_URL)
-        ?: return@withContext fetchYandexRelease()
+suspend fun fetchMayakRelease(): AppReleaseInfo? = checkMayakUpdate().release
+
+/** Result of an update check plus a short report of where it looked, for the "Инфо" button. */
+data class MayakUpdateCheck(val release: AppReleaseInfo?, val report: String)
+
+/**
+ * GitHub first; when it fails in any way (no connection, a whitelist stub page, too slow), the
+ * owner's Yandex Disk.
+ */
+suspend fun checkMayakUpdate(): MayakUpdateCheck = withContext(Dispatchers.IO) {
+    val github = githubWithin(GITHUB_LIMIT_MS)
+    if (github.first != null) {
+        return@withContext MayakUpdateCheck(github.first, "GitHub: ${github.first!!.versionTag}")
+    }
+    val yandex = runCatching { fetchYandexRelease() }.getOrNull()
+    val report = buildString {
+        append("GitHub: ").append(github.second)
+        append(". Яндекс Диск: ").append(yandex?.versionTag ?: "нет ответа")
+    }
+    Log.i(LOG_TAG, "Update check: $report")
+    MayakUpdateCheck(yandex, report)
+}
+
+private const val GITHUB_LIMIT_MS = 20_000L
+
+/** GitHub release or null with the reason; gives up waiting after [limitMs]. */
+private suspend fun githubWithin(limitMs: Long): Pair<AppReleaseInfo?, String> {
+    val result = kotlinx.coroutines.CompletableDeferred<Pair<AppReleaseInfo?, String>>()
+    // A plain thread: a slow blocking read cannot hold the check past the limit.
+    Thread {
+        result.complete(runCatching { fetchGithubRelease() }.getOrElse { null to "ошибка" })
+    }.apply { isDaemon = true }.start()
+    return kotlinx.coroutines.withTimeoutOrNull(limitMs) { result.await() } ?: (null to "слишком долго")
+}
+
+private fun fetchGithubRelease(): Pair<AppReleaseInfo?, String> {
+    val body = httpText(CsqttConstants.Update.MAYAK_RELEASES_URL) ?: return null to "нет связи"
     val releases = try {
         JSONArray(body)
     } catch (e: Exception) {
         Log.w(LOG_TAG, "[WARN] Update: cannot parse releases list", e)
-        return@withContext null
+        return null to "вместо списка пришла чужая страница"
     }
 
     var best: AppReleaseInfo? = null
@@ -93,7 +126,8 @@ suspend fun fetchMayakRelease(): AppReleaseInfo? = withContext(Dispatchers.IO) {
         )
         bestNumber = number
     }
-    best?.copy(notes = notesByBuild.values.flatten().distinct().take(MAX_NOTES))
+    val found = best?.copy(notes = notesByBuild.values.flatten().distinct().take(MAX_NOTES))
+    return found to (if (found == null) "версий нет" else found.versionTag)
 }
 
 private const val MAX_NOTES = 8
