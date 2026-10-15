@@ -53,6 +53,10 @@ internal object MayakYandex {
     var lastProblem: String = ""
         private set
 
+    fun lastProblemNote(text: String) {
+        lastProblem = text
+    }
+
     private fun getBytes(url: String, limit: Int): ByteArray? {
         var current = URL(url)
         repeat(6) {

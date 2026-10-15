@@ -139,43 +139,69 @@ private const val YANDEX_PARTS_URL = "yandex-parts:"
 /** Largest piece accepted (CI cuts 768 KB pieces; whitelists drop Yandex files of 1 MB). */
 private const val MAX_PART_BYTES = 1_000_000
 
+/** Why the last download failed, shown in the update window. */
+@Volatile
+private var lastDownloadProblem: String = ""
+
 /**
  * Downloads every piece of [release] from Yandex Disk, glues them into [file] and checks the size
- * and SHA-256. Each piece is tried a few times. Returns false when anything is missing or wrong.
+ * and SHA-256. Pieces already downloaded by an earlier attempt are kept in "updates/parts", so
+ * "Повторить" continues where it stopped. Returns false when anything is missing or wrong.
  */
 private fun downloadYandexParts(
     release: AppReleaseInfo,
+    dir: File,
     file: File,
     onProgress: (downloaded: Long, total: Long) -> Unit,
 ): Boolean {
     val total = release.yandexSize
-    val digest = java.security.MessageDigest.getInstance("SHA-256")
+    val partsDir = File(dir, "parts-${release.versionTag}").apply { mkdirs() }
     var done = 0L
+    val count = release.yandexParts.size
+    release.yandexParts.forEachIndexed { index, part ->
+        val saved = File(partsDir, part)
+        if (saved.isFile && saved.length() in 1..MAX_PART_BYTES.toLong()) {
+            done += saved.length()
+            onProgress(done, total)
+            return@forEachIndexed
+        }
+        var bytes: ByteArray? = null
+        for (attempt in 1..5) {
+            bytes = MayakYandex.fetchBytes(part, MAX_PART_BYTES + 1)
+            if (bytes != null && bytes.isNotEmpty() && bytes.size <= MAX_PART_BYTES) break
+            if (bytes != null) MayakYandex.lastProblemNote("кусок больше 1 МБ (${bytes.size})")
+            bytes = null
+            Thread.sleep(2_000L * attempt)
+        }
+        if (bytes == null) {
+            lastDownloadProblem = "кусок ${index + 1} из $count: ${MayakYandex.lastProblem.ifBlank { "нет ответа" }}"
+            Log.w(LOG_TAG, "[WARN] Update: $lastDownloadProblem")
+            return false
+        }
+        saved.writeBytes(bytes)
+        done += bytes.size
+        onProgress(done, total)
+        Thread.sleep(300L) // be gentle with Yandex: about 50 requests in a row otherwise
+    }
+    // Glue and check.
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+    var glued = 0L
     file.outputStream().use { output ->
         for (part in release.yandexParts) {
-            var bytes: ByteArray? = null
-            for (attempt in 1..3) {
-                bytes = MayakYandex.fetchBytes(part, MAX_PART_BYTES + 1)
-                if (bytes != null && bytes.isNotEmpty() && bytes.size <= MAX_PART_BYTES) break
-                bytes = null
-                Thread.sleep(1_000L * attempt)
-            }
-            if (bytes == null) {
-                Log.w(LOG_TAG, "[WARN] Update: Yandex piece $part could not be downloaded")
-                return false
-            }
+            val bytes = File(partsDir, part).readBytes()
             output.write(bytes)
             digest.update(bytes)
-            done += bytes.size
-            if (done > total) return false
-            onProgress(done, total)
+            glued += bytes.size
         }
     }
     val sha = digest.digest().joinToString("") { "%02x".format(it) }
-    if (done != total || sha != release.yandexSha256) {
-        Log.w(LOG_TAG, "[WARN] Update: glued file does not match (size $done/$total)")
+    if (glued != total || sha != release.yandexSha256) {
+        lastDownloadProblem = "файл собрался неправильно ($glued из $total байт), кусочки скачаются заново"
+        Log.w(LOG_TAG, "[WARN] Update: $lastDownloadProblem")
+        partsDir.deleteRecursively()
         return false
     }
+    partsDir.deleteRecursively()
     return true
 }
 
@@ -272,8 +298,10 @@ suspend fun downloadAndInstall(
         return "Включи «Разрешить установку» для Маяка, вернись и нажми «Обновить» ещё раз."
     }
 
+    lastDownloadProblem = ""
     val apk = (downloadApk(context, release, url, onProgress) ?: yandexFallback(context, release, onProgress))
-        ?: return "Не получилось скачать обновление. Проверь интернет (или включи Маяк) и нажми «Обновить» ещё раз."
+        ?: return "Не получилось скачать обновление. Проверь интернет (или включи Маяк) и нажми «Обновить» ещё раз." +
+            lastDownloadProblem.takeIf { it.isNotBlank() }?.let { "\n($it)" }.orEmpty()
 
     return if (launchInstaller(context, apk)) null else "Не получилось открыть установку. Нажми «Обновить» ещё раз."
 }
@@ -307,9 +335,12 @@ private suspend fun downloadApk(
         try {
             if (release.yandexParts.isNotEmpty()) {
                 val dir = File(context.cacheDir, "updates").apply { mkdirs() }
-                dir.listFiles()?.forEach { it.delete() }
+                // Keep this version's saved pieces; drop everything else.
+                dir.listFiles()?.forEach {
+                    if (it.name != "parts-${release.versionTag}") it.deleteRecursively()
+                }
                 val file = File(dir, "mayak-${release.versionTag}.apk")
-                return@withContext if (downloadYandexParts(release, file, onProgress)) file else null
+                return@withContext if (downloadYandexParts(release, dir, file, onProgress)) file else null
             }
             // A file on the owner's Yandex Disk is reached through a short-lived direct link.
             val directUrl = if (MayakYandex.isDownloadApiUrl(url)) {
