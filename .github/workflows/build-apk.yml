@@ -394,6 +394,12 @@ jobs:
                     --data-urlencode "path=disk:/mayak/$old" --data "permanently=true" "$api" || true
                 done
           }
+          # Leftovers that are no longer used: whole APKs of the first attempt and test files.
+          for old in MayakAdmin-latest.apk Mayak-latest.apk t64k.bin t256k.bin t768k.bin \
+                     test-1mb.bin test-3mb.bin test-8mb.bin; do
+            curl -sS -o /dev/null --max-time 60 -X DELETE -H "$auth" --get \
+              --data-urlencode "path=disk:/mayak/$old" --data "permanently=true" "$api" || true
+          done
           # Mayak Admin always gets the newest build.
           mirror "dist/MayakAdmin-$MAYAK_BUILD_NUMBER-arm64.apk" "MayakAdmin" "admin.json" || true
           # People's Mayak only when the build is not about Mayak Admin alone (same rule as the app).
