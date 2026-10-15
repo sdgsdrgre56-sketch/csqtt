@@ -61,7 +61,7 @@ class WbRelay(
             put("reliable", false)
         }
         write("JOIN:$params")
-        WbState.log("Процесс WB запущен, комната $roomId")
+        WbState.log("Процесс WB запущен, захожу в комнату")
 
         reader = Thread({
             try {

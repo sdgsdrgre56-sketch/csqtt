@@ -30,7 +30,11 @@ object WbServerInstaller {
 
     private const val STAGE = "/tmp/mayak-wb"
 
-    suspend fun install(context: Context, ssh: WbSsh, wbToken: String): WbServerResult =
+    /**
+     * roomId set: the node joins that existing room as a guest (WB lets only its staff create rooms).
+     * roomId empty: the node creates its own room with the signed-in wbToken.
+     */
+    suspend fun install(context: Context, ssh: WbSsh, wbToken: String, roomId: String): WbServerResult =
         withSession(ssh) { client ->
             val machine = exec(client, ssh, "uname -m", asRoot = false).second.trim().lowercase()
             val asset = when {
@@ -46,15 +50,24 @@ object WbServerInstaller {
                 context.assets.open("wb/$asset").use { input -> binary.outputStream().use { input.copyTo(it) } }
                 val script = File(work, "wb-node.sh")
                 context.assets.open("wb/wb-node.sh").use { input -> script.outputStream().use { input.copyTo(it) } }
-                val cookies = File(work, "cookies.json").apply {
-                    writeText(JSONArray().put(JSONObject().put("name", "wb_access_token").put("value", wbToken)).toString())
+                val cookies = if (wbToken.isNotBlank()) {
+                    File(work, "cookies.json").apply {
+                        writeText(JSONArray().put(JSONObject().put("name", "wb_access_token").put("value", wbToken)).toString())
+                    }
+                } else {
+                    null
                 }
+                val room = if (roomId.isNotBlank()) File(work, "room").apply { writeText(roomId) } else null
 
                 exec(client, ssh, "rm -rf $STAGE && mkdir -p $STAGE && chmod 700 $STAGE", asRoot = false)
                 upload(client, binary, "$STAGE/wbstream")
                 upload(client, script, "$STAGE/wb-node.sh")
-                upload(client, cookies, "$STAGE/cookies.json")
-                WbState.log("Файлы загружены, запускаю узел")
+                cookies?.let { upload(client, it, "$STAGE/cookies.json") }
+                room?.let { upload(client, it, "$STAGE/room") }
+                WbState.log(
+                    if (room != null) "Файлы загружены, узел заходит гостем в твою комнату"
+                    else "Файлы загружены, узел создаёт свою комнату",
+                )
                 // Keep the script itself so later actions can call it.
                 val (code, out) = exec(
                     client, ssh,

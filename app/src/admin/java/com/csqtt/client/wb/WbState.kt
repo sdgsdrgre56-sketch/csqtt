@@ -79,15 +79,24 @@ object WbPrefs {
     }
 }
 
-/** Accepts wbstream://id, https://stream.wb.ru/room/id or a bare id; returns the room id or "". */
+/**
+ * Accepts wbstream://id, any stream.wb.ru link (…/room/<id>, …/join/<id>, ?roomId=<id>) or a bare id;
+ * returns the room id or "".
+ */
 fun parseWbRoomId(input: String): String {
-    val text = input.trim()
+    // A shared invite may carry extra words around the link: take the link itself.
+    val text = Regex("(?:wbstream://|https?://)\\S+").find(input)?.value?.trimEnd('.', ',', ')')
+        ?: input.trim()
     if (text.isEmpty()) return ""
-    if (text.startsWith("wbstream://")) return text.removePrefix("wbstream://").trim('/')
+    if (text.startsWith("wbstream://")) return text.removePrefix("wbstream://").trim('/').substringBefore('?')
+    val uuid = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
     if (text.startsWith("http://") || text.startsWith("https://")) {
-        val parts = text.substringAfter("://").substringBefore('?').split('/')
-        val i = parts.indexOf("room")
-        return if (i >= 0 && i + 1 < parts.size) parts[i + 1] else ""
+        uuid.findAll(text).lastOrNull()?.let { return it.value }
+        Regex("[?&](?:roomId|room|id)=([A-Za-z0-9_-]{4,128})").find(text)?.let { return it.groupValues[1] }
+        val parts = text.substringAfter("://").substringBefore('?').substringBefore('#').split('/').filter { it.isNotEmpty() }
+        val i = parts.indexOfFirst { it == "room" || it == "join" || it == "r" }
+        if (i >= 0 && i + 1 < parts.size) return parts[i + 1]
+        return parts.drop(1).lastOrNull()?.takeIf { Regex("[A-Za-z0-9_-]{4,128}").matches(it) } ?: ""
     }
     return text.trim('/').takeIf { Regex("[A-Za-z0-9_-]{4,128}").matches(it) } ?: ""
 }

@@ -173,7 +173,7 @@ private fun WbStreamScreen(onBack: () -> Unit) {
             OutlinedTextField(
                 value = link,
                 onValueChange = { link = it.trim() },
-                label = { Text("Ссылка wbstream://…") },
+                label = { Text("Ссылка на комнату WB") },
                 singleLine = true,
                 enabled = !active,
                 modifier = Modifier.fillMaxWidth(),
@@ -183,7 +183,8 @@ private fun WbStreamScreen(onBack: () -> Unit) {
                     onClick = {
                         val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
                             .primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
-                        if (parseWbRoomId(clip).isNotEmpty()) link = clip.trim() else toast(context, "В буфере нет ссылки WB")
+                        val found = Regex("(?:wbstream://|https?://)\\S+").find(clip)?.value ?: clip.trim()
+                        if (parseWbRoomId(found).isNotEmpty()) link = found else toast(context, "В буфере нет ссылки WB")
                     },
                     enabled = !active,
                 ) { Text("Вставить") }
@@ -265,21 +266,33 @@ private fun WbStreamScreen(onBack: () -> Unit) {
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
+            Text(
+                if (roomId.isNotEmpty()) {
+                    "Узел зайдёт гостем в комнату из поля «Подключение». Вход в WB для этого не нужен."
+                } else {
+                    "Поле «Подключение» пустое: узел попробует создать свою комнату. Это может только сотрудник WB, " +
+                        "гостю нужна готовая ссылка с сайта stream.wb.ru."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Button(
                 onClick = {
                     val token = WbPrefs.token(context)
-                    if (token.isBlank()) {
-                        serverMessage = "Сначала войди в WB Stream"
+                    if (roomId.isEmpty() && token.isBlank()) {
+                        serverMessage = "Вставь ссылку на комнату WB в «Подключение» (или войди в WB как сотрудник)"
                         serverError = true
                     } else {
-                        runServer({ WbServerInstaller.install(context, it, token) }) {
-                            "Узел работает. Ссылка подставлена в «Подключение»."
+                        WbPrefs.setLink(context, link)
+                        val room = roomId
+                        runServer({ WbServerInstaller.install(context, it, if (room.isEmpty()) token else "", room) }) {
+                            "Узел в комнате. Теперь выключи Маяк и жми «Подключить»."
                         }
                     }
                 },
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Установить / обновить узел") }
+            ) { Text(if (roomId.isNotEmpty()) "Установить узел в эту комнату" else "Установить / обновить узел") }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = { runServer(WbServerInstaller::status) { "Узел: ${it.status.ifBlank { "?" }}" } },
