@@ -62,8 +62,9 @@ internal object MayakYandex {
         repeat(6) {
             val connection = (current.openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = false
-                connectTimeout = 10_000
-                readTimeout = 15_000
+                // Short: on mobile whitelists a stuck request is better dropped and retried.
+                connectTimeout = 6_000
+                readTimeout = 10_000
                 setRequestProperty("User-Agent", "Mayak/${BuildConfig.VERSION_NAME}")
             }
             val host = current.host

@@ -156,32 +156,53 @@ private fun downloadYandexParts(
 ): Boolean {
     val total = release.yandexSize
     val partsDir = File(dir, "parts-${release.versionTag}").apply { mkdirs() }
-    var done = 0L
     val count = release.yandexParts.size
-    release.yandexParts.forEachIndexed { index, part ->
-        val saved = File(partsDir, part)
-        if (saved.isFile && saved.length() in 1..MAX_PART_BYTES.toLong()) {
-            done += saved.length()
-            onProgress(done, total)
-            return@forEachIndexed
+    val done = java.util.concurrent.atomic.AtomicLong(0L)
+    val failure = java.util.concurrent.atomic.AtomicReference<String?>(null)
+    // Three pieces at a time: one slow request does not hold up the rest.
+    val pool = java.util.concurrent.Executors.newFixedThreadPool(3)
+    try {
+        val jobs = release.yandexParts.mapIndexed { index, part ->
+            pool.submit(Runnable {
+                if (failure.get() != null) return@Runnable
+                val saved = File(partsDir, part)
+                if (saved.isFile && saved.length() in 1..MAX_PART_BYTES.toLong()) {
+                    onProgress(done.addAndGet(saved.length()), total)
+                    return@Runnable
+                }
+                var bytes: ByteArray? = null
+                var problem = ""
+                for (attempt in 1..5) {
+                    bytes = MayakYandex.fetchBytes(part, MAX_PART_BYTES + 1)
+                    if (bytes != null && bytes.isNotEmpty() && bytes.size <= MAX_PART_BYTES) break
+                    problem = if (bytes != null) "кусок больше 1 МБ (${bytes.size})" else MayakYandex.lastProblem
+                    bytes = null
+                    if (failure.get() != null) return@Runnable
+                    Thread.sleep(1_500L * attempt)
+                }
+                val got = bytes
+                if (got == null) {
+                    failure.compareAndSet(null, "кусок ${index + 1} из $count: ${problem.ifBlank { "нет ответа" }}")
+                    return@Runnable
+                }
+                val tmp = File(partsDir, "$part.tmp")
+                tmp.writeBytes(got)
+                saved.delete()
+                if (!tmp.renameTo(saved)) {
+                    failure.compareAndSet(null, "не получилось сохранить кусок ${index + 1}")
+                    return@Runnable
+                }
+                onProgress(done.addAndGet(got.size.toLong()), total)
+            })
         }
-        var bytes: ByteArray? = null
-        for (attempt in 1..5) {
-            bytes = MayakYandex.fetchBytes(part, MAX_PART_BYTES + 1)
-            if (bytes != null && bytes.isNotEmpty() && bytes.size <= MAX_PART_BYTES) break
-            if (bytes != null) MayakYandex.lastProblemNote("кусок больше 1 МБ (${bytes.size})")
-            bytes = null
-            Thread.sleep(2_000L * attempt)
-        }
-        if (bytes == null) {
-            lastDownloadProblem = "кусок ${index + 1} из $count: ${MayakYandex.lastProblem.ifBlank { "нет ответа" }}"
-            Log.w(LOG_TAG, "[WARN] Update: $lastDownloadProblem")
-            return false
-        }
-        saved.writeBytes(bytes)
-        done += bytes.size
-        onProgress(done, total)
-        Thread.sleep(300L) // be gentle with Yandex: about 50 requests in a row otherwise
+        jobs.forEach { runCatching { it.get() } }
+    } finally {
+        pool.shutdownNow()
+    }
+    failure.get()?.let {
+        lastDownloadProblem = it
+        Log.w(LOG_TAG, "[WARN] Update: $it")
+        return false
     }
     // Glue and check.
     val digest = java.security.MessageDigest.getInstance("SHA-256")
