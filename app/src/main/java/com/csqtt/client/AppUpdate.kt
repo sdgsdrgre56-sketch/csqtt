@@ -41,7 +41,12 @@ data class AppReleaseInfo(
     // Mayak: direct APK download link of the release asset, when the fork updater found one.
     val downloadUrl: String? = null,
     // Mayak: "Что нового" lines of every build newer than the installed one, newest first.
-    val notes: List<String> = emptyList()
+    val notes: List<String> = emptyList(),
+    // Mayak: the same APK on Yandex Disk cut into small pieces (mobile whitelists only let small
+    // files through), with its size and SHA-256 to check the glued file.
+    val yandexParts: List<String> = emptyList(),
+    val yandexSize: Long = 0L,
+    val yandexSha256: String = "",
 )
 
 enum class RemoteVersionSource {

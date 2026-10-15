@@ -330,8 +330,10 @@ jobs:
 
       # Copy of the newest build on the owner's public Yandex Disk folder "mayak", so Mayak can update
       # itself on mobile networks with whitelists (GitHub is blocked there, Yandex is not).
-      # Uses the Disk REST API with the OAuth token in secret YANDEX_TOKEN (WebDAV is paid-only now).
-      # Skipped when the secret is not set; never fails the build.
+      # Whitelists let only small Yandex files through (under ~1 MB), so each APK is cut into 768 KB
+      # pieces "<Name>-<build>-NNN.part"; the app downloads them one by one, glues them and checks
+      # the size and SHA-256 from client.json/admin.json. Uses the Disk REST API with the OAuth token
+      # in secret YANDEX_TOKEN. Skipped when the secret is not set; never fails the build.
       - name: Mirror to Yandex Disk
         continue-on-error: true
         env:
@@ -341,37 +343,62 @@ jobs:
             echo "Secret YANDEX_TOKEN is not set, skipping."
             exit 0
           fi
-          api="https://cloud-api.yandex.net/v1/disk/resources/upload"
+          api="https://cloud-api.yandex.net/v1/disk/resources"
+          auth="Authorization: OAuth $YANDEX_TOKEN"
           put() {  # $1 = local file, $2 = name inside disk:/mayak/
-            href=$(curl -sS --retry 3 --max-time 60 -H "Authorization: OAuth $YANDEX_TOKEN" \
-              --get --data-urlencode "path=disk:/mayak/$2" --data "overwrite=true" "$api" | jq -r '.href // empty')
-            if [ -z "$href" ]; then
-              echo "::warning::Yandex Disk did not give an upload link for $2 (token or folder problem)"
-              return 1
-            fi
-            code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 --max-time 900 -T "$1" "$href") || code="curl-error"
-            case "$code" in
-              2??) echo "Uploaded $2"; return 0 ;;
-              *) echo "::warning::Yandex Disk upload of $2 failed: $code"; return 1 ;;
-            esac
+            for attempt in 1 2 3; do
+              href=$(curl -sS --max-time 60 -H "$auth" --get --data-urlencode "path=disk:/mayak/$2" \
+                --data "overwrite=true" "$api/upload" | jq -r '.href // empty') || href=""
+              if [ -n "$href" ]; then
+                code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 300 -T "$1" "$href") || code="curl-error"
+                case "$code" in 2??) return 0 ;; esac
+              else
+                code="no upload link"
+              fi
+              sleep $((attempt * 3))
+            done
+            echo "::warning::Yandex Disk upload of $2 failed: $code"
+            return 1
           }
           whatsnew="$RUNNER_TEMP/whatsnew.txt"
           [ -f "$whatsnew" ] || : > "$whatsnew"
-          json() {  # $1 = apk file name on the Disk
-            jq -n --argjson build "$MAYAK_BUILD_NUMBER" --arg apk "$1" --rawfile notes "$whatsnew" \
-              '{build: $build, apk: $apk, notes: ($notes | split("\n") | map(select(length > 0)))}'
+          # $1 = APK, $2 = name ("Mayak" or "MayakAdmin"), $3 = json file name on the Disk
+          mirror() {
+            work="$RUNNER_TEMP/parts-$2"
+            rm -rf "$work"; mkdir -p "$work"
+            split -b 786432 -d -a 3 "$1" "$work/$2-$MAYAK_BUILD_NUMBER-"
+            names=()
+            for piece in "$work"/*; do
+              name="$(basename "$piece").part"
+              put "$piece" "$name" || return 1
+              names+=("$name")
+            done
+            size=$(stat -c %s "$1")
+            sha=$(sha256sum "$1" | cut -d' ' -f1)
+            printf '%s\n' "${names[@]}" > "$work/names.txt"
+            jq -n --argjson build "$MAYAK_BUILD_NUMBER" --argjson size "$size" --arg sha256 "$sha" \
+              --rawfile parts "$work/names.txt" --rawfile notes "$whatsnew" \
+              '{build: $build, size: $size, sha256: $sha256,
+                parts: ($parts | split("\n") | map(select(length > 0))),
+                notes: ($notes | split("\n") | map(select(length > 0)))}' > "$work/$3"
+            put "$work/$3" "$3" || return 1
+            echo "Mirrored $2 build $MAYAK_BUILD_NUMBER: ${#names[@]} pieces, $size bytes"
+            # Remove pieces of older builds of this edition (the json no longer points to them).
+            curl -sS --max-time 60 -H "$auth" --get --data-urlencode "path=disk:/mayak" \
+              --data "limit=2000" --data "fields=_embedded.items.name" "$api" \
+              | jq -r --arg p "$2" --arg b "$MAYAK_BUILD_NUMBER" \
+                  '._embedded.items[]?.name | select(test("^" + $p + "-[0-9]+-[0-9]{3}\\.part$"))
+                   | select(startswith($p + "-" + $b + "-") | not)' \
+              | while read -r old; do
+                  curl -sS -o /dev/null --max-time 60 -X DELETE -H "$auth" --get \
+                    --data-urlencode "path=disk:/mayak/$old" --data "permanently=true" "$api" || true
+                done
           }
-          # Mayak Admin always gets the newest build. The APK goes first, then the file that points to it.
-          if put "dist/MayakAdmin-$MAYAK_BUILD_NUMBER-arm64.apk" "MayakAdmin-latest.apk"; then
-            json "MayakAdmin-latest.apk" > "$RUNNER_TEMP/admin.json"
-            put "$RUNNER_TEMP/admin.json" "admin.json" || true
-          fi
+          # Mayak Admin always gets the newest build.
+          mirror "dist/MayakAdmin-$MAYAK_BUILD_NUMBER-arm64.apk" "MayakAdmin" "admin.json" || true
           # People's Mayak only when the build is not about Mayak Admin alone (same rule as the app).
           if [ ! -s "$whatsnew" ] || LC_ALL=C.UTF-8 grep -v -i -E '^[[:space:]]*(в маяке админ|в админке|маяк админ)' "$whatsnew" | grep -q .; then
-            if put "dist/Mayak-$MAYAK_BUILD_NUMBER-universal.apk" "Mayak-latest.apk"; then
-              json "Mayak-latest.apk" > "$RUNNER_TEMP/client.json"
-              put "$RUNNER_TEMP/client.json" "client.json" || true
-            fi
+            mirror "dist/Mayak-$MAYAK_BUILD_NUMBER-universal.apk" "Mayak" "client.json" || true
           else
             echo "Admin-only build: people's Mayak on Yandex Disk stays as it is."
           fi

@@ -35,12 +35,18 @@ internal object MayakYandex {
     }
 
     /** A small text file from the public folder ([path] like "client.json"). Blocking. */
-    fun fetchText(path: String, limit: Int = 64 * 1024): String? {
+    fun fetchText(path: String, limit: Int = 64 * 1024): String? =
+        fetchBytes(path, limit)?.toString(Charsets.UTF_8)
+
+    /** A small file from the public folder as bytes (at most [limit]), or null. Blocking. */
+    fun fetchBytes(path: String, limit: Int): ByteArray? {
         val href = resolveDirectLink(downloadApiUrl(path)) ?: return null
-        return get(href, limit)
+        return getBytes(href, limit)
     }
 
-    private fun get(url: String, limit: Int): String? {
+    private fun get(url: String, limit: Int): String? = getBytes(url, limit)?.toString(Charsets.UTF_8)
+
+    private fun getBytes(url: String, limit: Int): ByteArray? {
         var current = URL(url)
         repeat(6) {
             val connection = (current.openConnection() as HttpURLConnection).apply {
@@ -67,7 +73,7 @@ internal object MayakYandex {
                     }
                     out.toByteArray()
                 }
-                return String(bytes, Charsets.UTF_8)
+                return bytes
             } catch (e: Exception) {
                 return null
             } finally {

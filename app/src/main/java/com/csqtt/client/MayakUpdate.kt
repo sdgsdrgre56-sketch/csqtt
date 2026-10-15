@@ -98,6 +98,52 @@ suspend fun fetchMayakRelease(): AppReleaseInfo? = withContext(Dispatchers.IO) {
 
 private const val MAX_NOTES = 8
 
+/** Marker download address of a release that is fetched from Yandex Disk in pieces. */
+private const val YANDEX_PARTS_URL = "yandex-parts:"
+
+/** Largest piece accepted (CI cuts 768 KB pieces; whitelists drop Yandex files of 1 MB). */
+private const val MAX_PART_BYTES = 1_000_000
+
+/**
+ * Downloads every piece of [release] from Yandex Disk, glues them into [file] and checks the size
+ * and SHA-256. Each piece is tried a few times. Returns false when anything is missing or wrong.
+ */
+private fun downloadYandexParts(
+    release: AppReleaseInfo,
+    file: File,
+    onProgress: (downloaded: Long, total: Long) -> Unit,
+): Boolean {
+    val total = release.yandexSize
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+    var done = 0L
+    file.outputStream().use { output ->
+        for (part in release.yandexParts) {
+            var bytes: ByteArray? = null
+            for (attempt in 1..3) {
+                bytes = MayakYandex.fetchBytes(part, MAX_PART_BYTES + 1)
+                if (bytes != null && bytes.isNotEmpty() && bytes.size <= MAX_PART_BYTES) break
+                bytes = null
+                Thread.sleep(1_000L * attempt)
+            }
+            if (bytes == null) {
+                Log.w(LOG_TAG, "[WARN] Update: Yandex piece $part could not be downloaded")
+                return false
+            }
+            output.write(bytes)
+            digest.update(bytes)
+            done += bytes.size
+            if (done > total) return false
+            onProgress(done, total)
+        }
+    }
+    val sha = digest.digest().joinToString("") { "%02x".format(it) }
+    if (done != total || sha != release.yandexSha256) {
+        Log.w(LOG_TAG, "[WARN] Update: glued file does not match (size $done/$total)")
+        return false
+    }
+    return true
+}
+
 /**
  * The newest build from the owner's public Yandex Disk folder: CI writes "client.json" and
  * "admin.json" there ({"build": N, "apk": "<file>", "notes": [...]}) next to the APK files.
@@ -108,7 +154,13 @@ private fun fetchYandexRelease(): AppReleaseInfo? {
     return runCatching {
         val obj = org.json.JSONObject(text)
         val number = obj.optInt("build", 0).takeIf { it > 0 } ?: return null
-        val apk = obj.optString("apk", "").takeIf { it.isNotBlank() } ?: return null
+        val apk = obj.optString("apk", "")
+        val partsArray = obj.optJSONArray("parts") ?: JSONArray()
+        val parts = (0 until partsArray.length()).map { partsArray.optString(it) }.filter { it.isNotBlank() }
+        val size = obj.optLong("size", 0L)
+        val sha256 = obj.optString("sha256", "").lowercase()
+        if (parts.isEmpty() && apk.isBlank()) return null
+        if (parts.isNotEmpty() && (size <= 0L || sha256.length != 64)) return null
         val array = obj.optJSONArray("notes") ?: JSONArray()
         val allLines = (0 until array.length()).map { array.optString(it) }.filter { it.isNotBlank() }
         val lines = if (MayakConfig.ADMIN) allLines else allLines.filterNot(::isAdminOnlyNote)
@@ -116,8 +168,12 @@ private fun fetchYandexRelease(): AppReleaseInfo? {
             versionTag = "build-$number",
             releaseUrl = "",
             source = RemoteVersionSource.Release,
-            downloadUrl = MayakYandex.downloadApiUrl(apk),
+            // Pieces when there are any: a whole APK cannot get through mobile whitelists.
+            downloadUrl = if (parts.isNotEmpty()) YANDEX_PARTS_URL else MayakYandex.downloadApiUrl(apk),
             notes = lines.take(MAX_NOTES),
+            yandexParts = parts,
+            yandexSize = size,
+            yandexSha256 = sha256,
         )
     }.getOrNull()
 }
@@ -178,8 +234,45 @@ suspend fun downloadAndInstall(
         return "Включи «Разрешить установку» для Маяка, вернись и нажми «Обновить» ещё раз."
     }
 
-    val apk = withContext(Dispatchers.IO) {
+    val apk = (downloadApk(context, release, url, onProgress) ?: yandexFallback(context, release, onProgress))
+        ?: return "Не получилось скачать обновление. Проверь интернет (или включи Маяк) и нажми «Обновить» ещё раз."
+
+    return if (launchInstaller(context, apk)) null else "Не получилось открыть установку. Нажми «Обновить» ещё раз."
+}
+
+/**
+ * GitHub showed the new version but its file did not come (blocked or throttled): take the same
+ * build from Yandex Disk in pieces.
+ */
+private suspend fun yandexFallback(
+    context: Context,
+    release: AppReleaseInfo,
+    onProgress: (downloaded: Long, total: Long) -> Unit,
+): File? = withContext(Dispatchers.IO) {
+    if (release.yandexParts.isNotEmpty()) return@withContext null // already was the Yandex way
+    val yandex = runCatching { fetchYandexRelease() }.getOrNull() ?: return@withContext null
+    if (yandex.yandexParts.isEmpty()) return@withContext null
+    if ((buildNumberOf(yandex.versionTag) ?: 0) < (buildNumberOf(release.versionTag) ?: Int.MAX_VALUE)) {
+        return@withContext null
+    }
+    Log.i(LOG_TAG, "Update: GitHub file did not come, taking ${yandex.versionTag} from Yandex Disk")
+    downloadApk(context, yandex, YANDEX_PARTS_URL, onProgress)
+}
+
+private suspend fun downloadApk(
+    context: Context,
+    release: AppReleaseInfo,
+    url: String,
+    onProgress: (downloaded: Long, total: Long) -> Unit,
+): File? {
+    return withContext(Dispatchers.IO) {
         try {
+            if (release.yandexParts.isNotEmpty()) {
+                val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+                dir.listFiles()?.forEach { it.delete() }
+                val file = File(dir, "mayak-${release.versionTag}.apk")
+                return@withContext if (downloadYandexParts(release, file, onProgress)) file else null
+            }
             // A file on the owner's Yandex Disk is reached through a short-lived direct link.
             val directUrl = if (MayakYandex.isDownloadApiUrl(url)) {
                 MayakYandex.resolveDirectLink(url) ?: return@withContext null
@@ -247,9 +340,7 @@ suspend fun downloadAndInstall(
             Log.w(LOG_TAG, "[WARN] Update: download failed", e)
             null
         }
-    } ?: return "Не получилось скачать обновление. Проверь интернет (или включи Маяк) и нажми «Обновить» ещё раз."
-
-    return if (launchInstaller(context, apk)) null else "Не получилось открыть установку. Нажми «Обновить» ещё раз."
+    }
 }
 
 private fun launchInstaller(context: Context, apk: File): Boolean = try {
