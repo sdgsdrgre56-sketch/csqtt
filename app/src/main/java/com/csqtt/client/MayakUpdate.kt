@@ -65,7 +65,7 @@ suspend fun checkMayakUpdate(): MayakUpdateCheck = withContext(Dispatchers.IO) {
     MayakUpdateCheck(yandex, report)
 }
 
-private const val GITHUB_LIMIT_MS = 20_000L
+private const val GITHUB_LIMIT_MS = 10_000L
 
 /** GitHub release or null with the reason; gives up waiting after [limitMs]. */
 private suspend fun githubWithin(limitMs: Long): Pair<AppReleaseInfo?, String> {

@@ -114,7 +114,7 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
                     enabled = !checking,
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 ) {
-                    Text(if (checking) "Проверяю… (до полминуты)" else "Проверить обновления")
+                    Text(if (checking) "Проверяю… (до 20 секунд)" else "Проверить обновления")
                 }
                 checkReport?.let {
                     Text(
