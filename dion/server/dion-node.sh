@@ -11,7 +11,7 @@ set -u
 DIR=/opt/mayak-dion
 UNIT=/etc/systemd/system/mayak-dion@.service
 STAGE=/tmp/mayak-dion
-MAX=8
+MAX=12
 
 say() { echo "DION_$1=$2"; }
 
@@ -53,7 +53,7 @@ wait_links() {
 case "${1:-}" in
 install)
     COUNT="${2:-5}"
-    case "$COUNT" in [1-8]) ;; *) say ERROR "число каналов 1–$MAX"; exit 1 ;; esac
+    if ! [[ "$COUNT" =~ ^[0-9]+$ ]] || [ "$COUNT" -lt 1 ] || [ "$COUNT" -gt "$MAX" ]; then say ERROR "число каналов 1–$MAX"; exit 1; fi
     [ -s "$STAGE/creator" ] || { say ERROR "нет файла узла"; exit 1; }
     for n in $(seq 1 "$COUNT"); do
         if [ ! -s "$STAGE/cookies$n.json" ] && [ ! -s "$STAGE/cookies.json" ] && [ ! -s "$DIR/$n/cookies.json" ]; then
@@ -93,7 +93,7 @@ install)
 N="$1"
 cd "/opt/mayak-dion/$N" || exit 1
 # Channels sign in one after another, not all in the same second.
-sleep $(( (N - 1) * 3 ))
+sleep $(( (N - 1) * 2 ))
 ROOM=""
 [ -s rooms.log ] && ROOM=$(tail -n 1 rooms.log)
 # DION rewrites cookies.json itself when it refreshes or logs in again (email/password are inside).

@@ -360,7 +360,7 @@ private fun DionScreen() {
                 OutlinedButton(onClick = { if (count < MAX_CHANNELS) count++ }, enabled = !busy && !active && count < MAX_CHANNELS) { Text("+") }
             }
             Text(
-                "Каждый канал на сервере берёт около 60 МБ памяти.",
+                "Каждый канал на сервере берёт около 60 МБ памяти: 12 каналов ≈ 750 МБ.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
