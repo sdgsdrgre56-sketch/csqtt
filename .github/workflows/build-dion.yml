@@ -1,0 +1,180 @@
+name: Build DION Mayak
+
+# Separate app «DION Маяк»: VPN over several DION call rooms at once.
+# Built only from the dion-app branch; releases are tagged "dion-build-N", so Mayak's
+# updater (it takes only "build-N") never offers them to people.
+
+on:
+  push:
+    branches: [dion-app]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-dion-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: DION Mayak APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      DION_BUILD_NUMBER: ${{ github.run_number }}
+      WB_REPO: kulikov0/whitelist-bypass
+      WB_COMMIT: 820a6310af5fc1e4f77ef7327bb2594664542a09
+    steps:
+      - uses: actions/checkout@v7
+
+      # whitelist-bypass (MIT): DION joiner for the phone, DION creator for the server, tun2socks.
+      - id: wbcache
+        uses: actions/cache@v5
+        with:
+          path: wbout
+          key: dion-wb-${{ env.WB_COMMIT }}-v1
+
+      - uses: actions/checkout@v7
+        if: steps.wbcache.outputs.cache-hit != 'true'
+        with:
+          repository: ${{ env.WB_REPO }}
+          ref: ${{ env.WB_COMMIT }}
+          path: wbsrc
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: false
+
+      - name: Build whitelist-bypass parts
+        if: steps.wbcache.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          out="$GITHUB_WORKSPACE/wbout"
+          mkdir -p "$out/jni/arm64-v8a" "$out/jni/armeabi-v7a" "$out/jni/x86_64" "$out/server"
+          cd wbsrc
+          go version
+          go mod download
+          cd relay
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$out/jni/arm64-v8a/libwbrelay.so" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="-s -w" -o "$out/jni/armeabi-v7a/libwbrelay.so" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o "$out/jni/x86_64/libwbrelay.so" .
+          cd ../headless/dion
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o "$out/server/dion-linux-amd64" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$out/server/dion-linux-arm64" .
+          cd ../../relay
+          go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260508232728-bebd421c7fa8
+          go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260508232728-bebd421c7fa8
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          export ANDROID_NDK_HOME="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          export CGO_LDFLAGS="-Wl,-z,max-page-size=16384"
+          gomobile init
+          gomobile bind -trimpath -ldflags="-s -w" -target=android/arm64,android/arm,android/amd64 -androidapi 23 -o "$out/wbmobile.aar" ./androidbind/
+          cp ../LICENSE "$out/whitelist-bypass-LICENSE"
+          ls -lR "$out"
+
+      # Own part: the balancer that spreads connections over the channels.
+      - name: Build channel balancer
+        working-directory: dion/mux
+        run: |
+          set -e
+          go vet .
+          for pair in arm64-v8a:arm64 armeabi-v7a:arm x86_64:amd64; do
+            abi=${pair%%:*}; arch=${pair##*:}
+            mkdir -p "$GITHUB_WORKSPACE/dion/app/src/main/jniLibs/$abi"
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=7 go build -trimpath -ldflags="-s -w" \
+              -o "$GITHUB_WORKSPACE/dion/app/src/main/jniLibs/$abi/libdionmux.so" .
+          done
+
+      - name: Place files
+        run: |
+          set -e
+          wb="$GITHUB_WORKSPACE/wbout"
+          app=dion/app
+          mkdir -p $app/libs $app/src/main/assets/server $app/src/main/assets/licenses
+          cp -r "$wb/jni/." $app/src/main/jniLibs/
+          cp "$wb/server/dion-linux-amd64" "$wb/server/dion-linux-arm64" $app/src/main/assets/server/
+          cp dion/server/dion-node.sh $app/src/main/assets/server/
+          cp "$wb/whitelist-bypass-LICENSE" $app/src/main/assets/licenses/
+          cp "$wb/wbmobile.aar" $app/libs/wbmobile.aar
+          bash -n $app/src/main/assets/server/dion-node.sh
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            test -s "$app/src/main/jniLibs/$abi/libwbrelay.so"
+            test -s "$app/src/main/jniLibs/$abi/libdionmux.so"
+          done
+          ls -lR $app/src/main/jniLibs $app/src/main/assets $app/libs
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Prepare Android SDK
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > dion/local.properties
+          sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -n 1)
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" --channel=3 "platforms;android-37.0" \
+            || "$sdkmanager" --channel=3 "platforms;android-37" \
+            || echo "Platform 37 not installed by sdkmanager; Gradle will try to fetch it."
+
+      # Same key as Mayak (ci/release-signing.p12 + secret), so later builds install over earlier ones.
+      - name: Select signing key
+        env:
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_PASSWORD" ] && [ -f ci/release-signing.p12 ]; then
+            echo "::add-mask::$SIGNING_KEYSTORE_PASSWORD"
+            {
+              echo "KEYSTORE_FILE=$GITHUB_WORKSPACE/ci/release-signing.p12"
+              echo "KEYSTORE_PASSWORD=$SIGNING_KEYSTORE_PASSWORD"
+              echo "KEY_ALIAS=${SIGNING_KEY_ALIAS:-mayak}"
+              echo "KEY_PASSWORD=$SIGNING_KEYSTORE_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "Signing with Mayak's own key."
+          else
+            {
+              echo "KEYSTORE_FILE=$GITHUB_WORKSPACE/ci/test-signing.p12"
+              echo "KEYSTORE_PASSWORD=mayak-test"
+              echo "KEY_ALIAS=mayak-test"
+              echo "KEY_PASSWORD=mayak-test"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the public TEST key."
+          fi
+
+      - name: Build APK
+        run: |
+          set -o pipefail
+          if ! bash gradlew -p dion :app:assembleRelease --no-daemon --console=plain --stacktrace 2>&1 | tee "$RUNNER_TEMP/gradle.log"; then
+            body=$(grep -E '^e: |error:|FAILURE|What went wrong' -A3 "$RUNNER_TEMP/gradle.log" | head -n 60 | cut -c1-240 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=Gradle build failed::$body"
+            exit 1
+          fi
+
+      - name: Collect APKs
+        run: |
+          mkdir -p dist
+          out=dion/app/build/outputs/apk/release
+          ls -l $out
+          cp "$out/app-arm64-v8a-release.apk" "dist/DionMayak-$DION_BUILD_NUMBER-arm64.apk"
+          cp "$out/app-universal-release.apk" "dist/DionMayak-$DION_BUILD_NUMBER-universal.apk"
+          ls -l dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dion-apk
+          path: dist/*.apk
+          if-no-files-found: error
+
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "dion-build-$DION_BUILD_NUMBER" dist/*.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "DION Маяк, сборка $DION_BUILD_NUMBER" \
+            --notes "Отдельное приложение DION Маяк. Автосборка из $GITHUB_SHA."
