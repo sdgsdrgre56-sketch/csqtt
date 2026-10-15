@@ -23,57 +23,86 @@ data class WbServerResult(
 data class WbSsh(val host: String, val port: Int, val user: String, val password: String)
 
 /**
- * Installs / manages the WB Stream test node over SSH. Everything lives in /opt/mayak-wb and the
- * "mayak-wb" systemd service; CSQTT and the rest of the server are not touched.
+ * Installs / manages the call-tunnel test node over SSH. Everything lives in /opt/mayak-call and the
+ * "mayak-call" systemd service; CSQTT and the rest of the server are not touched.
  */
 object WbServerInstaller {
 
     private const val STAGE = "/tmp/mayak-wb"
 
+    private const val TOOL = "/usr/local/lib/mayak-call/node.sh"
+    private const val LEGACY_TOOL = "/opt/mayak-wb/wb-node.sh"
+
+    /** What the server node signs in with. */
+    data class NodeLogin(
+        val roomId: String = "",
+        val wbToken: String = "",
+        val dionEmail: String = "",
+        val dionPassword: String = "",
+    )
+
     /**
-     * roomId set: the node joins that existing room as a guest (WB lets only its staff create rooms).
-     * roomId empty: the node creates its own room with the signed-in wbToken.
+     * DION: the node signs in with the e-mail/password (it re-logs in by itself) and creates or rejoins its room.
+     * WB: with roomId it joins that existing room as a guest (WB lets only its staff create rooms);
+     * without it, it needs a staff wbToken to create one.
      */
-    suspend fun install(context: Context, ssh: WbSsh, wbToken: String, roomId: String): WbServerResult =
+    suspend fun install(context: Context, ssh: WbSsh, platform: CallPlatform, login: NodeLogin): WbServerResult =
         withSession(ssh) { client ->
             val machine = exec(client, ssh, "uname -m", asRoot = false).second.trim().lowercase()
-            val asset = when {
-                machine.startsWith("x86_64") || machine == "amd64" -> "wbstream-linux-amd64"
-                machine.startsWith("aarch64") || machine.startsWith("arm64") -> "wbstream-linux-arm64"
+            val arch = when {
+                machine.startsWith("x86_64") || machine == "amd64" -> "amd64"
+                machine.startsWith("aarch64") || machine.startsWith("arm64") -> "arm64"
                 else -> return@withSession WbServerResult(false, error = "Сервер $machine не поддерживается (нужен amd64 или arm64)")
             }
-            WbState.log("Сервер: $machine, ставлю $asset")
+            val asset = "${platform.assetPrefix}-linux-$arch"
+            WbState.log("Сервер: $machine, ставлю узел ${platform.title}")
 
             val work = File(context.cacheDir, "wb-install-${System.nanoTime()}").apply { mkdirs() }
             try {
-                val binary = File(work, "wbstream")
+                val binary = File(work, "creator")
                 context.assets.open("wb/$asset").use { input -> binary.outputStream().use { input.copyTo(it) } }
-                val script = File(work, "wb-node.sh")
+                val script = File(work, "node.sh")
                 context.assets.open("wb/wb-node.sh").use { input -> script.outputStream().use { input.copyTo(it) } }
-                val cookies = if (wbToken.isNotBlank()) {
-                    File(work, "cookies.json").apply {
-                        writeText(JSONArray().put(JSONObject().put("name", "wb_access_token").put("value", wbToken)).toString())
+                val cookiesJson = when (platform) {
+                    CallPlatform.DION -> if (login.dionEmail.isNotBlank() && login.dionPassword.isNotBlank()) {
+                        JSONObject()
+                            .put("email", login.dionEmail.trim())
+                            .put("password", login.dionPassword)
+                            .put("cookies", JSONArray())
+                            .toString()
+                    } else {
+                        null
                     }
-                } else {
-                    null
+                    CallPlatform.WB -> if (login.wbToken.isNotBlank()) {
+                        JSONArray().put(JSONObject().put("name", "wb_access_token").put("value", login.wbToken)).toString()
+                    } else {
+                        null
+                    }
                 }
-                val room = if (roomId.isNotBlank()) File(work, "room").apply { writeText(roomId) } else null
+                val cookies = cookiesJson?.let { json -> File(work, "cookies.json").apply { writeText(json) } }
+                val room = login.roomId.takeIf { it.isNotBlank() }?.let { id -> File(work, "room").apply { writeText(id) } }
+                if (cookies == null && room == null) {
+                    return@withSession WbServerResult(false, error = "Нет ни входа, ни ссылки на комнату")
+                }
 
                 exec(client, ssh, "rm -rf $STAGE && mkdir -p $STAGE && chmod 700 $STAGE", asRoot = false)
-                upload(client, binary, "$STAGE/wbstream")
-                upload(client, script, "$STAGE/wb-node.sh")
+                upload(client, binary, "$STAGE/creator")
+                upload(client, script, "$STAGE/node.sh")
                 cookies?.let { upload(client, it, "$STAGE/cookies.json") }
                 room?.let { upload(client, it, "$STAGE/room") }
                 WbState.log(
-                    if (room != null) "Файлы загружены, узел заходит гостем в твою комнату"
-                    else "Файлы загружены, узел создаёт свою комнату",
+                    when {
+                        room != null && cookies == null -> "Файлы загружены, узел заходит гостем в твою комнату"
+                        room != null -> "Файлы загружены, узел заходит в свою комнату"
+                        else -> "Файлы загружены, узел создаёт комнату"
+                    },
                 )
-                // Keep the script itself so later actions can call it.
+                // Keep the script on the server so later actions can call it.
                 val (code, out) = exec(
                     client, ssh,
-                    "install -D -m 0755 $STAGE/wb-node.sh /opt/mayak-wb/wb-node.sh && bash /opt/mayak-wb/wb-node.sh install",
+                    "install -D -m 0755 $STAGE/node.sh $TOOL && bash $TOOL install ${platform.id}",
                     asRoot = true,
-                    timeoutSec = 120,
+                    timeoutSec = 150,
                 )
                 parse(code, out)
             } finally {
@@ -89,10 +118,11 @@ object WbServerInstaller {
         withSession(ssh) { client ->
             val (code, out) = exec(
                 client, ssh,
-                "if [ -x /opt/mayak-wb/wb-node.sh ]; then bash /opt/mayak-wb/wb-node.sh $action; " +
-                    "else echo 'WB_STATUS=не установлен'; fi",
+                // The first test build kept its script under /opt/mayak-wb.
+                "S=$TOOL; [ -x \$S ] || S=$LEGACY_TOOL; " +
+                    "if [ -x \$S ]; then bash \$S $action; else echo 'WB_STATUS=не установлен'; fi",
                 asRoot = true,
-                timeoutSec = 90,
+                timeoutSec = 100,
             )
             parse(code, out)
         }

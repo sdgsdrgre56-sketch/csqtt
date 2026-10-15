@@ -10,8 +10,8 @@ import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
 /**
- * Runs the whitelist-bypass WB Stream joiner (libwbrelay.so) as a child process.
- * It joins the call as a guest, carries traffic over the call's video track and
+ * Runs the whitelist-bypass call joiner (libwbrelay.so, DION or WB Stream mode) as a child process.
+ * It joins the call as a guest, carries traffic over the call's media and
  * offers it on a local SOCKS5 port that tun2socks then feeds.
  *
  * Process protocol (stdout): "STATUS:<x>", "RESOLVE:<host>" (we answer on stdin), anything else is a log line.
@@ -30,18 +30,18 @@ class WbRelay(
     @Volatile var running = false
         private set
 
-    fun start(roomId: String) {
+    fun start(platform: CallPlatform, roomId: String) {
         stop()
         val binary = File(nativeLibDir, "libwbrelay.so")
         if (!binary.exists()) {
-            WbState.log("Нет файла libwbrelay.so — сборка без WB Stream")
+            WbState.log("Нет файла libwbrelay.so — сборка без туннеля через звонки")
             onStatus("ERROR:relay binary missing")
             return
         }
         running = true
         val proc = ProcessBuilder(
             binary.absolutePath,
-            "--mode", "wbstream-headless-joiner",
+            "--mode", platform.relayMode,
             "--ws-port", "19001",
             "--socks-host", "127.0.0.1",
             "--socks-port", socksPort.toString(),
@@ -54,14 +54,17 @@ class WbRelay(
         val params = JSONObject().apply {
             put("roomId", roomId)
             put("displayName", "Mayak")
-            put("tunnelMode", "video")
-            put("vp8Fps", 24)
-            put("vp8Batch", 30)
-            put("dualTrack", false)
-            put("reliable", false)
+            if (platform == CallPlatform.WB) {
+                // WB carries the tunnel on the published video track.
+                put("tunnelMode", "video")
+                put("vp8Fps", 24)
+                put("vp8Batch", 30)
+                put("dualTrack", false)
+                put("reliable", false)
+            }
         }
         write("JOIN:$params")
-        WbState.log("Процесс WB запущен, захожу в комнату")
+        WbState.log("Процесс ${platform.title} запущен, захожу в комнату")
 
         reader = Thread({
             try {
@@ -74,13 +77,13 @@ class WbRelay(
                 }
                 val code = runCatching { proc.waitFor() }.getOrDefault(-1)
                 if (running) {
-                    WbState.log("Процесс WB завершился (код $code)")
+                    WbState.log("Процесс туннеля завершился (код $code)")
                     running = false
                     onStatus("ERROR:relay exited ($code)")
                 }
             } catch (e: Exception) {
                 if (running) {
-                    WbState.log("Ошибка процесса WB: ${e.message}")
+                    WbState.log("Ошибка процесса туннеля: ${e.message}")
                     running = false
                     onStatus("ERROR:${e.message}")
                 }

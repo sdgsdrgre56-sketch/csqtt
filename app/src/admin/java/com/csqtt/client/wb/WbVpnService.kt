@@ -14,7 +14,7 @@ import androidbind.Androidbind
 import java.util.UUID
 
 /**
- * Separate VPN service for the WB Stream test. It never touches Mayak's TunVpnService:
+ * Separate VPN service for the call-tunnel test (DION / WB Stream). It never touches Mayak's TunVpnService:
  * the screen refuses to start it while Mayak is on, and Mayak's tunnel code knows nothing about it.
  */
 class WbVpnService : VpnService() {
@@ -23,15 +23,17 @@ class WbVpnService : VpnService() {
         const val ACTION_START = "com.csqtt.client.wb.START"
         const val ACTION_STOP = "com.csqtt.client.wb.STOP"
         const val EXTRA_ROOM = "room"
+        const val EXTRA_PLATFORM = "platform"
 
         private const val CHANNEL_ID = "wbstream_test"
         private const val NOTIFICATION_ID = 4711
         private const val SOCKS_PORT = 10818
         private const val MTU = 1500
 
-        fun start(context: Context, roomId: String) {
+        fun start(context: Context, platform: CallPlatform, roomId: String) {
             val intent = Intent(context, WbVpnService::class.java)
                 .setAction(ACTION_START)
+                .putExtra(EXTRA_PLATFORM, platform.id)
                 .putExtra(EXTRA_ROOM, roomId)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -46,6 +48,7 @@ class WbVpnService : VpnService() {
     }
 
     private var relay: WbRelay? = null
+    private var platform = CallPlatform.DION
     @Volatile private var tunUp = false
     @Volatile private var stopping = false
     private val socksUser = "wb" + UUID.randomUUID().toString().take(8)
@@ -59,7 +62,8 @@ class WbVpnService : VpnService() {
             }
             ACTION_START -> {
                 val room = intent.getStringExtra(EXTRA_ROOM).orEmpty()
-                startForegroundCompat("Запуск WB Stream…")
+                platform = CallPlatform.byId(intent.getStringExtra(EXTRA_PLATFORM))
+                startForegroundCompat("Запуск ${platform.title}…")
                 if (room.isBlank()) {
                     WbState.log("Нет ссылки на комнату")
                     fail("Нет ссылки на комнату")
@@ -78,7 +82,7 @@ class WbVpnService : VpnService() {
         WbState.phase.value = WbPhase.STARTING
         WbState.detail.value = ""
         relay = WbRelay(applicationInfo.nativeLibraryDir, SOCKS_PORT, socksUser, socksPass, ::onRelayStatus)
-            .also { it.start(room) }
+            .also { it.start(platform, room) }
     }
 
     private fun onRelayStatus(status: String) {
@@ -102,7 +106,7 @@ class WbVpnService : VpnService() {
 
     private fun establishTun(): Boolean {
         val builder = Builder()
-            .setSession("Маяк · WB Stream (тест)")
+            .setSession("Маяк · ${platform.title} (тест)")
             .addAddress("10.18.0.2", 32)
             .addRoute("0.0.0.0", 0)
             .addDnsServer("1.1.1.1")
@@ -130,7 +134,7 @@ class WbVpnService : VpnService() {
         return try {
             Androidbind.startTun2Socks(fd.toLong(), MTU.toLong(), SOCKS_PORT.toLong(), socksUser, socksPass)
             tunUp = true
-            WbState.log("VPN поднят, трафик идёт через WB Stream")
+            WbState.log("VPN поднят, трафик идёт через ${platform.title}")
             true
         } catch (e: Exception) {
             runCatching { ParcelFileDescriptor.adoptFd(fd).close() }
@@ -188,7 +192,7 @@ class WbVpnService : VpnService() {
     private fun startForegroundCompat(text: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "WB Stream (тест)", NotificationManager.IMPORTANCE_LOW),
+                NotificationChannel(CHANNEL_ID, "Туннель через звонки (тест)", NotificationManager.IMPORTANCE_LOW),
             )
         }
         val notification = buildNotification(text)
@@ -219,7 +223,7 @@ class WbVpnService : VpnService() {
             Notification.Builder(this)
         }
         return builder
-            .setContentTitle("WB Stream (тест)")
+            .setContentTitle("${platform.title} (тест)")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentIntent(open)

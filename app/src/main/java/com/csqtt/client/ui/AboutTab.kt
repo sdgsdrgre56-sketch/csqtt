@@ -194,7 +194,7 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
                     ) {
                         Text("DNS сервера", fontWeight = FontWeight.SemiBold)
                     }
-                    // WB Stream test: a separate screen that exists only in the admin edition.
+                    // Call-tunnel test (DION / WB Stream): a separate screen that exists only in the admin edition.
                     OutlinedButton(
                         onClick = {
                             runCatching {
@@ -207,10 +207,10 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
                             .fillMaxWidth()
                             .padding(top = 8.dp),
                     ) {
-                        Text("WB Stream (тест)", fontWeight = FontWeight.SemiBold)
+                        Text("Туннель через звонки (тест)", fontWeight = FontWeight.SemiBold)
                     }
                     Text(
-                        text = "Отдельный туннель через звонки WB. Основной Маяк не трогает.",
+                        text = "DION или WB Stream, отдельно от основного Маяка.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

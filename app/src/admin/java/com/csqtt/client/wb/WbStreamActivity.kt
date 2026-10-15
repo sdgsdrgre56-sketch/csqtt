@@ -77,9 +77,13 @@ private fun WbStreamScreen(onBack: () -> Unit) {
     val mayakRunning by TunnelManager.running.collectAsState()
     val mayakStarting by TunnelManager.starting.collectAsState()
 
+    var platform by remember { mutableStateOf(WbPrefs.platform(context)) }
     var link by remember { mutableStateOf(WbPrefs.link(context)) }
-    var hasToken by remember { mutableStateOf(WbPrefs.token(context).isNotBlank()) }
-    var showLogin by remember { mutableStateOf(false) }
+    var hasWbToken by remember { mutableStateOf(WbPrefs.token(context).isNotBlank()) }
+    var showWbLogin by remember { mutableStateOf(false) }
+    var dionEmail by remember { mutableStateOf(WbPrefs.dionEmail(context)) }
+    var dionPassword by remember { mutableStateOf("") }
+    var hasDionPassword by remember { mutableStateOf(WbPrefs.dionPassword(context).isNotBlank()) }
     var host by remember { mutableStateOf(WbPrefs.host(context)) }
     var port by remember { mutableStateOf(WbPrefs.port(context).toString()) }
     var user by remember { mutableStateOf(WbPrefs.user(context)) }
@@ -88,12 +92,21 @@ private fun WbStreamScreen(onBack: () -> Unit) {
     var serverMessage by remember { mutableStateOf("") }
     var serverError by remember { mutableStateOf(false) }
 
-    val roomId = parseWbRoomId(link)
+    val roomId = parseRoomId(platform, link)
     val active = phase != WbPhase.OFF && phase != WbPhase.FAILED
+
+    fun choose(next: CallPlatform) {
+        if (next == platform) return
+        platform = next
+        WbPrefs.setPlatform(context, next)
+        serverMessage = ""
+        // A link from the other service is useless here.
+        if (parseRoomId(next, link).isEmpty()) link = ""
+    }
 
     val vpnLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK && VpnService.prepare(context) == null) {
-            WbVpnService.start(context, roomId)
+            WbVpnService.start(context, platform, roomId)
         } else {
             toast(context, "Без разрешения на VPN подключиться не получится")
         }
@@ -106,7 +119,7 @@ private fun WbStreamScreen(onBack: () -> Unit) {
         }
         WbPrefs.setLink(context, link)
         val prepare = VpnService.prepare(context)
-        if (prepare != null) vpnLauncher.launch(prepare) else WbVpnService.start(context, roomId)
+        if (prepare != null) vpnLauncher.launch(prepare) else WbVpnService.start(context, platform, roomId)
     }
 
     fun ssh(): WbSsh? {
@@ -131,21 +144,55 @@ private fun WbStreamScreen(onBack: () -> Unit) {
             serverError = !result.ok
             serverMessage = if (result.ok) okText(result) else "Ошибка: ${result.error}"
             if (result.link.isNotBlank()) {
+                CallPlatform.detect(result.link)?.let { choose(it) }
                 link = result.link
                 WbPrefs.setLink(context, result.link)
             }
         }
     }
 
-    if (showLogin) {
+    fun install() {
+        val login = when (platform) {
+            CallPlatform.DION -> {
+                if (dionEmail.isNotBlank() && dionPassword.isNotEmpty()) {
+                    WbPrefs.saveDion(context, dionEmail, dionPassword)
+                    hasDionPassword = true
+                    dionPassword = ""
+                }
+                val savedPassword = WbPrefs.dionPassword(context)
+                if (dionEmail.isBlank() || savedPassword.isBlank()) {
+                    serverMessage = "Впиши почту и пароль от аккаунта DION"
+                    serverError = true
+                    return
+                }
+                WbServerInstaller.NodeLogin(roomId = roomId, dionEmail = dionEmail, dionPassword = savedPassword)
+            }
+            CallPlatform.WB -> {
+                val token = WbPrefs.token(context)
+                if (roomId.isEmpty() && token.isBlank()) {
+                    serverMessage = "Для WB нужна готовая ссылка на комнату в «Подключение»: гостю WB создавать комнаты не даёт"
+                    serverError = true
+                    return
+                }
+                WbServerInstaller.NodeLogin(roomId = roomId, wbToken = if (roomId.isEmpty()) token else "")
+            }
+        }
+        WbPrefs.setLink(context, link)
+        val target = platform
+        runServer({ WbServerInstaller.install(context, it, target, login) }) {
+            "Узел в комнате, ссылка подставлена. Выключи Маяк и жми «Подключить»."
+        }
+    }
+
+    if (showWbLogin) {
         WbLoginDialog(
             onToken = { token ->
                 WbPrefs.setToken(context, token)
-                hasToken = true
-                showLogin = false
+                hasWbToken = true
+                showWbLogin = false
                 toast(context, "Вход в WB Stream выполнен")
             },
-            onDismiss = { showLogin = false },
+            onDismiss = { showWbLogin = false },
         )
     }
 
@@ -159,21 +206,35 @@ private fun WbStreamScreen(onBack: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("WB Stream (тест)", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            Text("Звонки (тест)", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             TextButton(onClick = onBack) { Text("Назад") }
         }
         Text(
-            "Отдельный туннель через звонок WB Stream. Основной Маяк он не трогает, людям не уходит.",
+            "Отдельный туннель через видеозвонок. Основной Маяк он не трогает, людям не уходит.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            CallPlatform.entries.forEach { option ->
+                val selected = option == platform
+                if (selected) {
+                    Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(option.title) }
+                } else {
+                    OutlinedButton(
+                        onClick = { choose(option) },
+                        enabled = !active && !busy,
+                        modifier = Modifier.weight(1f),
+                    ) { Text(option.title) }
+                }
+            }
+        }
 
         // --- connection ---
         Section("Подключение") {
             OutlinedTextField(
                 value = link,
                 onValueChange = { link = it.trim() },
-                label = { Text("Ссылка на комнату WB") },
+                label = { Text(if (platform == CallPlatform.DION) "Ссылка dion://…" else "Ссылка на комнату WB") },
                 singleLine = true,
                 enabled = !active,
                 modifier = Modifier.fillMaxWidth(),
@@ -183,8 +244,14 @@ private fun WbStreamScreen(onBack: () -> Unit) {
                     onClick = {
                         val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
                             .primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
-                        val found = Regex("(?:wbstream://|https?://)\\S+").find(clip)?.value ?: clip.trim()
-                        if (parseWbRoomId(found).isNotEmpty()) link = found else toast(context, "В буфере нет ссылки WB")
+                        val found = extractLink(clip)
+                        val target = CallPlatform.detect(found) ?: platform
+                        if (parseRoomId(target, found).isNotEmpty()) {
+                            choose(target)
+                            link = found
+                        } else {
+                            toast(context, "В буфере нет ссылки на комнату")
+                        }
                     },
                     enabled = !active,
                 ) { Text("Вставить") }
@@ -227,19 +294,45 @@ private fun WbStreamScreen(onBack: () -> Unit) {
         // --- server node ---
         Section("Узел на сервере") {
             Text(
-                "Ставится отдельной службой mayak-wb. Портов не открывает, CSQTT и 3x-ui не трогает. " +
+                "Ставится отдельной службой mayak-call. Портов не открывает, CSQTT и 3x-ui не трогает. " +
                     "Лучше ставить на тестовый сервер.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (platform == CallPlatform.DION) {
                 Text(
-                    if (hasToken) "Вход в WB: выполнен" else "Вход в WB: нужен для установки",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f).padding(top = 10.dp),
+                    "Аккаунт DION (регистрация по почте на dion.vc). Узел сам создаёт комнату и сам перезаходит, " +
+                        "когда вход протухает. Телефоны заходят гостями.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedButton(onClick = { showLogin = true }, enabled = !busy) {
-                    Text(if (hasToken) "Войти заново" else "Войти в WB")
+                OutlinedTextField(
+                    value = dionEmail, onValueChange = { dionEmail = it.trim() },
+                    label = { Text("Почта DION") }, singleLine = true, enabled = !busy,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = dionPassword, onValueChange = { dionPassword = it },
+                    label = { Text(if (hasDionPassword) "Пароль DION (сохранён, можно не вводить)" else "Пароль DION") },
+                    singleLine = true, enabled = !busy,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                Text(
+                    if (roomId.isNotEmpty()) {
+                        "Узел зайдёт гостем в комнату из поля «Подключение»."
+                    } else {
+                        "Создавать комнаты в WB могут только сотрудники WB. Гостю нужна готовая ссылка в «Подключение»."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (roomId.isEmpty()) {
+                    OutlinedButton(onClick = { showWbLogin = true }, enabled = !busy) {
+                        Text(if (hasWbToken) "Войти в WB заново (сотрудник)" else "Войти в WB (сотрудник)")
+                    }
                 }
             }
             OutlinedTextField(
@@ -266,33 +359,11 @@ private fun WbStreamScreen(onBack: () -> Unit) {
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
-            Text(
-                if (roomId.isNotEmpty()) {
-                    "Узел зайдёт гостем в комнату из поля «Подключение». Вход в WB для этого не нужен."
-                } else {
-                    "Поле «Подключение» пустое: узел попробует создать свою комнату. Это может только сотрудник WB, " +
-                        "гостю нужна готовая ссылка с сайта stream.wb.ru."
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Button(
-                onClick = {
-                    val token = WbPrefs.token(context)
-                    if (roomId.isEmpty() && token.isBlank()) {
-                        serverMessage = "Вставь ссылку на комнату WB в «Подключение» (или войди в WB как сотрудник)"
-                        serverError = true
-                    } else {
-                        WbPrefs.setLink(context, link)
-                        val room = roomId
-                        runServer({ WbServerInstaller.install(context, it, if (room.isEmpty()) token else "", room) }) {
-                            "Узел в комнате. Теперь выключи Маяк и жми «Подключить»."
-                        }
-                    }
-                },
+                onClick = { install() },
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (roomId.isNotEmpty()) "Установить узел в эту комнату" else "Установить / обновить узел") }
+            ) { Text("Установить / обновить узел ${platform.title}") }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = { runServer(WbServerInstaller::status) { "Узел: ${it.status.ifBlank { "?" }}" } },

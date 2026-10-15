@@ -206,7 +206,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: wbout
-          key: wbstream-${{ env.WB_COMMIT }}-v1
+          key: wbstream-${{ env.WB_COMMIT }}-v2
 
       - uses: actions/checkout@v7
         if: steps.wbcache.outputs.cache-hit != 'true'
@@ -234,6 +234,9 @@ jobs:
           cd ../headless/wbstream
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o "$out/server/wbstream-linux-amd64" .
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$out/server/wbstream-linux-arm64" .
+          cd ../dion
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o "$out/server/dion-linux-amd64" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$out/server/dion-linux-arm64" .
           cd ../../relay
           go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260508232728-bebd421c7fa8
           go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260508232728-bebd421c7fa8
@@ -302,7 +305,8 @@ jobs:
           wb="$RUNNER_TEMP/wb"
           mkdir -p app/src/admin/jniLibs app/src/admin/assets/wb app/src/admin/assets/licenses app/libs
           cp -r "$wb/jni/." app/src/admin/jniLibs/
-          cp "$wb/server/wbstream-linux-amd64" "$wb/server/wbstream-linux-arm64" app/src/admin/assets/wb/
+          cp "$wb/server/wbstream-linux-amd64" "$wb/server/wbstream-linux-arm64" \
+             "$wb/server/dion-linux-amd64" "$wb/server/dion-linux-arm64" app/src/admin/assets/wb/
           cp "$wb/whitelist-bypass-LICENSE" app/src/admin/assets/licenses/
           cp "$wb/wbmobile.aar" app/libs/wbmobile.aar
           ls -lR app/src/admin/jniLibs app/src/admin/assets/wb app/libs
