@@ -142,6 +142,8 @@ android {
         jniLibs {
             useLegacyPackaging = true
             keepDebugSymbols += "**/libclient.so"
+            keepDebugSymbols += "**/libwbrelay.so"
+            keepDebugSymbols += "**/libgojni.so"
             keepDebugSymbols += "**/libandroidx.graphics.path.so"
             keepDebugSymbols += "**/libdatastore_shared_counter.so"
         }
@@ -215,6 +217,8 @@ dependencies {
     implementation("org.bouncycastle:bcutil-jdk18on:1.85")
     // QR codes: scanning a connection link (client) and showing one (admin).
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    // WB Stream test transport (whitelist-bypass tun2socks, built by CI): Mayak Admin only.
+    "adminImplementation"(files("libs/wbmobile.aar"))
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")

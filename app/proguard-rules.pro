@@ -11,3 +11,9 @@
 -dontwarn net.i2p.crypto.eddsa.**
 -dontwarn sun.security.x509.**
 -dontwarn com.hierynomus.**
+
+# WB Stream test transport (Mayak Admin): gomobile bindings are called from Go via JNI.
+-keep class go.** { *; }
+-keep class androidbind.** { *; }
+-dontwarn go.**
+-dontwarn androidbind.**

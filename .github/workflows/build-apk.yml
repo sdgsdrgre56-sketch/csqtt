@@ -191,9 +191,70 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # WB Stream test transport for Mayak Admin only (whitelist-bypass, MIT, pinned commit).
+  # Phone side: librelay (WB joiner, run as a process) + mobile.aar (tun2socks).
+  # Server side: headless WB Stream creator for amd64/arm64.
+  wbstream:
+    name: WB Stream (admin only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      WB_REPO: kulikov0/whitelist-bypass
+      WB_COMMIT: 820a6310af5fc1e4f77ef7327bb2594664542a09
+    steps:
+      - id: wbcache
+        uses: actions/cache@v5
+        with:
+          path: wbout
+          key: wbstream-${{ env.WB_COMMIT }}-v1
+
+      - uses: actions/checkout@v7
+        if: steps.wbcache.outputs.cache-hit != 'true'
+        with:
+          repository: ${{ env.WB_REPO }}
+          ref: ${{ env.WB_COMMIT }}
+          path: wbsrc
+
+      - uses: actions/setup-go@v6
+        if: steps.wbcache.outputs.cache-hit != 'true'
+        with:
+          go-version-file: wbsrc/go.mod
+          cache-dependency-path: wbsrc/go.sum
+
+      - name: Build WB Stream binaries
+        if: steps.wbcache.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          out="$GITHUB_WORKSPACE/wbout"
+          mkdir -p "$out/jni/arm64-v8a" "$out/jni/armeabi-v7a" "$out/jni/x86_64" "$out/server"
+          cd wbsrc/relay
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$out/jni/arm64-v8a/libwbrelay.so" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="-s -w" -o "$out/jni/armeabi-v7a/libwbrelay.so" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o "$out/jni/x86_64/libwbrelay.so" .
+          cd ../headless/wbstream
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o "$out/server/wbstream-linux-amd64" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$out/server/wbstream-linux-arm64" .
+          cd ../../relay
+          go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260508232728-bebd421c7fa8
+          go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260508232728-bebd421c7fa8
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          export ANDROID_NDK_HOME="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          export CGO_LDFLAGS="-Wl,-z,max-page-size=16384"
+          gomobile init
+          gomobile bind -trimpath -ldflags="-s -w" -target=android/arm64,android/arm,android/amd64 -androidapi 23 -o "$out/wbmobile.aar" ./androidbind/
+          cp ../LICENSE "$out/whitelist-bypass-LICENSE"
+          ls -lR "$out"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wbstream
+          path: wbout
+          if-no-files-found: error
+          retention-days: 3
+
   apk:
     name: Android APK
-    needs: [native, server]
+    needs: [native, server, wbstream]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -229,6 +290,24 @@ jobs:
         run: |
           ls -l app/src/admin/assets
           test -s app/src/admin/assets/csqtt-linux-amd64
+
+      # WB Stream test transport: admin edition only, the people's Mayak does not get it.
+      - uses: actions/download-artifact@v8
+        with:
+          name: wbstream
+          path: ${{ runner.temp }}/wb
+
+      - name: Place WB Stream files (admin only)
+        run: |
+          wb="$RUNNER_TEMP/wb"
+          mkdir -p app/src/admin/jniLibs app/src/admin/assets/wb app/src/admin/assets/licenses app/libs
+          cp -r "$wb/jni/." app/src/admin/jniLibs/
+          cp "$wb/server/wbstream-linux-amd64" "$wb/server/wbstream-linux-arm64" app/src/admin/assets/wb/
+          cp "$wb/whitelist-bypass-LICENSE" app/src/admin/assets/licenses/
+          cp "$wb/wbmobile.aar" app/libs/wbmobile.aar
+          ls -lR app/src/admin/jniLibs app/src/admin/assets/wb app/libs
+          for abi in arm64-v8a armeabi-v7a x86_64; do test -s "app/src/admin/jniLibs/$abi/libwbrelay.so"; done
+          test -s app/libs/wbmobile.aar
 
       - name: Prepare Android SDK
         run: |

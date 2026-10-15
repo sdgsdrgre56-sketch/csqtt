@@ -43,6 +43,7 @@ private val RequiredNotices = listOf(
 
 @Composable
 internal fun AboutTab(settingsStore: SettingsStore? = null) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var showDnsDialog by remember { mutableStateOf(false) }
     if (showDnsDialog && settingsStore != null) {
         AdminDnsDialog(settingsStore = settingsStore, onDismiss = { showDnsDialog = false })
@@ -193,6 +194,26 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
                     ) {
                         Text("DNS сервера", fontWeight = FontWeight.SemiBold)
                     }
+                    // WB Stream test: a separate screen that exists only in the admin edition.
+                    OutlinedButton(
+                        onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    android.content.Intent().setClassName(context, "com.csqtt.client.wb.WbStreamActivity"),
+                                )
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                    ) {
+                        Text("WB Stream (тест)", fontWeight = FontWeight.SemiBold)
+                    }
+                    Text(
+                        text = "Отдельный туннель через звонки WB. Основной Маяк не трогает.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 

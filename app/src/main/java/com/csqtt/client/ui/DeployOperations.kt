@@ -433,7 +433,7 @@ private fun ensureBouncyCastle() {
     }
 }
 
-private fun createSSHClient(
+internal fun createSSHClient(
     host: String,
     user: String,
     pass: String,

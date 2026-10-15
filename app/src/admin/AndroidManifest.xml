@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mayak Admin only: WB Stream test screen and its own VPN service. Merged on top of the main manifest. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <activity
+            android:name="com.csqtt.client.wb.WbStreamActivity"
+            android:exported="false"
+            android:label="WB Stream (тест)"
+            android:windowSoftInputMode="adjustResize" />
+
+        <service
+            android:name="com.csqtt.client.wb.WbVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="specialUse">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="wbstream_test_vpn_tunnel" />
+            <meta-data
+                android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
+                android:value="false" />
+        </service>
+    </application>
+</manifest>
