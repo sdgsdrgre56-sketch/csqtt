@@ -814,7 +814,8 @@ internal fun SettingsTabContent(
                     )
                 }
 
-                if (!MayakConfig.SIMPLE_UI) {
+                // Mayak: "Режим кредов" is shown to people too, so they can switch to "Авто ВК"
+                // (or back) themselves when "Авто" stops working.
                 Spacer(Modifier.height(4.dp))
 
                 CompactDropdownSetting(
@@ -839,6 +840,7 @@ internal fun SettingsTabContent(
                     onSelected = ::requestWorkMode,
                 )
 
+                if (!MayakConfig.SIMPLE_UI) {
                 Spacer(Modifier.height(4.dp))
 
                 CompactDropdownSetting(
