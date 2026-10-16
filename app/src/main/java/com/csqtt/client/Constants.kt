@@ -17,7 +17,7 @@ object CsqttConstants {
 
     object Profiles {
         const val MIN_INDEX = 0
-        const val MAX_INDEX = 4 // Mayak: five servers in the admin edition (was 3)
+        const val MAX_INDEX = 9 // Mayak: ten servers in the admin edition (was 3, then 4)
     }
 
     object Network {

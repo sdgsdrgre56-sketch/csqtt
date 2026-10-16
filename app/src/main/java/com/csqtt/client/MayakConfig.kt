@@ -28,8 +28,8 @@ internal object MayakConfig {
     /** Client edition: speed steps are 9, 18, 27 and, with two or more hashes, 45. */
     val MAX_WORKERS: Int = 45
 
-    /** Admin edition: number of server profiles shown as "Сервер 1..N". */
-    val ADMIN_SERVERS: Int = 5
+    /** Number of server profiles: "Сервер 1..N" in the admin edition (10), five in the client. */
+    val ADMIN_SERVERS: Int = if (ADMIN) 10 else 5
 
     val APP_NAME: String = if (ADMIN) "Маяк Админ" else "Маяк"
     const val UPSTREAM_NAME = "CSQTT"

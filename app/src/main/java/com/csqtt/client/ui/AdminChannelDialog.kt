@@ -270,11 +270,10 @@ internal fun AdminChannelDialog(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    CsqttSegmentedControl(
-                        options = (0 until MayakConfig.ADMIN_SERVERS).map { index -> index to "${index + 1}" },
+                    com.csqtt.client.ui.components.ServerNumberPicker(
+                        count = MayakConfig.ADMIN_SERVERS,
                         selected = targetServer,
                         onSelected = { targetServer = it },
-                        modifier = Modifier.height(44.dp),
                         enabled = !busy,
                     )
                     Button(

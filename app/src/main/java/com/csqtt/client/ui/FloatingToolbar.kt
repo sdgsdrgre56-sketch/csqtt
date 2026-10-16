@@ -153,7 +153,7 @@ fun FloatingToolbar(
                             (0 until com.csqtt.client.MayakConfig.ADMIN_SERVERS)
                                 .map { profile -> profile.toString() to "Сервер ${profile + 1}" }
                         } else {
-                            (CsqttConstants.Profiles.MIN_INDEX..CsqttConstants.Profiles.MAX_INDEX)
+                            (CsqttConstants.Profiles.MIN_INDEX until com.csqtt.client.MayakConfig.ADMIN_SERVERS)
                                 .map { profile -> profile.toString() to "Профиль $profile" }
                         },
                         enabled = true,

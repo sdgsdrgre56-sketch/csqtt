@@ -353,14 +353,13 @@ internal fun ConnectionTab(
 
     CsqttScreen {
         if (MayakConfig.ADMIN) {
-            CsqttSegmentedControl(
-                // Mayak: with five servers "Сервер N" does not fit a phone width, so the buttons show the number.
-                options = (0 until MayakConfig.ADMIN_SERVERS).map { index -> index to "${index + 1}" },
+            // Mayak: ten servers do not fit one row on a phone, so the numbers go in rows of five.
+            com.csqtt.client.ui.components.ServerNumberPicker(
+                count = MayakConfig.ADMIN_SERVERS,
                 selected = tunnelAuthSettings.profile,
                 onSelected = { profile ->
                     scope.launch { settingsStore.saveActiveProfile(profile) }
                 },
-                modifier = Modifier.height(44.dp),
                 enabled = !(tunnelRunning || tunnelStarting || tunnelStopping || autoPausedForWifi),
             )
         }
