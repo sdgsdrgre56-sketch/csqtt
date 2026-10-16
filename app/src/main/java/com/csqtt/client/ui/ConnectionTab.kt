@@ -356,6 +356,7 @@ internal fun ConnectionTab(
             // Mayak: ten servers do not fit one row on a phone, so the numbers go in rows of five.
             com.csqtt.client.ui.components.ServerNumberPicker(
                 count = MayakConfig.ADMIN_SERVERS,
+                flags = com.csqtt.client.ui.components.rememberServerFlags(settingsStore, MayakConfig.ADMIN_SERVERS),
                 selected = tunnelAuthSettings.profile,
                 onSelected = { profile ->
                     scope.launch { settingsStore.saveActiveProfile(profile) }

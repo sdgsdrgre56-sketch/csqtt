@@ -272,6 +272,7 @@ internal fun AdminChannelDialog(
                     )
                     com.csqtt.client.ui.components.ServerNumberPicker(
                         count = MayakConfig.ADMIN_SERVERS,
+                        flags = com.csqtt.client.ui.components.rememberServerFlags(settingsStore, MayakConfig.ADMIN_SERVERS),
                         selected = targetServer,
                         onSelected = { targetServer = it },
                         enabled = !busy,
