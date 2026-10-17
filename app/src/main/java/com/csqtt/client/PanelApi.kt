@@ -3,6 +3,8 @@
 
 package com.csqtt.client
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import android.content.Context
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
@@ -83,7 +85,11 @@ internal class PanelApi(context: Context, private val server: PanelServer) {
             if (known == null) {
                 pins.edit().putString(pinKey, fingerprint).apply()
             } else if (known != fingerprint) {
+                // Mayak Admin: remembered so the dialogs can name the server and offer to trust it.
+                changedCertificates.update { it + pinKey }
                 throw CertificateException(CERTIFICATE_CHANGED)
+            } else if (pinKey in changedCertificates.value) {
+                changedCertificates.update { it - pinKey }
             }
         }
 
@@ -93,6 +99,7 @@ internal class PanelApi(context: Context, private val server: PanelServer) {
     /** Forgets the remembered certificate, for example after the server was reinstalled. */
     fun forgetCertificate() {
         pins.edit().remove(pinKey).apply()
+        changedCertificates.update { it - pinKey }
     }
 
     private fun encodeCredential(value: String): String {
@@ -331,6 +338,16 @@ internal class PanelApi(context: Context, private val server: PanelServer) {
 
     companion object {
         const val CERTIFICATE_CHANGED = "Сертификат панели изменился"
+
+        /** "host:port" of panels whose certificate differed from the remembered one in this run. */
+        val changedCertificates = MutableStateFlow<Set<String>>(emptySet())
+
+        /** Trusts the new certificate of these panels: the next connection remembers it. */
+        fun forgetCertificates(context: Context, keys: Collection<String>) {
+            val prefs = context.applicationContext.getSharedPreferences("mayak_panel_pins", Context.MODE_PRIVATE)
+            prefs.edit().apply { keys.forEach { remove(it) } }.apply()
+            changedCertificates.update { it - keys.toSet() }
+        }
 
         /** A csqtt:// link in the same form the server panel produces. */
         fun buildLink(host: String, peerPort: Int, password: String, expiresAt: Long = 0L): String =

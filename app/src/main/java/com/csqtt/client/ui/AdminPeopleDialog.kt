@@ -239,6 +239,7 @@ internal fun AdminPeopleDialog(
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
                 )
+                CertificateChangedNotice(settingsStore, enabled = !busy, onTrusted = { refresh() })
 
                 Column(
                     modifier = Modifier

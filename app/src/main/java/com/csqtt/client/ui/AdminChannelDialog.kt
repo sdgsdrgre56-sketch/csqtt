@@ -300,6 +300,7 @@ internal fun AdminChannelDialog(
                             fontWeight = FontWeight.Medium,
                         )
                     }
+                    CertificateChangedNotice(settingsStore, enabled = !busy)
                 }
 
                 OutlinedButton(

@@ -248,6 +248,8 @@ internal fun AdminAddPersonDialog(
                         }
                     }
 
+                    CertificateChangedNotice(settingsStore, enabled = !busy)
+
                     outcomes.forEach { outcome ->
                         Text(
                             text = "Сервер ${outcome.serverNumber}: ${outcome.message}",
