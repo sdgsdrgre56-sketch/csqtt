@@ -25,8 +25,8 @@ internal object MayakConfig {
      */
     val UPSTREAM_UPDATE_CHECK: Boolean = true
 
-    /** Client edition: speed steps are 9, 18 and 27 («Макс» с 45 потоками убран). */
-    val MAX_WORKERS: Int = 27
+    /** Client edition: speed steps are 9, 18, 27 and, with two or more hashes, 45. */
+    val MAX_WORKERS: Int = 45
 
     /** Number of server profiles: "Сервер 1..N" in the admin edition (10), five in the client. */
     val ADMIN_SERVERS: Int = if (ADMIN) 10 else 5

@@ -31,7 +31,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.setValue
@@ -413,7 +412,7 @@ private fun formatMayakMbps(mbps: Double): String =
         String.format(Locale.US, "%.1f Мбит/с", mbps)
     }
 
-private val MayakSpeedSteps = listOf(9 to "Эконом", 18 to "Обычно", 27 to "Быстро")
+private val MayakSpeedSteps = listOf(9 to "Эконом", 18 to "Обычно", 27 to "Быстро", 45 to "Макс")
 
 @Composable
 private fun MayakSpeedSelector(
@@ -426,11 +425,8 @@ private fun MayakSpeedSelector(
     val selectedStep = when {
         effectiveWorkers <= 9 -> 9
         effectiveWorkers <= 18 -> 18
-        else -> 27
-    }
-    // «Макс» убран: у кого он был выбран раньше, при выключенном маяке тихо становится «Быстро».
-    LaunchedEffect(workers, enabled) {
-        if (enabled && workers > 27) onWorkersChange(27)
+        effectiveWorkers <= 27 -> 27
+        else -> 45
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
@@ -478,6 +474,13 @@ private fun MayakSpeedSelector(
                     )
                 }
             }
+        }
+        if (maxWorkers < 45) {
+            Text(
+                text = "«Макс» доступен, когда добавлено два хэша",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
