@@ -372,56 +372,62 @@ private suspend fun downloadApk(
             val dir = File(context.cacheDir, "updates").apply { mkdirs() }
             dir.listFiles()?.forEach { it.delete() }
             val file = File(dir, "mayak-${release.versionTag}.apk")
-            var current = URL(directUrl)
-            var connection: HttpURLConnection
-            var hops = 0
+            // A connection that stalls or drops near the end (often on mobile networks or through the
+            // tunnel) is picked up again from the byte where it stopped, instead of starting over.
+            var done = 0L
+            var total = -1L
+            var failures = 0
             while (true) {
-                connection = (current.openConnection() as HttpURLConnection).apply {
-                    instanceFollowRedirects = false
-                    connectTimeout = 15_000
-                    readTimeout = 60_000
-                    setRequestProperty("User-Agent", "Mayak/${BuildConfig.VERSION_NAME}")
-                    setRequestProperty("Accept", "application/octet-stream")
+                val from = done
+                val result = runCatching {
+                    val connection = openFollowingRedirects(directUrl, from) ?: error("no answer")
+                    try {
+                        val code = connection.responseCode
+                        if (from > 0L && code == 200) {
+                            // The server ignored the range: take the whole file again.
+                            done = 0L
+                            file.delete()
+                        }
+                        if (total <= 0L) {
+                            total = Regex("/(\\d+)\\s*$").find(connection.getHeaderField("Content-Range").orEmpty())
+                                ?.groupValues?.get(1)?.toLongOrNull()
+                                ?: connection.contentLengthLong.takeIf { it > 0L }?.let { it + done }
+                                ?: -1L
+                        }
+                        connection.inputStream.use { input ->
+                            java.io.FileOutputStream(file, done > 0L).use { output ->
+                                val buffer = ByteArray(64 * 1024)
+                                var reported = done
+                                while (true) {
+                                    val read = input.read(buffer)
+                                    if (read < 0) break
+                                    output.write(buffer, 0, read)
+                                    done += read
+                                    // Report about every 256 KB so the bar moves smoothly without flooding.
+                                    if (done - reported >= 256 * 1024) {
+                                        reported = done
+                                        onProgress(done, total)
+                                    }
+                                }
+                                onProgress(done, total)
+                            }
+                        }
+                    } finally {
+                        connection.disconnect()
+                    }
                 }
-                val code = connection.responseCode
-                if (code in 300..399 && hops < 8) {
-                    val location = connection.getHeaderField("Location")
-                    connection.disconnect()
-                    if (location.isNullOrBlank()) return@withContext null
-                    current = URL(current, location)
-                    hops++
-                    continue
-                }
-                if (code !in 200..299) {
-                    Log.w(LOG_TAG, "[WARN] Update: download returned $code")
-                    connection.disconnect()
+                val complete = result.isSuccess && (total <= 0L || done >= total)
+                if (complete) break
+                if (done > from) failures = 0 else failures++
+                Log.w(LOG_TAG, "[WARN] Update: download stopped at $done of $total, continuing", result.exceptionOrNull())
+                if (failures >= 4) {
+                    lastDownloadProblem = "связь обрывается на ${done * 100 / total.coerceAtLeast(1)}%"
                     return@withContext null
                 }
-                break
+                kotlinx.coroutines.delay(2_000L * (failures + 1))
             }
-            val total = connection.contentLengthLong
-            connection.inputStream.use { input ->
-                file.outputStream().use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    var done = 0L
-                    var reported = -1L
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        output.write(buffer, 0, read)
-                        done += read
-                        // Report about every 256 KB so the bar moves smoothly without flooding.
-                        if (done - reported >= 256 * 1024) {
-                            reported = done
-                            onProgress(done, total)
-                        }
-                    }
-                    onProgress(done, total)
-                }
-            }
-            connection.disconnect()
-            if (file.length() < 1_000_000L) {
-                Log.w(LOG_TAG, "[WARN] Update: downloaded file is too small (${file.length()} bytes)")
+            if (file.length() < 1_000_000L || (total > 0L && file.length() != total)) {
+                Log.w(LOG_TAG, "[WARN] Update: downloaded file has a wrong size (${file.length()} of $total bytes)")
                 null
             } else {
                 file
@@ -430,6 +436,41 @@ private suspend fun downloadApk(
             Log.w(LOG_TAG, "[WARN] Update: download failed", e)
             null
         }
+    }
+}
+
+/**
+ * Opens [url] following redirects by hand (GitHub sends the file from another host), asking for the
+ * bytes from [from] on when it is above 0. Returns the connection on a 2xx answer, else null.
+ */
+private fun openFollowingRedirects(url: String, from: Long): HttpURLConnection? {
+    var current = URL(url)
+    var hops = 0
+    while (true) {
+        val connection = (current.openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = false
+            connectTimeout = 15_000
+            // Short: a stalled transfer is dropped and continued from where it stopped.
+            readTimeout = 20_000
+            setRequestProperty("User-Agent", "Mayak/${BuildConfig.VERSION_NAME}")
+            setRequestProperty("Accept", "application/octet-stream")
+            if (from > 0L) setRequestProperty("Range", "bytes=$from-")
+        }
+        val code = connection.responseCode
+        if (code in 300..399 && hops < 8) {
+            val location = connection.getHeaderField("Location")
+            connection.disconnect()
+            if (location.isNullOrBlank()) return null
+            current = URL(current, location)
+            hops++
+            continue
+        }
+        if (code !in 200..299) {
+            Log.w(LOG_TAG, "[WARN] Update: download returned $code")
+            connection.disconnect()
+            return null
+        }
+        return connection
     }
 }
 
