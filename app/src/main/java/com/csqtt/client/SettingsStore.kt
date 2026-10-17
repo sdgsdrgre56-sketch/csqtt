@@ -728,6 +728,15 @@ class SettingsStore(context: Context) {
         }
     }
 
+    /** Mayak: picks the stored link at [index] (a server number button), if there is one. */
+    suspend fun selectCsqttLink(index: Int) {
+        dataStore.edit { prefs ->
+            val profile = prefs[ACTIVE_PROFILE] ?: 0
+            val count = MayakLinks.split(prefs[getProfileKey(CSQTT_LINK, profile)] ?: "").size
+            if (index in 0 until count) prefs[CSQTT_LINK_INDEX] = index
+        }
+    }
+
     /** Switches to the next stored link; returns the new position, or -1 if there is nothing to switch to. */
     suspend fun advanceCsqttLink(): Int {
         var result = -1

@@ -50,6 +50,8 @@ import com.csqtt.client.shouldConfirmTcpTransport
 import com.csqtt.client.vkAuthModeForHashMode
 import com.csqtt.client.ui.components.CsqttScreen
 import com.csqtt.client.ui.components.CsqttSettingRow
+import com.csqtt.client.ui.components.ServerNumberPicker
+import com.csqtt.client.ui.components.rememberLinkFlags
 import com.csqtt.client.ui.design.CsqttShapes
 import com.csqtt.client.ui.design.CsqttSizes
 import com.csqtt.client.ui.dialogs.HashesDialog
@@ -578,15 +580,22 @@ internal fun SettingsTabContent(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
                         )
-                        OutlinedButton(
-                            onClick = { scope.launch { settingsStore.advanceCsqttLink() } },
+                        // Mayak: server number buttons with country flags, like in Mayak Admin.
+                        val linkFlags = rememberLinkFlags(storedLinks.map { parseCsqttLink(it)?.host.orEmpty() })
+                        ServerNumberPicker(
+                            count = storedLinks.size,
+                            selected = storedLinkIndex,
+                            onSelected = { index -> scope.launch { settingsStore.selectCsqttLink(index) } },
                             enabled = !tunnelRunning,
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                            shape = CsqttShapes.Control,
-                        ) {
+                            flags = linkFlags,
+                            modifier = Modifier.padding(bottom = if (tunnelRunning) 4.dp else 12.dp),
+                        )
+                        if (tunnelRunning) {
                             Text(
-                                if (tunnelRunning) "Сменить сервер можно при выключенном маяке" else "Перейти на следующий сервер",
-                                fontWeight = FontWeight.SemiBold,
+                                text = "Сменить сервер можно при выключенном маяке",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 12.dp),
                             )
                         }
                     } else {

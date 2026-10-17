@@ -70,3 +70,22 @@ fun rememberServerFlags(settingsStore: SettingsStore, count: Int): Map<Int, Stri
     }
     return flags
 }
+
+/** Flags of the servers in a person's link list, by position, from the host in each link. */
+@Composable
+fun rememberLinkFlags(hosts: List<String>): Map<Int, String> {
+    val context = LocalContext.current
+    val flags by produceState(initialValue = emptyMap<Int, String>(), hosts) {
+        val known = hosts.withIndex().mapNotNull { (index, host) ->
+            ServerFlags.cached(context, host)?.let { index to ServerFlags.flagOf(it) }
+        }.toMap().toMutableMap()
+        value = known.toMap()
+        for ((index, host) in hosts.withIndex()) {
+            if (index in known || host.isBlank()) continue
+            val code = ServerFlags.countryCode(context, host) ?: continue
+            known[index] = ServerFlags.flagOf(code)
+            value = known.toMap()
+        }
+    }
+    return flags
+}
