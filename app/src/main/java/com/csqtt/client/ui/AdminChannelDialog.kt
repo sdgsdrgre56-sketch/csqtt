@@ -286,6 +286,38 @@ internal fun AdminChannelDialog(
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Добавить сервер ${targetServer + 1} всем") }
 
+                    // Note about the selected server, shown to people while they are connected to it.
+                    var serverNote by remember { mutableStateOf("") }
+                    androidx.compose.runtime.LaunchedEffect(targetServer) {
+                        serverNote = runCatching { settingsStore.serverNote(targetServer) }.getOrDefault("")
+                    }
+                    OutlinedTextField(
+                        value = serverNote,
+                        onValueChange = { serverNote = it.take(60) },
+                        label = { Text("Подпись сервера ${targetServer + 1} для людей") },
+                        placeholder = { Text("Например: YouTube без рекламы") },
+                        singleLine = true,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            val target = targetServer
+                            val note = serverNote.trim()
+                            launchTask {
+                                settingsStore.saveServerNote(target, note)
+                                val r = MayakSyncAdmin.publishPeople(context, settingsStore)
+                                buildString {
+                                    append(if (note.isEmpty()) "Подпись сервера ${target + 1} убрана." else "Подпись сервера ${target + 1} сохранена.")
+                                    append(" Людей: ${r.people}, обновлено списков: ${r.changedFiles}.")
+                                    if (r.problems.isNotEmpty()) append(" Проблемы: ${r.problems.joinToString("; ")}.")
+                                }
+                            }
+                        },
+                        enabled = !busy && canPublish,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Сохранить подпись и разослать") }
+
                     if (busy) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)

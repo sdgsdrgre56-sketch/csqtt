@@ -584,6 +584,8 @@ internal fun MayakHome(
     onEnterManually: () -> Unit,
     // Mayak: end of access of the current link (unix seconds), 0 when the link has no term.
     accessUntil: Long = 0L,
+    // Mayak: the admin's note about the current server ("YouTube без рекламы"), "" when none.
+    serverNote: String = "",
 ) {
     if (linkReady == null) {
         Box(modifier = Modifier.fillMaxSize())
@@ -678,6 +680,15 @@ internal fun MayakHome(
                         text = "Сервер $serverPosition из $serverCount",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                if (serverNote.isNotBlank() && (tunnelRunning || isStarting)) {
+                    Text(
+                        text = serverNote,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
                         textAlign = TextAlign.Center,
                     )
                 }

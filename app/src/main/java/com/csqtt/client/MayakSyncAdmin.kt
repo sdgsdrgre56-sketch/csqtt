@@ -112,6 +112,8 @@ internal object MayakSyncAdmin {
         val problems = mutableListOf<String>()
         // name -> list of (server number, host, person)
         val byName = linkedMapOf<String, MutableList<Triple<Int, String, PanelPerson>>>()
+        // server number -> the admin's note about it, carried inside each link
+        val notes = (0 until MayakConfig.ADMIN_SERVERS).associate { it + 1 to runCatching { store.serverNote(it) }.getOrDefault("") }
         for (profile in store.adminPanelProfiles(MayakConfig.ADMIN_SERVERS)) {
             if (!profile.isConfigured) continue
             val number = profile.index + 1
@@ -139,9 +141,9 @@ internal object MayakSyncAdmin {
             val sorted = entries.sortedBy { it.first }
             val links = sorted
                 .filter { (_, _, person) -> person.enabled && (person.expiresAt == 0L || person.expiresAt > now) }
-                .map { (_, host, person) ->
+                .map { (number, host, person) ->
                     val port = if (person.dtlsPort in 1..65535) person.dtlsPort else CsqttConstants.Network.DEFAULT_SERVER_PEER_PORT
-                    PanelApi.buildLink(host, port, person.password, person.expiresAt)
+                    PanelApi.buildLink(host, port, person.password, person.expiresAt, notes[number].orEmpty())
                 }
             if (links.isEmpty()) continue // switched off or expired everywhere: leave the old list
             for ((_, _, person) in sorted) {

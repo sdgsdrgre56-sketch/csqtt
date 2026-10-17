@@ -98,6 +98,8 @@ class SettingsStore(context: Context) {
         private val USER_AGENT = stringPreferencesKey("user_agent")
 
         private val DEPLOY_IP = stringPreferencesKey("deploy_ip")
+        // Mayak Admin: a short note about a server for people ("YouTube без рекламы").
+        private val SERVER_NOTE = stringPreferencesKey("mayak_server_note")
         private val DEPLOY_LOGIN = stringPreferencesKey("deploy_login")
         private val DEPLOY_PASSWORD = stringPreferencesKey("deploy_password")
         private val DEPLOY_PASSWORD_ENCRYPTED = stringPreferencesKey("deploy_password_encrypted")
@@ -750,6 +752,14 @@ class SettingsStore(context: Context) {
             }
         }
         return result
+    }
+
+    /** Mayak Admin: the note people see while connected to server [profile]; "" when none. */
+    internal suspend fun serverNote(profile: Int): String =
+        dataStore.data.map { prefs -> prefs[getProfileKey(SERVER_NOTE, profile)] ?: "" }.first()
+
+    internal suspend fun saveServerNote(profile: Int, note: String) {
+        dataStore.edit { prefs -> prefs[getProfileKey(SERVER_NOTE, profile)] = note.trim().take(60) }
     }
 
     /** Web panel address and credentials of each admin server profile (Mayak Admin). */
