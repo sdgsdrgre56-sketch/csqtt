@@ -120,8 +120,11 @@ internal object MayakSyncAdmin {
             val people = try {
                 PanelApi(context, PanelServer(profile.host, profile.webPort, profile.webLogin, profile.webPassword))
                     .listPeople()
-            } catch (failure: PanelException) {
-                problems += "сервер $number: ${failure.message}"
+            } catch (failure: kotlinx.coroutines.CancellationException) {
+                throw failure
+            } catch (failure: Exception) {
+                // One server that is down or answers nonsense must not stop the lists for everyone else.
+                problems += "сервер $number: ${failure.message ?: "не отвечает"}"
                 continue
             }
             for (person in people) {
