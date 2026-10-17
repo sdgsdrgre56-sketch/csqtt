@@ -412,7 +412,7 @@ private fun formatMayakMbps(mbps: Double): String =
         String.format(Locale.US, "%.1f Мбит/с", mbps)
     }
 
-private val MayakSpeedSteps = listOf(9 to "Эконом", 18 to "Обычно", 27 to "Быстро", 45 to "Макс")
+private val MayakSpeedSteps = listOf(9 to "Эконом", 18 to "Обычно", 27 to "Быстро")
 
 @Composable
 private fun MayakSpeedSelector(
@@ -426,7 +426,7 @@ private fun MayakSpeedSelector(
         effectiveWorkers <= 9 -> 9
         effectiveWorkers <= 18 -> 18
         effectiveWorkers <= 27 -> 27
-        else -> 45
+        else -> 0 // больше 27 (до 45) задаётся ползунком во вкладке «Ссылка»; кнопки «Макс» нет
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
@@ -475,9 +475,9 @@ private fun MayakSpeedSelector(
                 }
             }
         }
-        if (maxWorkers < 45) {
+        if (selectedStep == 0) {
             Text(
-                text = "«Макс» доступен, когда добавлено два хэша",
+                text = "Сейчас $effectiveWorkers потоков · задано во вкладке «Ссылка»",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
