@@ -14,7 +14,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-const val MAX_CHANNELS = 12
+const val MAX_CHANNELS = 24
 const val DEFAULT_CHANNELS = 5
 
 enum class Phase(val label: String) {
