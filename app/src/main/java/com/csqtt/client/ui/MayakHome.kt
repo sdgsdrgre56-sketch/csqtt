@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.csqtt.client.MayakSpeedPhase
 import com.csqtt.client.TunnelManager
+import com.csqtt.client.ui.components.rememberLinkFlags
 import androidx.compose.material3.LinearProgressIndicator
 import java.util.Locale
 
@@ -140,6 +141,8 @@ internal fun MayakBeaconButton(
     actionLabel: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // Mayak: "🇫🇮 77" under the lighthouse while connected (server country and live streams); "" hides it.
+    badge: String = "",
 ) {
     val transition = rememberInfiniteTransition(label = "mayak_beacon")
     val sweep by transition.animateFloat(
@@ -221,6 +224,18 @@ internal fun MayakBeaconButton(
                         connecting -> blink
                         else -> 0f
                     },
+                )
+            }
+            if (badge.isNotEmpty()) {
+                Text(
+                    text = badge,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MayakPalette.White,
+                    // Inside the disc, between the lighthouse base and the edge.
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 26.dp),
                 )
             }
         }
@@ -586,6 +601,8 @@ internal fun MayakHome(
     accessUntil: Long = 0L,
     // Mayak: the admin's note about the current server ("YouTube без рекламы"), "" when none.
     serverNote: String = "",
+    // Mayak: host of the current server, for its country flag under the lighthouse.
+    serverHost: String = "",
 ) {
     if (linkReady == null) {
         Box(modifier = Modifier.fillMaxSize())
@@ -639,11 +656,18 @@ internal fun MayakHome(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         ) {
+            val liveStreams by TunnelManager.activeWorkers.collectAsState()
+            val serverFlag = rememberLinkFlags(listOf(serverHost))[0].orEmpty()
             MayakBeaconButton(
                 state = state,
                 enabled = canToggle,
                 actionLabel = if (tunnelRunning || isStarting || autoPausedForWifi) "Выключить" else "Включить",
                 onClick = onToggleTunnel,
+                badge = if (tunnelRunning) {
+                    listOf(serverFlag, liveStreams.toString()).filter { it.isNotEmpty() }.joinToString(" ")
+                } else {
+                    ""
+                },
             )
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,

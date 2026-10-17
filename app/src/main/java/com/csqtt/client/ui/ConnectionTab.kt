@@ -346,6 +346,7 @@ internal fun ConnectionTab(
                     onEnterManually = onInvalidConfiguration,
                     accessUntil = loadedCsqttLink?.let { parseCsqttLink(it)?.expiresAt } ?: 0L,
                     serverNote = loadedCsqttLink?.let { parseCsqttLink(it)?.note }.orEmpty(),
+                    serverHost = loadedCsqttLink?.let { parseCsqttLink(it)?.host }.orEmpty(),
                 )
             }
         }
