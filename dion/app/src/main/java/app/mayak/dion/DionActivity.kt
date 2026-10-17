@@ -108,6 +108,7 @@ private fun DionScreen() {
     val logs by DionState.logs.collectAsState()
 
     var count by remember { mutableStateOf(DionPrefs.count(context)) }
+    var selectedRoom by remember { mutableStateOf<Int?>(null) }
     val links = remember { mutableStateListOf<String>().apply { addAll(DionPrefs.links(context)) } }
     var email by remember { mutableStateOf(DionPrefs.email(context)) }
     var password by remember { mutableStateOf("") }
@@ -298,23 +299,63 @@ private fun DionScreen() {
             }
         }
 
-        // --- rooms ---
+        // --- rooms: compact numbered buttons ---
         Section("Комнаты") {
             Text(
-                "Ссылка на каждый канал. Подставляются сами после установки узла.",
+                "Комнаты создаются автоматически после установки узла. " +
+                    "Нажми на номер комнаты, чтобы посмотреть или изменить ссылку. ✓ — ссылка готова.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            for (i in 0 until count) {
+            for (rowStart in 0 until count step 4) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    for (i in rowStart until minOf(rowStart + 4, count)) {
+                        val configured = parseSlug(links[i]).isNotEmpty()
+                        OutlinedButton(
+                            onClick = { selectedRoom = if (selectedRoom == i) null else i },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                horizontal = 2.dp,
+                                vertical = 8.dp,
+                            ),
+                            colors = if (selectedRoom == i) {
+                                ButtonDefaults.outlinedButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                )
+                            } else {
+                                ButtonDefaults.outlinedButtonColors()
+                            },
+                        ) {
+                            Text(if (configured) "${i + 1} ✓" else "${i + 1}", fontSize = 12.sp)
+                        }
+                    }
+                    repeat(4 - minOf(4, count - rowStart)) {
+                        Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+            selectedRoom?.takeIf { it in 0 until count }?.let { i ->
+                Text("Комната ${i + 1}", fontWeight = FontWeight.SemiBold)
                 OutlinedTextField(
                     value = links[i],
                     onValueChange = { links[i] = it.trim() },
-                    label = { Text("Канал ${i + 1}: dion://…") },
+                    label = { Text("Ссылка dion:// для комнаты ${i + 1}") },
                     singleLine = true,
                     enabled = !active && !busy,
                     isError = links[i].isNotBlank() && parseSlug(links[i]).isEmpty(),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedButton(
+                    onClick = {
+                        saveLinks()
+                        toast(context, "Ссылка комнаты ${i + 1} сохранена")
+                    },
+                    enabled = !active && !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Сохранить ссылку") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
@@ -360,7 +401,7 @@ private fun DionScreen() {
                 OutlinedButton(onClick = { if (count < MAX_CHANNELS) count++ }, enabled = !busy && !active && count < MAX_CHANNELS) { Text("+") }
             }
             Text(
-                "Каждый канал на сервере берёт около 60 МБ памяти: 12 каналов ≈ 750 МБ.",
+                "Каждый канал на сервере берёт около 60 МБ памяти: 24 канала ≈ 1,5 ГБ.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
