@@ -480,13 +480,11 @@ private fun TunnelConnectionPanel(
                 if (MayakConfig.ADMIN && tunnelRunning) {
                     Text(
                         text = listOf(serverFlag, activeStreams.toString()).filter { it.isNotEmpty() }.joinToString(" "),
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .padding(bottom = 6.dp)
-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), CsqttShapes.Pill)
-                            .padding(horizontal = 10.dp, vertical = 3.dp),
+                        // Inside the dark circle, in the gap between the lighthouse base and the circle edge.
+                        modifier = Modifier.padding(bottom = 9.dp),
                     )
                 }
             }
