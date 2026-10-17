@@ -201,7 +201,25 @@ internal object MayakSyncAdmin {
             val target = profiles.firstOrNull { it.index == targetIndex && it.isConfigured }
                 ?: throw SyncException("Сервер ${targetIndex + 1} не настроен: укажи IP и доступ к панели")
             val targetApi = PanelApi(context, PanelServer(target.host, target.webPort, target.webLogin, target.webPassword))
-            val already = targetApi.listPeople().filter { !it.isMain }.map { it.name }.toSet()
+            // A new server often drops the first request; try twice before giving up, and say which one.
+            val targetPeople = try {
+                targetApi.listPeople()
+            } catch (failure: kotlinx.coroutines.CancellationException) {
+                throw failure
+            } catch (first: Exception) {
+                kotlinx.coroutines.delay(3_000)
+                try {
+                    targetApi.listPeople()
+                } catch (failure: kotlinx.coroutines.CancellationException) {
+                    throw failure
+                } catch (failure: Exception) {
+                    throw SyncException(
+                        "Сервер ${targetIndex + 1} не отвечает (${failure.message ?: "нет ответа"}). " +
+                            "Проверь его в «Проверке связи» и попробуй ещё раз",
+                    )
+                }
+            }
+            val already = targetPeople.filter { !it.isMain }.map { it.name }.toSet()
             val now = System.currentTimeMillis() / 1000L
             val wanted = linkedMapOf<String, Long>() // name -> expiresAt (0 = no end)
             for (profile in profiles) {
