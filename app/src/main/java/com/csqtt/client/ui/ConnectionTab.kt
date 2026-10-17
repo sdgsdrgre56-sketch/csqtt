@@ -363,6 +363,8 @@ internal fun ConnectionTab(
                 },
                 enabled = !(tunnelRunning || tunnelStarting || tunnelStopping || autoPausedForWifi),
             )
+            // City, country and hosting company of the selected server.
+            com.csqtt.client.ui.components.ServerDetailsLine(settingsStore, tunnelAuthSettings.profile)
         }
         Box(
             modifier = Modifier

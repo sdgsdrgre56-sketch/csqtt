@@ -89,3 +89,28 @@ fun rememberLinkFlags(hosts: List<String>): Map<Int, String> {
     }
     return flags
 }
+
+/** "Стокгольм, Швеция · AEZA GROUP" for the admin server at [index]; nothing while unknown. */
+@Composable
+fun ServerDetailsLine(settingsStore: SettingsStore, index: Int, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val text by produceState(initialValue = "", settingsStore, index) {
+        val host = runCatching { settingsStore.adminPanelProfiles(index + 1) }.getOrNull()
+            ?.firstOrNull { it.index == index }?.host.orEmpty()
+        if (host.isBlank()) {
+            value = ""
+            return@produceState
+        }
+        value = ServerFlags.cachedDetails(context, host)?.text.orEmpty()
+        if (value.isEmpty()) value = ServerFlags.details(context, host)?.text.orEmpty()
+    }
+    if (text.isNotEmpty()) {
+        androidx.compose.material3.Text(
+            text = text,
+            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = modifier.fillMaxWidth(),
+        )
+    }
+}

@@ -46,6 +46,73 @@ object ServerFlags {
         code
     }
 
+    /** City, country and hosting company of a server, for the line under the server buttons. */
+    data class Details(val city: String, val country: String, val hoster: String) {
+        val text: String
+            get() = listOf(listOf(city, country).filter { it.isNotBlank() }.joinToString(", "), hoster)
+                .filter { it.isNotBlank() }
+                .joinToString(" · ")
+    }
+
+    private const val DETAILS_PREFS = "mayak_server_details"
+
+    /** Remembered details for [host], without going to the network. */
+    fun cachedDetails(context: Context, host: String): Details? {
+        val key = host.trim().lowercase().takeIf { it.isNotEmpty() } ?: return null
+        val raw = context.getSharedPreferences(DETAILS_PREFS, Context.MODE_PRIVATE).getString(key, null) ?: return null
+        return runCatching {
+            val o = JSONObject(raw)
+            Details(o.optString("city"), o.optString("country"), o.optString("hoster"))
+        }.getOrNull()
+    }
+
+    /** Looks the details up once (public GeoIP service) and remembers them; failures are not remembered. */
+    suspend fun details(context: Context, host: String): Details? = withContext(Dispatchers.IO) {
+        val key = host.trim().lowercase()
+        if (key.isEmpty()) return@withContext null
+        cachedDetails(context, key)?.let { return@withContext it }
+        val ip = runCatching { InetAddress.getByName(key) }.getOrNull()
+            ?.takeUnless { it.isLoopbackAddress || it.isSiteLocalAddress || it.isLinkLocalAddress || it.isAnyLocalAddress }
+            ?.hostAddress
+            ?: return@withContext null
+        val found = runCatching {
+            val o = JSONObject(get("https://ipwho.is/$ip?lang=ru&fields=success,country,city,connection"))
+            if (!o.optBoolean("success")) null else {
+                val c = o.optJSONObject("connection")
+                Details(
+                    city = o.optString("city"),
+                    country = o.optString("country"),
+                    hoster = shortHoster(c?.optString("org").orEmpty().ifBlank { c?.optString("isp").orEmpty() }),
+                )
+            }
+        }.getOrNull() ?: runCatching {
+            val o = JSONObject(get("https://ipapi.co/$ip/json/"))
+            Details(o.optString("city"), o.optString("country_name"), shortHoster(o.optString("org")))
+        }.getOrNull()
+        if (found != null && (found.country.isNotBlank() || found.hoster.isNotBlank())) {
+            context.getSharedPreferences(DETAILS_PREFS, Context.MODE_PRIVATE).edit().putString(
+                key,
+                JSONObject().put("city", found.city).put("country", found.country).put("hoster", found.hoster).toString(),
+            ).apply()
+            found
+        } else {
+            null
+        }
+    }
+
+    /** "AEZA GROUP Ltd" -> "AEZA GROUP", "Hetzner Online GmbH" -> "Hetzner Online". */
+    private fun shortHoster(org: String): String {
+        val suffixes = setOf("ltd", "llc", "inc", "gmbh", "b.v.", "bv", "ab", "oy", "sa", "s.a.", "srl", "ou", "oü",
+            "limited", "corp", "corporation", "co.", "plc", "sp.", "z", "o.o.", "s.r.o.", "as", "a/s")
+        val words = org.replace(",", " ").split(Regex("\\s+")).filter { it.isNotBlank() }.toMutableList()
+        fun isSuffix(word: String): Boolean {
+            val w = word.lowercase()
+            return w in suffixes || w.trimEnd('.') in suffixes
+        }
+        while (words.size > 1 && isSuffix(words.last())) words.removeAt(words.lastIndex)
+        return words.joinToString(" ").take(28)
+    }
+
     private fun fromIpWho(ip: String): String? = runCatching {
         val obj = JSONObject(get("https://ipwho.is/$ip?fields=success,country_code"))
         obj.optString("country_code").takeIf { obj.optBoolean("success") && flagOf(it).isNotEmpty() }?.uppercase()
