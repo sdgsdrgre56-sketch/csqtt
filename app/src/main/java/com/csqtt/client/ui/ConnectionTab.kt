@@ -352,12 +352,17 @@ internal fun ConnectionTab(
         return
     }
 
+    val adminServerFlags = if (MayakConfig.ADMIN) {
+        com.csqtt.client.ui.components.rememberServerFlags(settingsStore, MayakConfig.ADMIN_SERVERS)
+    } else {
+        emptyMap()
+    }
     CsqttScreen {
         if (MayakConfig.ADMIN) {
             // Mayak: ten servers do not fit one row on a phone, so the numbers go in rows of five.
             com.csqtt.client.ui.components.ServerNumberPicker(
                 count = MayakConfig.ADMIN_SERVERS,
-                flags = com.csqtt.client.ui.components.rememberServerFlags(settingsStore, MayakConfig.ADMIN_SERVERS),
+                flags = adminServerFlags,
                 selected = tunnelAuthSettings.profile,
                 onSelected = { profile ->
                     scope.launch { settingsStore.saveActiveProfile(profile) }
@@ -389,6 +394,7 @@ internal fun ConnectionTab(
                 hashNotice = hashNotice,
                 hashesKnown = hashSettingsLoaded,
                 onToggleTunnel = { toggleTunnel() },
+                serverFlag = adminServerFlags[tunnelAuthSettings.profile].orEmpty(),
             )
         }
     }
@@ -409,7 +415,10 @@ private fun TunnelConnectionPanel(
     hashNotice: String?,
     hashesKnown: Boolean,
     onToggleTunnel: () -> Unit,
+    // Mayak Admin: flag of the server in use, shown with the number of live streams inside the circle.
+    serverFlag: String = "",
 ) {
+    val activeStreams by TunnelManager.activeWorkers.collectAsStateWithLifecycle()
     val isStarting = tunnelStarting && !tunnelRunning && !tunnelStopping
     val canToggle = !tunnelStopping && (tunnelRunning || isStarting || autoPausedForWifi || !cooldownActive || !configurationValid)
     val activeVisual = tunnelRunning || isStarting || autoPausedForWifi || tunnelStopping
@@ -440,32 +449,47 @@ private fun TunnelConnectionPanel(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.ic_c_logo),
-                contentDescription = when {
-                    tunnelStopping -> "Ожидание отключения VPN"
-                    tunnelRunning || autoPausedForWifi -> "Остановить VPN"
-                    else -> "Включить VPN"
-                },
-                modifier = Modifier
-                    .size(172.dp)
-                    .clip(CsqttShapes.Pill)
-                    .clickable(
-                        enabled = canToggle,
-                        onClick = onToggleTunnel,
+            Box(contentAlignment = Alignment.BottomCenter) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_c_logo),
+                    contentDescription = when {
+                        tunnelStopping -> "Ожидание отключения VPN"
+                        tunnelRunning || autoPausedForWifi -> "Остановить VPN"
+                        else -> "Включить VPN"
+                    },
+                    modifier = Modifier
+                        .size(172.dp)
+                        .clip(CsqttShapes.Pill)
+                        .clickable(
+                            enabled = canToggle,
+                            onClick = onToggleTunnel,
+                        )
+                        .scale(logoScale),
+                    colorFilter = if (activeVisual) {
+                        null
+                    } else {
+                        ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+                    },
+                    alpha = when {
+                        activeVisual -> 1f
+                        canToggle -> 0.66f
+                        else -> 0.34f
+                    },
+                )
+                // Mayak Admin: country of the server in use and how many streams are live right now.
+                if (MayakConfig.ADMIN && tunnelRunning) {
+                    Text(
+                        text = listOf(serverFlag, activeStreams.toString()).filter { it.isNotEmpty() }.joinToString(" "),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .padding(bottom = 6.dp)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), CsqttShapes.Pill)
+                            .padding(horizontal = 10.dp, vertical = 3.dp),
                     )
-                    .scale(logoScale),
-                colorFilter = if (activeVisual) {
-                    null
-                } else {
-                    ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
-                },
-                alpha = when {
-                    activeVisual -> 1f
-                    canToggle -> 0.66f
-                    else -> 0.34f
-                },
-            )
+                }
+            }
 
             Text(
                 text = statusText,
