@@ -11,7 +11,7 @@ set -u
 DIR=/opt/mayak-dion
 UNIT=/etc/systemd/system/mayak-dion@.service
 STAGE=/tmp/mayak-dion
-MAX=12
+MAX=24
 
 say() { echo "DION_$1=$2"; }
 
