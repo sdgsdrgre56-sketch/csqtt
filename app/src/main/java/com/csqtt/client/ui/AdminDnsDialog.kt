@@ -42,6 +42,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import android.content.Context
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.csqtt.client.CsqttConstants
 import com.csqtt.client.DeploySettingsSnapshot
@@ -96,6 +97,28 @@ private fun isIpv4(value: String): Boolean {
     }
 }
 
+/** The admin's own DNS entries, kept on this phone so they don't have to be typed again. */
+private object SavedDns {
+    private const val PREFS = "mayak_admin_dns"
+    private const val KEY = "saved"
+
+    fun load(context: Context): List<DnsPreset> =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY, "").orEmpty()
+            .lines()
+            .mapNotNull { line ->
+                val parts = line.split('|')
+                if (parts.size != 3 || !isIpv4(parts[1])) return@mapNotNull null
+                DnsPreset(parts[0], parts[1], parts[2])
+            }
+
+    fun save(context: Context, list: List<DnsPreset>) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY, list.joinToString("\n") { "${it.title}|${it.primary}|${it.secondary}" })
+            .apply()
+    }
+}
+
 private fun matchesPreset(preset: DnsPreset, dns: PanelDns?): Boolean =
     dns != null && preset.primary == dns.primary && preset.secondary == dns.secondary
 
@@ -120,6 +143,17 @@ internal fun AdminDnsDialog(
     var notice by remember { mutableStateOf<String?>(null) }
     var customPrimary by remember { mutableStateOf("") }
     var customSecondary by remember { mutableStateOf("") }
+    var customName by remember { mutableStateOf("") }
+    var saved by remember { mutableStateOf(SavedDns.load(context)) }
+
+    /** Adds the typed DNS to «Мои DNS» (same addresses replace the old entry). */
+    fun saveCustom(): DnsPreset {
+        val title = customName.trim().replace("|", " ").ifEmpty { customPrimary }.take(40)
+        val entry = DnsPreset(title, customPrimary, customSecondary)
+        saved = saved.filterNot { it.primary == entry.primary && it.secondary == entry.secondary } + entry
+        SavedDns.save(context, saved)
+        return entry
+    }
     // Mayak: apply to every configured server at once (on by default).
     var allServers by remember { mutableStateOf(true) }
 
@@ -315,6 +349,55 @@ internal fun AdminDnsDialog(
                         .weight(1f)
                         .verticalScroll(rememberScrollState()),
                 ) {
+                    if (saved.isNotEmpty()) {
+                        Text(
+                            text = "Мои DNS",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        saved.forEach { preset ->
+                            val selected = matchesPreset(preset, current)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(
+                                        enabled = !busy && (allServers || !selected),
+                                        role = Role.RadioButton,
+                                        onClick = { applyDns(preset.title, null, preset.primary, preset.secondary) },
+                                    )
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                RadioButton(selected = selected, onClick = null)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = preset.title,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    )
+                                    Text(
+                                        text = listOf(preset.primary, preset.secondary).filter { it.isNotEmpty() }.joinToString(" · "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                TextButton(
+                                    enabled = !busy,
+                                    onClick = {
+                                        saved = saved - preset
+                                        SavedDns.save(context, saved)
+                                    },
+                                ) { Text("Удалить") }
+                            }
+                        }
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                        )
+                    }
+
                     DnsPresets.forEach { preset ->
                         val selected = matchesPreset(preset, current)
                         Row(
@@ -357,6 +440,15 @@ internal fun AdminDnsDialog(
                         fontWeight = FontWeight.SemiBold,
                     )
                     OutlinedTextField(
+                        value = customName,
+                        onValueChange = { value -> customName = value.replace("|", "").replace("\n", "").take(40) },
+                        label = { Text("Название, можно оставить пустым") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                    )
+                    OutlinedTextField(
                         value = customPrimary,
                         onValueChange = { value -> customPrimary = value.filter { it.isDigit() || it == '.' }.take(15) },
                         label = { Text("Основной, например 1.1.1.1") },
@@ -378,18 +470,36 @@ internal fun AdminDnsDialog(
                             .fillMaxWidth()
                             .padding(top = 8.dp),
                     )
+                    val customValid = isIpv4(customPrimary) &&
+                        (customSecondary.isEmpty() || isIpv4(customSecondary))
                     Button(
                         onClick = {
-                            applyDns("свои DNS", null, customPrimary, customSecondary)
+                            val entry = saveCustom()
+                            applyDns(entry.title, null, entry.primary, entry.secondary)
                         },
-                        enabled = !busy && isIpv4(customPrimary) &&
-                            (customSecondary.isEmpty() || isIpv4(customSecondary)),
+                        enabled = !busy && customValid,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 10.dp)
                             .height(48.dp),
                     ) {
-                        Text("Применить свои DNS", fontWeight = FontWeight.SemiBold)
+                        Text("Применить и сохранить в «Мои DNS»", fontWeight = FontWeight.SemiBold)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            val entry = saveCustom()
+                            notice = "Сохранено в «Мои DNS»: ${entry.title}"
+                            customName = ""
+                            customPrimary = ""
+                            customSecondary = ""
+                        },
+                        enabled = !busy && customValid,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .height(48.dp),
+                    ) {
+                        Text("Только сохранить")
                     }
                 }
 
