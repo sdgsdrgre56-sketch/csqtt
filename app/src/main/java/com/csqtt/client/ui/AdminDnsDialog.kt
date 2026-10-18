@@ -543,7 +543,7 @@ internal fun AdminDnsDialog(
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(top = 8.dp),
                         )
-                        saved.forEach { preset ->
+                        (if (pings.isEmpty()) saved else saved.sortedBy { pings[it.primary] ?: Long.MAX_VALUE }).forEach { preset ->
                             val selected = matchesPreset(preset, current)
                             Row(
                                 modifier = Modifier
@@ -586,7 +586,17 @@ internal fun AdminDnsDialog(
                         )
                     }
 
-                    DnsPresets.forEach { preset ->
+                    // Google and Cloudflare always on top; after «Проверить пинг» the rest go fastest first,
+                    // the ones that did not answer at the end.
+                    val pinned = DnsPresets.filter { it.providerId == "google" || it.providerId == "cloudflare" }
+                        .sortedBy { if (it.providerId == "google") 0 else 1 }
+                    val others = DnsPresets - pinned.toSet()
+                    val orderedPresets = pinned + if (pings.isEmpty()) {
+                        others
+                    } else {
+                        others.sortedBy { pings[it.primary] ?: Long.MAX_VALUE }
+                    }
+                    orderedPresets.forEach { preset ->
                         val selected = matchesPreset(preset, current)
                         Row(
                             modifier = Modifier
