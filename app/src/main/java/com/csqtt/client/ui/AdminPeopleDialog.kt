@@ -208,6 +208,17 @@ internal fun AdminPeopleDialog(
         .filter { !it.isMain }
         .map { it.name }
         .toSet()
+    // People whose access ends within 3 days (the latest end among their servers; no end = never).
+    val endingSoon = servers
+        .flatMap { it.people.orEmpty() }
+        .filter { !it.isMain && it.enabled }
+        .groupBy { it.name }
+        .mapNotNull { (name, entries) ->
+            if (entries.any { it.expiresAt <= 0L }) return@mapNotNull null
+            val days = accessDaysLeft(entries.maxOf { it.expiresAt })
+            if (days in 1..3) name to days else null
+        }
+        .sortedBy { it.second }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -239,6 +250,17 @@ internal fun AdminPeopleDialog(
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
                 )
+                if (endingSoon.isNotEmpty()) {
+                    Text(
+                        text = "Скоро заканчивается: " + endingSoon.joinToString(", ") { (name, days) ->
+                            "$name — ${if (days == 1) "1 день" else "$days дня"}"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    )
+                }
                 CertificateChangedNotice(settingsStore, enabled = !busy, onTrusted = { refresh() })
 
                 Column(
