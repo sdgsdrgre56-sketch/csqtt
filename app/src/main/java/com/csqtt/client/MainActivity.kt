@@ -351,6 +351,7 @@ fun MainScreen(
     }
 
     LaunchedEffect(updateCheckIntervalHours) {
+        MayakUpdateState.init(context)
         if (!MayakConfig.UPSTREAM_UPDATE_CHECK) return@LaunchedEffect
         if (updateCheckIntervalHours == UPDATE_CHECK_NEVER) return@LaunchedEffect
 
@@ -389,6 +390,7 @@ fun MainScreen(
         // Mayak: new server list and announcement from the admin (client edition only).
         MayakSync.loadAnnouncement(context)
         runCatching { MayakSync.syncClient(context, settingsStore) }
+        MayakNotices.remindAccessEnding(context, settingsStore)
 
         while (isActive) {
             val now = System.currentTimeMillis()
@@ -399,6 +401,7 @@ fun MainScreen(
             if (isActive) {
                 runUpdateCheck("periodic")
                 runCatching { MayakSync.syncClient(context, settingsStore) }
+                MayakNotices.remindAccessEnding(context, settingsStore)
             }
         }
     }

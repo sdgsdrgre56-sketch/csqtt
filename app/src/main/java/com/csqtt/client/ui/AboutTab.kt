@@ -18,6 +18,7 @@ import com.csqtt.client.SettingsStore
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.material3.Button
 import androidx.compose.ui.Modifier
@@ -55,6 +56,10 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
     var showPeopleDialog by remember { mutableStateOf(false) }
     if (showPeopleDialog && settingsStore != null) {
         AdminPeopleDialog(settingsStore = settingsStore, onDismiss = { showPeopleDialog = false })
+    }
+    var showBackupDialog by remember { mutableStateOf(false) }
+    if (showBackupDialog && settingsStore != null) {
+        AdminBackupDialog(settingsStore = settingsStore, onDismiss = { showBackupDialog = false })
     }
     var showAddPersonDialog by remember { mutableStateOf(false) }
     if (showAddPersonDialog && settingsStore != null) {
@@ -103,7 +108,7 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
                             val result = runCatching { checkMayakUpdate(alwaysAskYandex = true) }.getOrNull()
                             val release = result?.release
                             foundRelease = release?.takeIf { isMayakUpdate(it) }
-                            com.csqtt.client.MayakUpdateState.offer(release)
+                            com.csqtt.client.MayakUpdateState.offer(release, force = true)
                             checkReport = when {
                                 result == null -> "Не получилось проверить."
                                 foundRelease != null -> "Есть версия 1.0.${buildNumberOf(release!!.versionTag)}. (${result.report})"
@@ -117,6 +122,49 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 ) {
                     Text(if (checking) "Проверяю… (до 20 секунд)" else "Проверить обновления")
+                }
+                if (!MayakConfig.ADMIN) {
+                    // Mayak: people can stop update notices; turned back on, what is new shows at once.
+                    val updatesMuted by com.csqtt.client.MayakUpdateState.muted.collectAsState()
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Сообщать об обновлениях",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        androidx.compose.material3.Switch(
+                            checked = !updatesMuted,
+                            onCheckedChange = { on ->
+                                com.csqtt.client.MayakUpdateState.setMuted(context, !on)
+                                checkReport = when {
+                                    !on -> "Обновления не будут мешать. Проверить можно кнопкой выше."
+                                    com.csqtt.client.MayakUpdateState.hasWaiting() -> "Есть новая версия — что нового, смотри ниже."
+                                    else -> null
+                                }
+                                // Turned on and nothing known yet: look for a new version right away.
+                                if (on && !com.csqtt.client.MayakUpdateState.hasWaiting() && !checking) {
+                                    checking = true
+                                    scope.launch {
+                                        val result = runCatching { checkMayakUpdate(alwaysAskYandex = true) }.getOrNull()
+                                        val release = result?.release
+                                        foundRelease = release?.takeIf { isMayakUpdate(it) }
+                                        com.csqtt.client.MayakUpdateState.offer(release)
+                                        checkReport = when {
+                                            result == null -> "Не получилось проверить."
+                                            foundRelease != null -> "Есть новая версия — что нового, смотри ниже."
+                                            else -> "Стоит последняя версия."
+                                        }
+                                        checking = false
+                                    }
+                                }
+                            },
+                        )
+                    }
                 }
                 checkReport?.let {
                     Text(
@@ -194,6 +242,19 @@ internal fun AboutTab(settingsStore: SettingsStore? = null) {
                     ) {
                         Text("DNS сервера", fontWeight = FontWeight.SemiBold)
                     }
+                    OutlinedButton(
+                        onClick = { showBackupDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                    ) {
+                        Text("Резервная копия настроек", fontWeight = FontWeight.SemiBold)
+                    }
+                    Text(
+                        text = "Все серверы, доступы и списки в одном файле с паролем — на случай потери телефона.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     // Call-tunnel test (DION / WB Stream): a separate screen that exists only in the admin edition.
                     OutlinedButton(
                         onClick = {

@@ -18,9 +18,40 @@ internal object MayakUpdateState {
     private val state = MutableStateFlow<AppReleaseInfo?>(null)
     val available: StateFlow<AppReleaseInfo?> = state
 
-    fun offer(release: AppReleaseInfo?) {
+    // Mayak: the person can turn update notices off; the newest version found is still remembered,
+    // so turning them back on shows it at once with everything that is new since the installed one.
+    private val lastFound = MutableStateFlow<AppReleaseInfo?>(null)
+    private val mutedState = MutableStateFlow(false)
+    val muted: StateFlow<Boolean> = mutedState
+    private const val MUTED = "notices_off"
+
+    /** Reads the person's choice; called once when the app starts. */
+    fun init(context: Context) {
+        mutedState.value = !MayakConfig.ADMIN && context.applicationContext
+            .getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(MUTED, false)
+        if (mutedState.value) state.value = null
+    }
+
+    /** Turns update notices off or back on. Back on, the waiting update (if any) shows right away. */
+    fun setMuted(context: Context, muted: Boolean) {
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(MUTED, muted).apply()
+        mutedState.value = muted
+        state.value = if (muted) null else lastFound.value
+    }
+
+    /** True when a newer version is known, even while notices are off. */
+    fun hasWaiting(): Boolean = lastFound.value != null
+
+    /**
+     * A version found by a check. Shown unless notices are off; [force] is a check the person asked
+     * for themselves ("Проверить обновления"), which always shows its result.
+     */
+    fun offer(release: AppReleaseInfo?, force: Boolean = false) {
         if (release == null) return
-        state.value = release.takeIf { isMayakUpdate(it) }
+        val newer = release.takeIf { isMayakUpdate(it) }
+        lastFound.value = newer
+        if (!mutedState.value || force) state.value = newer
     }
 
     private const val PREFS = "mayak_update"
