@@ -116,7 +116,8 @@ object ServerPings {
             .filter { it.host.isNotBlank() }
         kotlinx.coroutines.coroutineScope {
             profiles.forEach { profile ->
-                if (pings[profile.index] == null) pings[profile.index] = "…"
+                // "…" while measuring, so a new round is visible even when the numbers come out the same.
+                pings[profile.index] = "…"
                 launch {
                     pings[profile.index] = measure(profile.host, profile.webPort)?.let { "$it мс" } ?: "нет"
                 }

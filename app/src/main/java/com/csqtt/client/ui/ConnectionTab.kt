@@ -359,8 +359,10 @@ internal fun ConnectionTab(
         LaunchedEffect(Unit) {
             com.csqtt.client.ui.components.ServerPings.onAppOpened(settingsStore, MayakConfig.ADMIN_SERVERS)
         }
-        LaunchedEffect(tunnelRunning) {
-            com.csqtt.client.ui.components.ServerPings.onTunnelState(settingsStore, MayakConfig.ADMIN_SERVERS, tunnelRunning)
+        // "Connected" means streams are really up, not just that the start was pressed.
+        val streamsUp = TunnelManager.activeWorkers.collectAsStateWithLifecycle().value > 0
+        LaunchedEffect(streamsUp) {
+            com.csqtt.client.ui.components.ServerPings.onTunnelState(settingsStore, MayakConfig.ADMIN_SERVERS, streamsUp)
         }
     }
     val adminServerFlags = if (MayakConfig.ADMIN) {
