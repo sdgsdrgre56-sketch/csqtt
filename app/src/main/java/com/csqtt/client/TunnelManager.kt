@@ -462,7 +462,10 @@ object TunnelManager {
                         val ctx = activeContext()?.applicationContext
                         val store = activeSettingsStore
                         if (ctx != null && store != null) {
-                            syncJob = activeScope.launch { runCatching { MayakSync.syncClient(ctx, store) } }
+                            syncJob = activeScope.launch {
+                                runCatching { MayakSync.syncClient(ctx, store) }
+                                MayakNotices.remindAccessEnding(ctx, store)
+                            }
                         }
                     }
                 } else {
