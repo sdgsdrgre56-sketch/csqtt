@@ -198,7 +198,8 @@ fun ServerDetailsLine(settingsStore: SettingsStore, index: Int, modifier: Modifi
             listOf(ServerFlags.countryName(manual) + " (вручную)", details?.hoster.orEmpty())
                 .filter { it.isNotBlank() }.joinToString(" · ")
         } else {
-            details?.text.orEmpty()
+            // Even when the lookup failed, keep a line to tap so the country can still be set by hand.
+            details?.text?.takeIf { it.isNotBlank() } ?: "Страна не определена"
         }
     }
     if (text.isNotEmpty()) {
@@ -223,7 +224,7 @@ fun ServerDetailsLine(settingsStore: SettingsStore, index: Int, modifier: Modifi
                         .verticalScroll(rememberScrollState()),
                 ) {
                     androidx.compose.material3.Text(
-                        text = "Если флаг по IP неверный, выбери страну сама. " +
+                        text = "Если флаг по IP неверный, выбери страну вручную. " +
                             "Чтобы флаг поменялся и у людей, после этого нажми «Разослать списки серверов».",
                         style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(bottom = 8.dp),
