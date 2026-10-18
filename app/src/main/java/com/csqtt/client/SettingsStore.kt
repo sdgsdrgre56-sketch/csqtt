@@ -220,6 +220,33 @@ class SettingsStore(context: Context) {
     private val dataStore = appContext.dataStore
     private val secureStore = SecureStringStore(appContext)
 
+    /** Mayak Admin backup: every stored setting by name, exactly as kept (secrets still encrypted). */
+    internal suspend fun allPreferencesForBackup(): Map<String, Any> =
+        dataStore.data.first().asMap().mapKeys { it.key.name }
+
+    /**
+     * Mayak Admin backup: replaces every stored setting with [values]. Strings, numbers, booleans and
+     * string sets are written with their own type; anything else is skipped.
+     */
+    @Suppress("UNCHECKED_CAST")
+    internal suspend fun replaceAllPreferencesFromBackup(values: Map<String, Any>) {
+        dataStore.edit { prefs ->
+            prefs.clear()
+            for ((name, value) in values) {
+                when (value) {
+                    is String -> prefs[stringPreferencesKey(name)] = value
+                    is Int -> prefs[intPreferencesKey(name)] = value
+                    is Long -> prefs[longPreferencesKey(name)] = value
+                    is Boolean -> prefs[booleanPreferencesKey(name)] = value
+                    is Float -> prefs[androidx.datastore.preferences.core.floatPreferencesKey(name)] = value
+                    is Double -> prefs[androidx.datastore.preferences.core.doublePreferencesKey(name)] = value
+                    is Set<*> -> prefs[androidx.datastore.preferences.core.stringSetPreferencesKey(name)] =
+                        value.filterIsInstance<String>().toSet()
+                }
+            }
+        }
+    }
+
     init {
         // Migrations rewrite every profile's secrets; running them per instance
         // would spam DataStore edits on each construction of the store.
