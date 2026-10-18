@@ -350,13 +350,15 @@ internal class PanelApi(context: Context, private val server: PanelServer) {
         }
 
         /** A csqtt:// link in the same form the server panel produces. */
-        fun buildLink(host: String, peerPort: Int, password: String, expiresAt: Long = 0L, note: String = ""): String =
+        fun buildLink(host: String, peerPort: Int, password: String, expiresAt: Long = 0L, note: String = "", country: String = ""): String =
             "csqtt://connect?v=2&host=" + java.net.URLEncoder.encode(host, "UTF-8") +
                 "&peer=" + peerPort +
                 "&password=" + java.net.URLEncoder.encode(password, "UTF-8") +
                 // Mayak: the end of access, so the client can drop the link once it no longer works.
                 (if (expiresAt > 0L) "&exp=$expiresAt" else "") +
                 // Mayak: the admin's note about this server, shown to the person while connected to it.
-                (if (note.isNotBlank()) "&note=" + java.net.URLEncoder.encode(note.trim().take(60), "UTF-8").replace("+", "%20") else "")
+                (if (note.isNotBlank()) "&note=" + java.net.URLEncoder.encode(note.trim().take(60), "UTF-8").replace("+", "%20") else "") +
+                // Mayak: the server's country when the admin set it by hand, so people see the right flag.
+                (if (country.length == 2) "&cc=" + country.uppercase() else "")
     }
 }

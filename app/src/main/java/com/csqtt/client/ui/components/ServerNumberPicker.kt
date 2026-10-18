@@ -4,12 +4,21 @@
 
 package com.csqtt.client.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -52,7 +61,8 @@ fun ServerNumberPicker(
 @Composable
 fun rememberServerFlags(settingsStore: SettingsStore, count: Int): Map<Int, String> {
     val context = LocalContext.current
-    val flags by produceState(initialValue = emptyMap<Int, String>(), settingsStore, count) {
+    val manualVersion by ServerFlags.manualVersion.collectAsState()
+    val flags by produceState(initialValue = emptyMap<Int, String>(), settingsStore, count, manualVersion) {
         val hosts = runCatching { settingsStore.adminPanelProfiles(count) }.getOrNull()
             ?.associate { it.index to it.host }
             ?: return@produceState
@@ -73,11 +83,14 @@ fun rememberServerFlags(settingsStore: SettingsStore, count: Int): Map<Int, Stri
 
 /** Flags of the servers in a person's link list, by position, from the host in each link. */
 @Composable
-fun rememberLinkFlags(hosts: List<String>): Map<Int, String> {
+fun rememberLinkFlags(hosts: List<String>, countries: List<String> = emptyList()): Map<Int, String> {
     val context = LocalContext.current
-    val flags by produceState(initialValue = emptyMap<Int, String>(), hosts) {
+    val flags by produceState(initialValue = emptyMap<Int, String>(), hosts, countries) {
+        // A country the admin set by hand comes inside the link ("&cc=NL") and wins over the IP lookup.
         val known = hosts.withIndex().mapNotNull { (index, host) ->
-            ServerFlags.cached(context, host)?.let { index to ServerFlags.flagOf(it) }
+            val code = countries.getOrNull(index)?.takeIf { ServerFlags.flagOf(it).isNotEmpty() }
+                ?: ServerFlags.cached(context, host)
+            code?.let { index to ServerFlags.flagOf(it) }
         }.toMap().toMutableMap()
         value = known.toMap()
         for ((index, host) in hosts.withIndex()) {
@@ -90,27 +103,86 @@ fun rememberLinkFlags(hosts: List<String>): Map<Int, String> {
     return flags
 }
 
-/** "Стокгольм, Швеция · AEZA GROUP" for the admin server at [index]; nothing while unknown. */
+/** Countries offered when the admin sets a server's country by hand. */
+private val ManualCountries = listOf(
+    "NL", "DE", "FI", "SE", "PL", "FR", "GB", "LV", "LT", "EE", "CH", "AT", "CZ", "NO", "DK",
+    "IT", "ES", "RO", "BG", "HU", "TR", "KZ", "AM", "GE", "RU", "US", "CA", "JP", "SG", "HK",
+)
+
+/**
+ * "Стокгольм, Швеция · AEZA GROUP" for the admin server at [index]; nothing while unknown.
+ * Tapping it lets the admin set the country by hand when the IP lookup is wrong.
+ */
 @Composable
 fun ServerDetailsLine(settingsStore: SettingsStore, index: Int, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val text by produceState(initialValue = "", settingsStore, index) {
-        val host = runCatching { settingsStore.adminPanelProfiles(index + 1) }.getOrNull()
+    val manualVersion by ServerFlags.manualVersion.collectAsState()
+    var host by remember { mutableStateOf("") }
+    var choosing by remember { mutableStateOf(false) }
+    val text by produceState(initialValue = "", settingsStore, index, manualVersion) {
+        host = runCatching { settingsStore.adminPanelProfiles(index + 1) }.getOrNull()
             ?.firstOrNull { it.index == index }?.host.orEmpty()
         if (host.isBlank()) {
             value = ""
             return@produceState
         }
-        value = ServerFlags.cachedDetails(context, host)?.text.orEmpty()
-        if (value.isEmpty()) value = ServerFlags.details(context, host)?.text.orEmpty()
+        val manual = ServerFlags.manual(context, host)
+        var details = ServerFlags.cachedDetails(context, host)
+        if (details == null) details = ServerFlags.details(context, host)
+        value = if (manual != null) {
+            // Hand-set country: the city from the IP lookup may be wrong too, so it is left out.
+            listOf(ServerFlags.countryName(manual) + " (вручную)", details?.hoster.orEmpty())
+                .filter { it.isNotBlank() }.joinToString(" · ")
+        } else {
+            details?.text.orEmpty()
+        }
     }
     if (text.isNotEmpty()) {
         androidx.compose.material3.Text(
-            text = text,
+            text = "$text  ✎",
             style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
             color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            modifier = modifier.fillMaxWidth(),
+            modifier = modifier
+                .fillMaxWidth()
+                .clickable { choosing = true },
+        )
+    }
+    if (choosing && host.isNotBlank()) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { choosing = false },
+            title = { androidx.compose.material3.Text("Страна сервера ${index + 1}") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    androidx.compose.material3.Text(
+                        text = "Если флаг по IP неверный, выбери страну сама. " +
+                            "Чтобы флаг поменялся и у людей, после этого нажми «Разослать списки серверов».",
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                    androidx.compose.material3.TextButton(onClick = {
+                        ServerFlags.setManual(context, host, null)
+                        choosing = false
+                    }) { androidx.compose.material3.Text("Авто (по IP)") }
+                    ManualCountries.forEach { code ->
+                        androidx.compose.material3.TextButton(onClick = {
+                            ServerFlags.setManual(context, host, code)
+                            choosing = false
+                        }) {
+                            androidx.compose.material3.Text("${ServerFlags.flagOf(code)}  ${ServerFlags.countryName(code)}")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { choosing = false }) {
+                    androidx.compose.material3.Text("Закрыть")
+                }
+            },
         )
     }
 }

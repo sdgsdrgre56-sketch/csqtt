@@ -603,6 +603,7 @@ internal fun MayakHome(
     serverNote: String = "",
     // Mayak: host of the current server, for its country flag under the lighthouse.
     serverHost: String = "",
+    serverCountry: String = "",
 ) {
     if (linkReady == null) {
         Box(modifier = Modifier.fillMaxSize())
@@ -657,7 +658,7 @@ internal fun MayakHome(
             verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         ) {
             val liveStreams by TunnelManager.activeWorkers.collectAsState()
-            val serverFlag = rememberLinkFlags(listOf(serverHost))[0].orEmpty()
+            val serverFlag = rememberLinkFlags(listOf(serverHost), listOf(serverCountry))[0].orEmpty()
             MayakBeaconButton(
                 state = state,
                 enabled = canToggle,

@@ -5,6 +5,7 @@ package com.csqtt.client
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -21,9 +22,34 @@ object ServerFlags {
         return upper.map { Character.toChars(0x1F1E6 + (it - 'A')).concatToString() }.joinToString("")
     }
 
-    /** Remembered country code for [host], without going to the network. */
+    private const val MANUAL_PREFS = "mayak_server_flags_manual"
+
+    /** Bumped whenever the admin sets or clears a country by hand, so open screens redraw their flags. */
+    val manualVersion = MutableStateFlow(0)
+
+    /** Country the admin set by hand for [host] ("NL"), or null when it is found by IP. */
+    fun manual(context: Context, host: String): String? =
+        host.trim().lowercase().takeIf { it.isNotEmpty() }?.let {
+            context.getSharedPreferences(MANUAL_PREFS, Context.MODE_PRIVATE).getString(it, null)
+        }?.takeIf { flagOf(it).isNotEmpty() }
+
+    /** Sets the country of [host] by hand; null or blank goes back to finding it by IP. */
+    fun setManual(context: Context, host: String, code: String?) {
+        val key = host.trim().lowercase().takeIf { it.isNotEmpty() } ?: return
+        val edit = context.getSharedPreferences(MANUAL_PREFS, Context.MODE_PRIVATE).edit()
+        val clean = code?.trim()?.uppercase()?.takeIf { flagOf(it).isNotEmpty() }
+        if (clean == null) edit.remove(key) else edit.putString(key, clean)
+        edit.apply()
+        manualVersion.value += 1
+    }
+
+    /** Country name in Russian for a code ("NL" -> "Нидерланды"). */
+    fun countryName(code: String): String =
+        java.util.Locale("", code.uppercase()).getDisplayCountry(java.util.Locale("ru")).ifBlank { code.uppercase() }
+
+    /** Remembered country code for [host], without going to the network (a hand-set one wins). */
     fun cached(context: Context, host: String): String? =
-        host.trim().takeIf { it.isNotEmpty() }?.let {
+        manual(context, host) ?: host.trim().takeIf { it.isNotEmpty() }?.let {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(it.lowercase(), null)
         }
 

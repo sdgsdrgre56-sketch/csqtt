@@ -146,7 +146,10 @@ internal object MayakSyncAdmin {
                 .filter { (_, _, person) -> person.enabled && (person.expiresAt == 0L || person.expiresAt > now) }
                 .map { (number, host, person) ->
                     val port = if (person.dtlsPort in 1..65535) person.dtlsPort else CsqttConstants.Network.DEFAULT_SERVER_PEER_PORT
-                    PanelApi.buildLink(host, port, person.password, person.expiresAt, notes[number].orEmpty())
+                    PanelApi.buildLink(
+                        host, port, person.password, person.expiresAt, notes[number].orEmpty(),
+                        ServerFlags.manual(context, host).orEmpty(),
+                    )
                 }
             if (links.isEmpty()) continue // switched off or expired everywhere: leave the old list
             for ((_, _, person) in sorted) {

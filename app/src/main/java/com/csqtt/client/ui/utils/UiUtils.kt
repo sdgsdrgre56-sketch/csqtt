@@ -12,6 +12,8 @@ data class CsqttLink(
     val expiresAt: Long = 0L,
     // Mayak: a short note about the server from Mayak Admin ("YouTube без рекламы"), "" when none.
     val note: String = "",
+    // Mayak: the server's country set by hand in Mayak Admin ("NL"), "" when found by IP.
+    val country: String = "",
 )
 
 fun parseCsqttLink(raw: String): CsqttLink? {
@@ -47,7 +49,9 @@ private fun parseCsqttV2(uri: java.net.URI): CsqttLink? {
     // Mayak: optional "exp" (unix seconds). A bad value is ignored rather than rejecting the link.
     val expiresAt = parameters["exp"]?.let(::decodeQueryComponent)?.toLongOrNull()?.takeIf { it > 0 } ?: 0L
     val note = parameters["note"]?.let(::decodeQueryComponent)?.trim()?.take(60).orEmpty()
-    return CsqttLink(host, port, password, hashes, expiresAt, note)
+    val country = parameters["cc"]?.let(::decodeQueryComponent)?.trim()?.uppercase()
+        ?.takeIf { it.length == 2 && it.all { c -> c in 'A'..'Z' } }.orEmpty()
+    return CsqttLink(host, port, password, hashes, expiresAt, note, country)
 }
 
 private fun parseRawQuery(rawQuery: String): Map<String, String>? {
@@ -70,7 +74,7 @@ private fun parseRawQuery(rawQuery: String): Map<String, String>? {
         }
     }
 
-    val pattern = Regex("(?:^|[&;]|(?<=[a-zA-Z0-9_]))(v|host|peer|password|hashes|exp|note)=([^&?]*?)(?=(?:v|host|peer|password|hashes|exp|note)=|$)", RegexOption.IGNORE_CASE)
+    val pattern = Regex("(?:^|[&;]|(?<=[a-zA-Z0-9_]))(v|host|peer|password|hashes|exp|note|cc)=([^&?]*?)(?=(?:v|host|peer|password|hashes|exp|note|cc)=|$)", RegexOption.IGNORE_CASE)
     val matches = pattern.findAll(sanitized).toList()
     if (matches.isNotEmpty()) {
         val extracted = linkedMapOf<String, String>()

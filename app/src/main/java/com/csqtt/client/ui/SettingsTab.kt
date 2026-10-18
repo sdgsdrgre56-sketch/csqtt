@@ -581,7 +581,10 @@ internal fun SettingsTabContent(
                             modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
                         )
                         // Mayak: server number buttons with country flags, like in Mayak Admin.
-                        val linkFlags = rememberLinkFlags(storedLinks.map { parseCsqttLink(it)?.host.orEmpty() })
+                        val linkFlags = rememberLinkFlags(
+                            storedLinks.map { parseCsqttLink(it)?.host.orEmpty() },
+                            storedLinks.map { parseCsqttLink(it)?.country.orEmpty() },
+                        )
                         ServerNumberPicker(
                             count = storedLinks.size,
                             selected = storedLinkIndex,
