@@ -105,6 +105,7 @@ import com.google.zxing.qrcode.QRCodeWriter;
 import com.google.zxing.integration.android.IntentIntegrator;
 import com.google.zxing.integration.android.IntentResult;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import android.util.Base64;
@@ -2380,6 +2381,13 @@ public final class MainActivity extends Activity {
             openProfileEditor(p);
         });
         row.addView(editButton, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        // Mayak: the profile's openflux:// link again, to set up another phone, without the node wizard.
+        ImageButton linkButton = iconButton(R.drawable.ic_link, "Ссылка профиля «" + p.name + "»");
+        linkButton.setOnClickListener(v -> {
+            tap(v);
+            shareProfile(p);
+        });
+        row.addView(linkButton, new LinearLayout.LayoutParams(dp(40), dp(40)));
         ImageButton deleteButton = iconButton(R.drawable.ic_delete, "Удалить профиль «" + p.name + "»");
         deleteButton.setOnClickListener(v -> {
             tap(v);
@@ -2391,6 +2399,83 @@ public final class MainActivity extends Activity {
             selectProfile(p.id);
         });
         return row;
+    }
+
+    // Mayak: rebuilds the openflux:// link of a saved profile with the core's own link maker, so it is the
+    // same link the node wizard or a QR gave. MAX and JS carriers belong to one account/phone and are left out.
+    private String profileShareLink(Profile p) throws Exception {
+        JSONObject config = new JSONObject();
+        String name = p.name.replace(" (проверить)", "").trim();
+        if (!name.isEmpty()) config.put("name", name);
+        if (p.session) config.put("negotiate", true);
+        if ("legacy".equals(p.codec)) config.put("codec", "legacy");
+        if (!p.encryptionSecret.isEmpty()) config.put("secret", p.encryptionSecret);
+        if (p.session && !p.context.isEmpty()) config.put("context", p.context);
+        if (p.stream) config.put("mode", "stream");
+        JSONArray transports = new JSONArray();
+        addShareTransport(transports, p.transportType, p.documentUrl, p.priority);
+        if (p.session) {
+            for (Profile.Transport t : p.extraTransports) addShareTransport(transports, t.type, t.value, t.priority);
+        }
+        if (transports.length() == 0) throw new Exception("в профиле нет транспорта, который можно передать ссылкой");
+        config.put("transports", transports);
+        JSONObject result = new JSONObject(Mobile.makeShareLink(config.toString()));
+        String link = result.optString("link", "");
+        if (link.isEmpty()) {
+            String error = result.optString("error", "");
+            throw new Exception(error.isEmpty() ? "ядро не собрало ссылку" : error);
+        }
+        return link;
+    }
+
+    private static void addShareTransport(JSONArray out, String type, String value, int priority) throws Exception {
+        if (type == null || value == null || value.trim().isEmpty()) return;
+        if ("oneme".equals(type) || "script".equals(type)) return;
+        JSONObject t = new JSONObject().put("type", type).put("priority", priority);
+        if ("direct".equals(type)) t.put("dial", value.trim());
+        else t.put("url", value.trim());
+        out.put(t);
+    }
+
+    private void shareProfile(Profile p) {
+        String link;
+        try {
+            link = profileShareLink(p);
+        } catch (Exception e) {
+            Toast.makeText(this, "Не удалось собрать ссылку: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setPadding(dp(16), dp(8), dp(16), 0);
+        try {
+            byte[] png = Mobile.shareQRPNG(link, dp(220));
+            ImageView qrView = new ImageView(this);
+            qrView.setImageBitmap(android.graphics.BitmapFactory.decodeByteArray(png, 0, png.length));
+            qrView.setBackground(rounded(Color.WHITE, Color.WHITE, 0, 12));
+            qrView.setPadding(dp(6), dp(6), dp(6), dp(6));
+            box.addView(qrView, new LinearLayout.LayoutParams(dp(232), dp(232)));
+        } catch (Exception ignored) {
+            // The link below still works without the picture.
+        }
+        TextView hint = text("В ссылке ключ канала: отдавайте её только тем, кому даёте доступ.", 12, secondary, false);
+        hint.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams hintParams = matchWrap();
+        hintParams.topMargin = dp(10);
+        box.addView(hint, hintParams);
+        new AlertDialog.Builder(this, darkMode
+                ? android.R.style.Theme_DeviceDefault_Dialog_Alert
+                : android.R.style.Theme_DeviceDefault_Light_Dialog_Alert)
+                .setTitle(p.name)
+                .setView(box)
+                .setPositiveButton("Копировать ссылку", (dialog, which) -> {
+                    ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText("OpenFlux", link));
+                    Toast.makeText(this, "Ссылка скопирована", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Закрыть", null)
+                .show();
     }
 
     private View buildProfileEditorHeader() {
