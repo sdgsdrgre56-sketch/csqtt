@@ -365,6 +365,8 @@ internal fun ConnectionTab(
             com.csqtt.client.ui.components.ServerNumberPicker(
                 count = MayakConfig.ADMIN_SERVERS,
                 flags = adminServerFlags,
+                // Ping from this phone to each server, under its flag.
+                pings = com.csqtt.client.ui.components.rememberServerPings(settingsStore, MayakConfig.ADMIN_SERVERS),
                 selected = tunnelAuthSettings.profile,
                 onSelected = { profile ->
                     scope.launch { settingsStore.saveActiveProfile(profile) }

@@ -24,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.csqtt.client.ServerFlags
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import com.csqtt.client.SettingsStore
 
 @Composable
@@ -35,6 +37,8 @@ fun ServerNumberPicker(
     enabled: Boolean = true,
     flags: Map<Int, String> = emptyMap(),
     perRow: Int = 5,
+    // Mayak Admin: "45 мс" under each server's flag; empty map shows none.
+    pings: Map<Int, String> = emptyMap(),
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -48,10 +52,11 @@ fun ServerNumberPicker(
                 },
                 selected = selected,
                 onSelected = onSelected,
-                modifier = Modifier.height(44.dp),
+                modifier = Modifier.height(if (pings.isEmpty()) 44.dp else 54.dp),
                 enabled = enabled,
                 // The colour already shows the chosen server; the check mark would not leave room for the flag.
                 showCheck = flags.isEmpty(),
+                subLabels = if (pings.isEmpty()) emptyMap() else row.associateWith { pings[it].orEmpty() },
             )
         }
     }
@@ -79,6 +84,41 @@ fun rememberServerFlags(settingsStore: SettingsStore, count: Int): Map<Int, Stri
         }
     }
     return flags
+}
+
+/**
+ * Mayak Admin: ping from this phone to each configured server ("45 мс", "нет"), measured as the time to
+ * open a connection to the server's panel port, best of two tries, refreshed every 30 seconds while shown.
+ */
+@Composable
+fun rememberServerPings(settingsStore: SettingsStore, count: Int): Map<Int, String> {
+    val pings by produceState(initialValue = emptyMap<Int, String>(), settingsStore, count) {
+        while (true) {
+            val profiles = runCatching { settingsStore.adminPanelProfiles(count) }.getOrNull().orEmpty()
+                .filter { it.host.isNotBlank() }
+            val result = kotlinx.coroutines.coroutineScope {
+                profiles.map { profile ->
+                    async(kotlinx.coroutines.Dispatchers.IO) {
+                        var best: Long? = null
+                        repeat(2) {
+                            runCatching {
+                                java.net.Socket().use { socket ->
+                                    val started = System.nanoTime()
+                                    socket.connect(java.net.InetSocketAddress(profile.host.trim(), profile.webPort), 2_000)
+                                    val ms = (System.nanoTime() - started) / 1_000_000
+                                    best = best?.coerceAtMost(ms) ?: ms
+                                }
+                            }
+                        }
+                        profile.index to (best?.let { "$it мс" } ?: "нет")
+                    }
+                }.awaitAll().toMap()
+            }
+            value = result
+            kotlinx.coroutines.delay(30_000)
+        }
+    }
+    return pings
 }
 
 /** Flags of the servers in a person's link list, by position, from the host in each link. */

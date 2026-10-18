@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import com.csqtt.client.ui.design.CsqttShapes
 import com.csqtt.client.ui.design.CsqttSizes
@@ -35,6 +36,8 @@ fun <T> CsqttSegmentedControl(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     showCheck: Boolean = true,
+    // Mayak Admin: small second line under a label (the server's ping), by option value.
+    subLabels: Map<T, String> = emptyMap(),
 ) {
     Row(
         modifier = modifier
@@ -58,6 +61,24 @@ fun <T> CsqttSegmentedControl(
                         onClick = { onSelected(value) },
                     ),
             ) {
+                val subLabel = subLabels[value]
+                if (subLabels.isNotEmpty()) {
+                    androidx.compose.foundation.layout.Column(
+                        modifier = Modifier.padding(horizontal = CsqttSpacing.Xxs, vertical = 5.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(text = label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                        Text(
+                            text = subLabel ?: " ",
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            color = androidx.compose.ui.graphics.Color.Unspecified,
+                            modifier = Modifier.alpha(0.75f),
+                        )
+                    }
+                    return@Surface
+                }
                 Row(
                     modifier = Modifier.padding(horizontal = CsqttSpacing.Xs, vertical = 13.dp),
                     horizontalArrangement = Arrangement.Center,
