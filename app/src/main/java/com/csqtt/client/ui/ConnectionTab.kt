@@ -354,6 +354,7 @@ internal fun ConnectionTab(
         return
     }
 
+    val adminPinger = com.csqtt.client.ui.components.rememberServerPinger(settingsStore, MayakConfig.ADMIN_SERVERS)
     val adminServerFlags = if (MayakConfig.ADMIN) {
         com.csqtt.client.ui.components.rememberServerFlags(settingsStore, MayakConfig.ADMIN_SERVERS)
     } else {
@@ -365,11 +366,12 @@ internal fun ConnectionTab(
             com.csqtt.client.ui.components.ServerNumberPicker(
                 count = MayakConfig.ADMIN_SERVERS,
                 flags = adminServerFlags,
-                // Ping from this phone to each server, under its flag.
-                pings = com.csqtt.client.ui.components.rememberServerPings(settingsStore, MayakConfig.ADMIN_SERVERS),
+                // Ping from this phone to a server, under its flag, measured when the server is tapped.
+                pings = adminPinger.pings.toMap(),
                 selected = tunnelAuthSettings.profile,
                 onSelected = { profile ->
                     scope.launch { settingsStore.saveActiveProfile(profile) }
+                    adminPinger.ping(profile)
                 },
                 enabled = !(tunnelRunning || tunnelStarting || tunnelStopping || autoPausedForWifi),
             )
