@@ -52,7 +52,14 @@ import com.csqtt.client.PanelDns
 import com.csqtt.client.PanelException
 import com.csqtt.client.PanelServer
 import com.csqtt.client.SettingsStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
 
 private data class DnsPreset(
     val title: String,
@@ -119,6 +126,44 @@ private object SavedDns {
     }
 }
 
+/**
+ * Asks [ip] for the address of example.com over plain DNS (UDP 53) and returns the best answer
+ * time of three tries in milliseconds, or null if it never answered. Measured from the phone.
+ */
+private suspend fun dnsPingMs(ip: String): Long? = withContext(Dispatchers.IO) {
+    val query = byteArrayOf(
+        0x4d, 0x59, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        7, 'e'.code.toByte(), 'x'.code.toByte(), 'a'.code.toByte(), 'm'.code.toByte(),
+        'p'.code.toByte(), 'l'.code.toByte(), 'e'.code.toByte(),
+        3, 'c'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte(), 0,
+        0x00, 0x01, 0x00, 0x01,
+    )
+    var best: Long? = null
+    runCatching {
+        DatagramSocket().use { socket ->
+            socket.soTimeout = 1_500
+            val address = InetAddress.getByName(ip)
+            repeat(3) {
+                runCatching {
+                    val started = System.nanoTime()
+                    socket.send(DatagramPacket(query, query.size, address, 53))
+                    val buffer = ByteArray(512)
+                    val answer = DatagramPacket(buffer, buffer.size)
+                    socket.receive(answer)
+                    if (answer.length >= 2 && buffer[0] == query[0] && buffer[1] == query[1]) {
+                        val ms = (System.nanoTime() - started) / 1_000_000
+                        best = best?.coerceAtMost(ms) ?: ms
+                    }
+                }
+            }
+        }
+    }
+    best
+}
+
+private fun pingLabel(pings: Map<String, Long?>, ip: String): String? =
+    if (!pings.containsKey(ip)) null else pings[ip]?.let { "$it мс" } ?: "нет ответа"
+
 private fun matchesPreset(preset: DnsPreset, dns: PanelDns?): Boolean =
     dns != null && preset.primary == dns.primary && preset.secondary == dns.secondary
 
@@ -145,6 +190,22 @@ internal fun AdminDnsDialog(
     var customSecondary by remember { mutableStateOf("") }
     var customName by remember { mutableStateOf("") }
     var saved by remember { mutableStateOf(SavedDns.load(context)) }
+    var pings by remember { mutableStateOf<Map<String, Long?>>(emptyMap()) }
+    var pinging by remember { mutableStateOf(false) }
+
+    fun checkPings() {
+        if (pinging) return
+        pinging = true
+        pings = emptyMap()
+        scope.launch {
+            try {
+                val ips = (saved + DnsPresets).map { it.primary }.distinct()
+                pings = ips.map { ip -> async { ip to dnsPingMs(ip) } }.awaitAll().toMap()
+            } finally {
+                pinging = false
+            }
+        }
+    }
 
     /** Adds the typed DNS to «Мои DNS» (same addresses replace the old entry). */
     fun saveCustom(): DnsPreset {
@@ -342,6 +403,30 @@ internal fun AdminDnsDialog(
                     )
                 }
 
+                OutlinedButton(
+                    onClick = { checkPings() },
+                    enabled = !pinging,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 4.dp)
+                        .height(44.dp),
+                ) {
+                    if (pinging) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text("  Проверяю пинг…")
+                    } else {
+                        Text("Проверить пинг DNS")
+                    }
+                }
+                if (pings.isNotEmpty()) {
+                    Text(
+                        text = "Пинг измерен с телефона, мимо VPN. С серверов он может быть другим.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                 Column(
@@ -378,7 +463,8 @@ internal fun AdminDnsDialog(
                                         fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                     )
                                     Text(
-                                        text = listOf(preset.primary, preset.secondary).filter { it.isNotEmpty() }.joinToString(" · "),
+                                        text = (listOf(preset.primary, preset.secondary).filter { it.isNotEmpty() } +
+                                            listOfNotNull(pingLabel(pings, preset.primary))).joinToString(" · "),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -422,7 +508,8 @@ internal fun AdminDnsDialog(
                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                 )
                                 Text(
-                                    text = "${preset.primary} · ${preset.secondary}",
+                                    text = listOfNotNull(preset.primary, preset.secondary, pingLabel(pings, preset.primary))
+                                        .joinToString(" · "),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
