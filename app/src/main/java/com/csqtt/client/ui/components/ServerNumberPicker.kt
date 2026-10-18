@@ -85,50 +85,63 @@ fun rememberServerFlags(settingsStore: SettingsStore, count: Int): Map<Int, Stri
     return flags
 }
 
-/** Mayak Admin: pings servers on request and keeps the results ("45 мс", "нет", "…") by server index. */
-class ServerPinger internal constructor(
-    private val settingsStore: SettingsStore,
-    private val count: Int,
-    private val scope: kotlinx.coroutines.CoroutineScope,
-) {
+/**
+ * Mayak Admin: ping from this phone to every configured server, shown under the flags. It is measured
+ * only twice: once when the app opens and once about 10 seconds after each connection, nothing more.
+ * The results live for the whole app run, so switching tabs neither loses nor repeats them.
+ */
+object ServerPings {
     val pings = androidx.compose.runtime.mutableStateMapOf<Int, String>()
+    private var openedOnce = false
+    private var pingedThisConnection = false
 
-    /**
-     * Measures the ping from this phone to server [index]: the time to open a connection to its
-     * panel port, best of two tries. Nothing runs until the admin taps a server.
-     */
-    fun ping(index: Int) {
-        pings[index] = "…"
-        scope.launch {
-            val profile = runCatching { settingsStore.adminPanelProfiles(count) }.getOrNull()
-                ?.firstOrNull { it.index == index && it.host.isNotBlank() }
-            if (profile == null) {
-                pings.remove(index)
-                return@launch
-            }
-            val best = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                var best: Long? = null
-                repeat(2) {
-                    runCatching {
-                        java.net.Socket().use { socket ->
-                            val started = System.nanoTime()
-                            socket.connect(java.net.InetSocketAddress(profile.host.trim(), profile.webPort), 2_000)
-                            val ms = (System.nanoTime() - started) / 1_000_000
-                            best = best?.coerceAtMost(ms) ?: ms
-                        }
-                    }
+    /** Time to open a connection to the server's panel port, best of two tries; null if it never answered. */
+    private suspend fun measure(host: String, port: Int): Long? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        var best: Long? = null
+        repeat(2) {
+            runCatching {
+                java.net.Socket().use { socket ->
+                    val started = System.nanoTime()
+                    socket.connect(java.net.InetSocketAddress(host.trim(), port), 2_000)
+                    val ms = (System.nanoTime() - started) / 1_000_000
+                    best = best?.coerceAtMost(ms) ?: ms
                 }
-                best
             }
-            pings[index] = best?.let { "$it мс" } ?: "нет"
+        }
+        best
+    }
+
+    private suspend fun pingAll(settingsStore: SettingsStore, count: Int) {
+        val profiles = runCatching { settingsStore.adminPanelProfiles(count) }.getOrNull().orEmpty()
+            .filter { it.host.isNotBlank() }
+        kotlinx.coroutines.coroutineScope {
+            profiles.forEach { profile ->
+                if (pings[profile.index] == null) pings[profile.index] = "…"
+                launch {
+                    pings[profile.index] = measure(profile.host, profile.webPort)?.let { "$it мс" } ?: "нет"
+                }
+            }
         }
     }
-}
 
-@Composable
-fun rememberServerPinger(settingsStore: SettingsStore, count: Int): ServerPinger {
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    return remember(settingsStore, count) { ServerPinger(settingsStore, count, scope) }
+    /** First time the server buttons are shown in this app run. */
+    suspend fun onAppOpened(settingsStore: SettingsStore, count: Int) {
+        if (openedOnce) return
+        openedOnce = true
+        pingAll(settingsStore, count)
+    }
+
+    /** Called when the tunnel state changes: ~10 s after a connection comes up, once per connection. */
+    suspend fun onTunnelState(settingsStore: SettingsStore, count: Int, running: Boolean) {
+        if (!running) {
+            pingedThisConnection = false
+            return
+        }
+        if (pingedThisConnection) return
+        kotlinx.coroutines.delay(10_000)
+        pingedThisConnection = true
+        pingAll(settingsStore, count)
+    }
 }
 
 /** Flags of the servers in a person's link list, by position, from the host in each link. */
