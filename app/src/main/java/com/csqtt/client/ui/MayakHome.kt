@@ -144,25 +144,33 @@ internal fun MayakBeaconButton(
     // Mayak: "🇫🇮 77" under the lighthouse while connected (server country and live streams); "" hides it.
     badge: String = "",
 ) {
-    val transition = rememberInfiniteTransition(label = "mayak_beacon")
-    val sweep by transition.animateFloat(
-        initialValue = 1f,
-        targetValue = -1f,
-        animationSpec = infiniteRepeatable(tween(2500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "mayak_sweep",
-    )
-    val blink by transition.animateFloat(
-        initialValue = 0.25f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(600, easing = LinearEasing), RepeatMode.Reverse),
-        label = "mayak_blink",
-    )
-    val ring by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart),
-        label = "mayak_ring",
-    )
+    // Mayak: the animation runs only while connecting or connected; switched off, the lighthouse is a
+    // still picture and the phone draws no frames for it.
+    val animated = state == MayakBeaconState.Connected || state == MayakBeaconState.Connecting
+    var sweep = 1f
+    var blink = 1f
+    var ring = 0f
+    if (animated) {
+        val transition = rememberInfiniteTransition(label = "mayak_beacon")
+        sweep = transition.animateFloat(
+            initialValue = 1f,
+            targetValue = -1f,
+            animationSpec = infiniteRepeatable(tween(2500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "mayak_sweep",
+        ).value
+        blink = transition.animateFloat(
+            initialValue = 0.25f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(600, easing = LinearEasing), RepeatMode.Reverse),
+            label = "mayak_blink",
+        ).value
+        ring = transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart),
+            label = "mayak_ring",
+        ).value
+    }
 
     val connected = state == MayakBeaconState.Connected
     val connecting = state == MayakBeaconState.Connecting
