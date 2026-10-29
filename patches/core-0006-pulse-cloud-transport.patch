@@ -12,7 +12,7 @@ index 8eb01d6..800414c 100644
  			log.Fatalf("Unknown transport type: %s", *transportType)
  		}
 diff --git a/provision/pin.go b/provision/pin.go
-index a36717c..456bdaa 100644
+index a36717c..5db4b7f 100644
 --- a/provision/pin.go
 +++ b/provision/pin.go
 @@ -11,8 +11,8 @@ const (
@@ -21,8 +21,8 @@ index a36717c..456bdaa 100644
  	PinnedRepo   = "sdgsdrgre56-sketch/csqtt"
 -	PinnedCommit = "b8c1eaa19eaad949768a3cb297412496c92f6bff"
 -	PinnedSHA256 = "f9011a1abf16cb993970afa0226bc34ff83d9638f5380165f9c21da78ecd566a"
-+	PinnedCommit = "45a8c815af5bfe61fab9b5010bb3c248670bd626"
-+	PinnedSHA256 = "4fb1de08eb53cd3768cb2d39a7ce5f1a675546afe9a38e0f59a73eb5455b0360"
++	PinnedCommit = "af2299788c59ef7982b89b9349948b3e397fd43c"
++	PinnedSHA256 = "0d10172a0c31b6e6431f68c623ab65e6b8c87ea4ff011f34d7f1b5ae1fae2dc9"
  )
  
  // Pinned returns the script location for this build.
