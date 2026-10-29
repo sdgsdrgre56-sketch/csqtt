@@ -1277,8 +1277,9 @@ public final class NodeWizardActivity extends Activity {
         boolean withYandex = yandexCheck.isChecked();
         boolean withMailru = mailruCheck.isChecked();
         boolean withCups = cupsCheck.isChecked();
-        String ycloud = ycloudInput.getText().toString().trim();
-        String vkcloud = vkcloudInput.getText().toString().trim();
+        // http(s):// перед ключом добавляют мессенджеры при копировании — убираем
+        String ycloud = ycloudInput.getText().toString().trim().replaceFirst("(?i)^(https?|s3)://", "").replaceAll("\\s+", "");
+        String vkcloud = vkcloudInput.getText().toString().trim().replaceFirst("(?i)^(https?|s3)://", "").replaceAll("\\s+", "");
         boolean withYcloud = ycloudCheck.isChecked();
         boolean withVkcloud = vkcloudCheck.isChecked();
         if ((withYcloud && !ycloud.contains("@")) || (withVkcloud && !vkcloud.contains("@"))) {
