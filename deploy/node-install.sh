@@ -41,7 +41,9 @@
 #                                                 build's addition)
 # The config is "key=value" lines: channel, key, port, the transports
 # (vyandex= or its old name url=: a Yandex document; mailru=: a Mail.ru
-# public document; cupsonline=: the packed room list) and autoupdate=yes|no.
+# public document; cupsonline=: the packed room list; ycloud= / vkcloud=: a
+# Yandex Pulse box in Yandex Object Storage / VK Cloud, KEY:SECRET@bucket/folder)
+# and autoupdate=yes|no.
 # vyandex= may be given several times (up to MAX_YANDEX_DOCS): the channel
 # then carries traffic over all those documents at once, at one priority, so
 # the core spreads connections between them. (This build's addition; the
@@ -269,7 +271,7 @@ pick_port() {
 
 # ---- input ------------------------------------------------------------------
 
-CHANNEL=""; URL=""; MAILRU=""; CUPS=""; KEY=""; PORT=""; AUTOUPDATE=""
+CHANNEL=""; URL=""; MAILRU=""; CUPS=""; YCLOUD=""; VKCLOUD=""; KEY=""; PORT=""; AUTOUPDATE=""
 # MORE_URLS: the Yandex documents after the first, space-separated (a valid
 # link has no spaces). URL stays the first one: it is the encryption context.
 MORE_URLS=""
@@ -299,6 +301,8 @@ read_config() {
             url=*) add_url "${line#url=}" ;;
             vyandex=*) add_url "${line#vyandex=}" ;;
             mailru=*) MAILRU=${line#mailru=} ;;
+            ycloud=*) YCLOUD=${line#ycloud=} ;;
+            vkcloud=*) VKCLOUD=${line#vkcloud=} ;;
             cupsonline=*) CUPS=${line#cupsonline=} ;;
             key=*) KEY=${line#key=} ;;
             port=*) PORT=${line#port=} ;;
@@ -315,6 +319,11 @@ valid_key() { printf '%s' "$1" | grep -Eq '^[0-9a-f]{64}$'; }
 valid_url() {
     printf '%s' "$1" | grep -Eq '^https://(docs|disk)\.yandex\.(ru|com|by|kz|uz)/edit/d/[A-Za-z0-9_-]{16,200}$'
 }
+# Ящик в облачном хранилище (Яндекс Пульс): [s3://]КЛЮЧ:СЕКРЕТ@бакет/папка или @хост/бакет/папка?region=...
+# Без пробелов, # и ; (они обрывают значение в node.conf).
+valid_box() {
+    printf '%s' "$1" | grep -Eq '^(s3://)?[A-Za-z0-9_.%~+-]+:[A-Za-z0-9_.%~+/=-]+@[A-Za-z0-9._:-]+(/[A-Za-z0-9._-]+)*([?]region=[a-z0-9-]+)?$'
+}
 valid_mailru() {
     printf '%s' "$1" | grep -Eq '^https://cloud\.mail\.ru/public/[A-Za-z0-9_-]{2,64}/[A-Za-z0-9_-]{2,128}$'
 }
@@ -330,6 +339,8 @@ check_transports() {
     check_more_urls
     [ -z "$MAILRU" ] || valid_mailru "$MAILRU" || fail input "ссылка Mail.ru должна быть вида https://cloud.mail.ru/public/..."
     [ -z "$CUPS" ] || valid_rooms "$CUPS" || fail input "неверный список комнат cups.online"
+    [ -z "$YCLOUD" ] || valid_box "$YCLOUD" || fail input "ящик Яндекс Облака: КЛЮЧ:СЕКРЕТ@бакет/папка"
+    [ -z "$VKCLOUD" ] || valid_box "$VKCLOUD" || fail input "ящик VK Облака: КЛЮЧ:СЕКРЕТ@бакет/папка"
     case "$AUTOUPDATE" in ""|yes|no) ;; *) fail input "autoupdate: yes или no" ;; esac
     case "$MODE" in ""|l3|l4) ;; *) fail input "mode: l3 или l4" ;; esac
 }
@@ -414,6 +425,8 @@ transport_names() {
     [ -n "$URL" ] && names="Яндекс Документ"
     [ -n "$MORE_URLS" ] && names="Яндекс Документы ($(yandex_doc_count) шт., трафик делится между ними)"
     [ -n "$MAILRU" ] && names="${names:+$names, }Mail.ru Документ"
+    [ -n "$YCLOUD" ] && names="${names:+$names, }Яндекс Облако"
+    [ -n "$VKCLOUD" ] && names="${names:+$names, }VK Облако"
     [ -n "$CUPS" ] && names="${names:+$names, }cups.online"
     printf '%s' "$names"
 }
@@ -713,6 +726,8 @@ EOF
         printf '\n[Transport vyandex-%s]\nType = vyandex\nPriority = 100\nURL = %s\n' "$doc" "$u"
     done
     set +f
+    [ -n "$YCLOUD" ] && printf '\n[Transport ycloud]\nType = ycloud\nPriority = 120\nURL = %s\n' "$YCLOUD"
+    [ -n "$VKCLOUD" ] && printf '\n[Transport vkcloud]\nType = vkcloud\nPriority = 120\nURL = %s\n' "$VKCLOUD"
     [ -n "$MAILRU" ] && printf '\n[Transport mailru]\nType = mailru\nPriority = 90\nURL = %s\n' "$MAILRU"
     [ -n "$CUPS" ] && printf '\n[Transport cupsonline]\nType = cupsonline\nPriority = 70\nURL = %s\n' "$CUPS"
     printf '\n[Transport direct]\nType = direct\nPriority = 50\nListen = 0.0.0.0:%s\n' "$PORT"

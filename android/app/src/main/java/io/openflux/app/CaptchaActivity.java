@@ -109,9 +109,9 @@ public class CaptchaActivity extends Activity {
         boolean login = "login".equals(Mobile.pendingCaptchaReason());
         boolean remote = !Mobile.pendingCaptchaProxy().isEmpty();
         boolean own = Mobile.pendingCaptchaOwn() || !Mobile.pendingCaptchaHTML().isEmpty();
-        String title = own ? "Яндекс Маяк: транспорт просит настройку" : remote
-                ? (login ? "Яндекс Маяк: ноде нужен вход в Яндекс" : "Яндекс Маяк: нода просит пройти проверку")
-                : (login ? "Яндекс Маяк: нужен вход в Яндекс" : "Яндекс Маяк: нужна проверка");
+        String title = own ? "Яндекс Пульс: транспорт просит настройку" : remote
+                ? (login ? "Яндекс Пульс: ноде нужен вход в Яндекс" : "Яндекс Пульс: нода просит пройти проверку")
+                : (login ? "Яндекс Пульс: нужен вход в Яндекс" : "Яндекс Пульс: нужна проверка");
         manager.notify(NOTIFICATION_ID, new Notification.Builder(context, CHANNEL_ID)
                 .setContentTitle(title)
                 .setContentText(remote ? "Нажмите, чтобы открыть проверку для ноды"

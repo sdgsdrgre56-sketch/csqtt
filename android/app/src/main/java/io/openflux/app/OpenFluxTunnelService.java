@@ -219,6 +219,7 @@ public final class OpenFluxTunnelService extends VpnService {
         streamType = stream ? transportType : "";
         // MAX takes a token; Cups.online a base64 room code, checked by the core.
         boolean needsUrl = !"oneme".equals(transportType) && !"cupsonline".equals(transportType)
+                && !"ycloud".equals(transportType) && !"vkcloud".equals(transportType) // облачный ящик — не https-ссылка
                 && sessionTransports.isEmpty();
 
         String url = intent == null ? null : intent.getStringExtra(EXTRA_DOCUMENT_URL);
@@ -312,7 +313,7 @@ public final class OpenFluxTunnelService extends VpnService {
 
         try {
             Builder builder = new Builder()
-                    .setSession("Яндекс Маяк")
+                    .setSession("Яндекс Пульс")
                     .setMtu(mtu)
                     .addAddress("10.10.10.2", 24)
                     .addRoute("0.0.0.0", 0)
@@ -546,7 +547,7 @@ public final class OpenFluxTunnelService extends VpnService {
     private void createNotificationChannel() {
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(
-                CHANNEL_ID, "Яндекс Маяк: туннель", NotificationManager.IMPORTANCE_LOW));
+                CHANNEL_ID, "Яндекс Пульс: туннель", NotificationManager.IMPORTANCE_LOW));
     }
 
     private Notification notification(String text) {
@@ -557,7 +558,7 @@ public final class OpenFluxTunnelService extends VpnService {
         PendingIntent stopIntent = PendingIntent.getService(
                 this, 0, stop, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("Яндекс Маяк")
+                .setContentTitle("Яндекс Пульс")
                 .setContentText(text)
                 .setSmallIcon(R.drawable.ic_openflux_notification)
                 .setOngoing(true)

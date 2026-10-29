@@ -693,7 +693,7 @@ public final class MainActivity extends Activity {
         titles.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1f);
         titlesParams.leftMargin = dp(12);
-        TextView title = text("Яндекс Маяк", 21, text, true);
+        TextView title = text("Яндекс Пульс", 21, text, true);
         TextView subtitle = text("Зашифрованный туннель", 12, secondary, false);
         titles.addView(title);
         titles.addView(subtitle);
@@ -1026,7 +1026,9 @@ public final class MainActivity extends Activity {
             case "yandex":
             case "vyandex":
             case "boards": return R.drawable.ic_yandex;
-            case "mailru": return R.drawable.ic_mailru;
+            case "mailru":
+            case "vkcloud": return R.drawable.ic_mailru;
+            case "ycloud": return R.drawable.ic_yandex;
             case "cupsonline":
             case "script": return R.drawable.ic_code;
             case "oneme": return R.drawable.ic_max;
@@ -1253,7 +1255,7 @@ public final class MainActivity extends Activity {
     private void openNodeWizard() {
         if (OpenFluxTunnelService.isRunning() || OpenFluxProxyService.isRunning()
                 || OpenFluxExitService.isRunning()) {
-            Toast.makeText(this, "Отключите Яндекс Маяк перед настройкой ноды", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Отключите Яндекс Пульс перед настройкой ноды", Toast.LENGTH_LONG).show();
             return;
         }
         startActivityForResult(new Intent(this, NodeWizardActivity.class), NODE_WIZARD_REQUEST);
@@ -2862,10 +2864,10 @@ public final class MainActivity extends Activity {
 
         List<ScriptStore.Script> scripts = new ScriptStore(this).usable();
         boolean js = !scripts.isEmpty() || "script".equals(t.type);
-        String[] types = js ? new String[]{"direct", "yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme", "script"}
-                : new String[]{"direct", "yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme"};
-        String[] typeLabels = js ? new String[]{"Direct", "Yandex", "Volga", "Board", "Mail.ru", "Cups", "MAX", "JS"}
-                : new String[]{"Direct", "Yandex", "Volga", "Board", "Mail.ru", "Cups", "MAX"};
+        String[] types = js ? new String[]{"ycloud", "vkcloud", "direct", "yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme", "script"}
+                : new String[]{"ycloud", "vkcloud", "direct", "yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme"};
+        String[] typeLabels = js ? new String[]{"Я.Облако", "VK Облако", "Direct", "Yandex", "Volga", "Board", "Mail.ru", "Cups", "MAX", "JS"}
+                : new String[]{"Я.Облако", "VK Облако", "Direct", "Yandex", "Volga", "Board", "Mail.ru", "Cups", "MAX"};
         card.addView(chips(typeLabels, java.util.Arrays.asList(types).indexOf(t.type), i -> {
             t.type = types[i];
             t.value = "";
@@ -2961,6 +2963,13 @@ public final class MainActivity extends Activity {
                         ? null : "Cups.online: код комнат - строка base64 из лога ноды";
             case "boards":
                 return isValidDocumentUrl(value) ? null : label + ": укажите HTTPS-ссылку на доску";
+            case "ycloud":
+            case "vkcloud": {
+                int at = value.lastIndexOf('@');
+                return at > 0 && value.substring(0, at).contains(":") && at < value.length() - 1
+                        && !value.matches(".*[\\s#;].*")
+                        ? null : label + ": укажите ящик в виде КЛЮЧ:СЕКРЕТ@бакет/папка";
+            }
             default:
                 return isValidDocumentUrl(value) ? null : label + ": укажите HTTPS-ссылку на документ";
         }
@@ -2975,6 +2984,8 @@ public final class MainActivity extends Activity {
             case "mailru": return "Ссылка на документ Mail.ru";
             case "cupsonline": return "Код комнат Cups.online (base64)";
             case "vyandex": return "Ссылка на документ Yandex (Volga)";
+            case "ycloud": return "Ящик Яндекс Облака: КЛЮЧ:СЕКРЕТ@бакет/папка";
+            case "vkcloud": return "Ящик VK Облака: КЛЮЧ:СЕКРЕТ@бакет/папка";
             default: return "Ссылка на документ Yandex";
         }
     }
@@ -3006,8 +3017,10 @@ public final class MainActivity extends Activity {
     }
 
     private View buildTransportTypeSelector() {
-        String[] builtIn = {"yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme"};
+        String[] builtIn = {"ycloud", "vkcloud", "yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme"};
         String[][] builtInLabels = {
+                {"Яндекс Облако (Пульс)", "Быстро: хранилище Object Storage как почтовый ящик"},
+                {"VK Облако (Пульс)", "Быстро: хранилище VK Cloud как почтовый ящик"},
                 {"Yandex Docs", "Документ Яндекса"},
                 {"Yandex Docs (Volga)", "Экспериментальный"},
                 {"Yandex Board", "Доска Яндекса, экспериментальный"},
@@ -3015,7 +3028,7 @@ public final class MainActivity extends Activity {
                 {"Cups.online", "Комнаты live-coding, код комнат с ноды"},
                 {"MAX (OneMe)", "Звонок MAX, нужен Web token"},
         };
-        int[] builtInIcons = {R.drawable.ic_yandex, R.drawable.ic_yandex, R.drawable.ic_yandex,
+        int[] builtInIcons = {R.drawable.ic_yandex, R.drawable.ic_mailru, R.drawable.ic_yandex, R.drawable.ic_yandex, R.drawable.ic_yandex,
                 R.drawable.ic_mailru, R.drawable.ic_code, R.drawable.ic_max};
         List<ScriptStore.Script> scripts = new ScriptStore(this).usable();
 
@@ -3345,7 +3358,7 @@ public final class MainActivity extends Activity {
         header.setOrientation(LinearLayout.VERTICAL);
 
         TextView hint = text(
-                "Выберите, какие приложения используют туннель. По умолчанию - все приложения, кроме самого приложения Яндекс Маяк. "
+                "Выберите, какие приложения используют туннель. По умолчанию - все приложения, кроме самого приложения Яндекс Пульс. "
                         + "Действует только в режиме туннеля - в режиме прокси приложения подключаются к SOCKS5 сами.",
                 12, secondary, false);
         header.addView(hint, matchWrap());

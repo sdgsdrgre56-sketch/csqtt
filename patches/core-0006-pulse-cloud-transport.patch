@@ -1,0 +1,1072 @@
+diff --git a/main.go b/main.go
+index 8eb01d6..800414c 100644
+--- a/main.go
++++ b/main.go
+@@ -911,7 +911,7 @@ DEPRECATED (removed in v2)
+ 		// Session needs one), or a bench role.
+ 		// The types the classic path serves; the registry builds them.
+ 		switch *transportType {
+-		case "boards", "vyandex", "yandex", "oneme", "cupsonline", "mailru":
++		case "boards", "vyandex", "yandex", "oneme", "cupsonline", "mailru", "ycloud", "vkcloud", "s3":
+ 		default:
+ 			log.Fatalf("Unknown transport type: %s", *transportType)
+ 		}
+diff --git a/provision/transports.go b/provision/transports.go
+index 17ee035..4b0300b 100644
+--- a/provision/transports.go
++++ b/provision/transports.go
+@@ -11,6 +11,7 @@ import (
+ 
+ 	"github.com/p1neappleXpress/OpenFlux/share"
+ 	"github.com/p1neappleXpress/OpenFlux/transport"
++	"github.com/p1neappleXpress/OpenFlux/transport/s3box"
+ )
+ 
+ // ChannelTransport is one of a channel's carriers besides direct, which
+@@ -25,7 +26,7 @@ type ChannelTransport struct {
+ 
+ // transportPriority is what node-install.sh's write_node_conf gives each
+ // carrier, and so what the channel's link must say too.
+-var transportPriority = map[string]int{"vyandex": 100, "mailru": 90, "cupsonline": 70}
++var transportPriority = map[string]int{"ycloud": 120, "vkcloud": 120, "vyandex": 100, "mailru": 90, "cupsonline": 70}
+ 
+ const directPriority = 50
+ 
+@@ -77,6 +78,14 @@ func CheckTransports(ts []ChannelTransport) ([]ChannelTransport, error) {
+ 			if !mailruDocURL.MatchString(t.URL) {
+ 				return nil, errors.New("нужна публичная ссылка Mail.ru вида https://cloud.mail.ru/public/…/…")
+ 			}
++		case "ycloud", "vkcloud":
++			// ящик «Яндекс Пульс» в облачном хранилище
++			if strings.ContainsAny(t.URL, " \t#;") {
++				return nil, errors.New("в адресе облачного ящика не должно быть пробелов, # и ;")
++			}
++			if _, err := s3box.ParseURL(t.Type, t.URL); err != nil {
++				return nil, errors.New("облачный ящик: нужен адрес вида КЛЮЧ:СЕКРЕТ@бакет/папка")
++			}
+ 		case "cupsonline":
+ 			if !cupsRoomList.MatchString(t.URL) || len(t.URL) > 4096 {
+ 				return nil, errors.New("неверный список комнат cups.online")
+diff --git a/share/share.go b/share/share.go
+index 14111ab..1faf27a 100644
+--- a/share/share.go
++++ b/share/share.go
+@@ -123,7 +123,7 @@ type Config struct {
+ // own.
+ var knownTypes = map[string]bool{
+ 	"yandex": true, "vyandex": true, "boards": true, "mailru": true,
+-	"cupsonline": true, "direct": true,
++	"cupsonline": true, "direct": true, "ycloud": true, "vkcloud": true,
+ }
+ 
+ // Validate reports whether c describes something a client can connect with.
+diff --git a/transport/kdfcontext.go b/transport/kdfcontext.go
+index 6ffa85f..c740e0c 100644
+--- a/transport/kdfcontext.go
++++ b/transport/kdfcontext.go
+@@ -25,7 +25,7 @@ type ContextSource struct {
+ // client); oneme has no URL.
+ func contextURL(s ContextSource) bool {
+ 	switch s.Type {
+-	case "cupsonline", "direct", "oneme":
++	case "cupsonline", "direct", "oneme", "ycloud", "vkcloud": // у облачного ящика в адресе ключ доступа, он не имя канала
+ 		return false
+ 	}
+ 	return s.URL != "" && s.URL != ContextPlaceholder
+diff --git a/transport/registry/registry.go b/transport/registry/registry.go
+index d6268b2..fc54d63 100644
+--- a/transport/registry/registry.go
++++ b/transport/registry/registry.go
+@@ -17,6 +17,7 @@ import (
+ 	"github.com/p1neappleXpress/OpenFlux/transport/cupsonline"
+ 	"github.com/p1neappleXpress/OpenFlux/transport/mailru"
+ 	"github.com/p1neappleXpress/OpenFlux/transport/oneme"
++	"github.com/p1neappleXpress/OpenFlux/transport/s3box"
+ 	"github.com/p1neappleXpress/OpenFlux/transport/script"
+ 	"github.com/p1neappleXpress/OpenFlux/transport/yandex"
+ )
+@@ -45,7 +46,7 @@ type Options struct {
+ // existed; moving every user-facing word out of the core is a separate step.
+ 
+ // Types are the transport types New accepts, in the order the apps list them.
+-var Types = []string{"yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme", "direct", "script"}
++var Types = []string{"yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme", "direct", "script", "ycloud", "vkcloud"}
+ 
+ // New builds the raw carrier of the given type. params carries what a type
+ // needs beyond its url: "token"/"uid" (and "exit") for oneme, "dial"/"listen"
+@@ -78,6 +79,9 @@ func New(typ, url string, params map[string]interface{}, o Options) (transport.T
+ 		return t, nil
+ 	case "boards":
+ 		return yandex.NewBoardsTransport(url, base), nil
++	case "ycloud", "vkcloud", "s3":
++		// «Пульс через облако»: объектное хранилище Яндекса или VK как почтовый ящик
++		return s3box.New(typ, url, base, o.IsExit)
+ 	case "mailru":
+ 		return mailru.NewMailruDocsTransport(url, base), nil
+ 	case "cupsonline":
+diff --git a/transport/s3box/box.go b/transport/s3box/box.go
+new file mode 100644
+index 0000000..515a35b
+--- /dev/null
++++ b/transport/s3box/box.go
+@@ -0,0 +1,431 @@
++// Package s3box — транспорт «Пульс через облако»: две стороны обмениваются пачками
++// пакетов через объектное хранилище S3 (Yandex Object Storage, VK Cloud), как через
++// почтовый ящик. Для оператора это обычная загрузка и скачивание файлов в облако.
++//
++// Каждая сторона пишет в свою папку: клиент в <prefix>/c/, нода в <prefix>/e/.
++// Имя объекта — 16-значный шестнадцатеричный номер; первый номер берётся из часов
++// (микросекунды), поэтому после перезапуска номера только растут и получатель видит
++// новую серию. Получатель читает строго по порядку, заранее запрашивает следующие
++// объекты, когда данные идут потоком, и удаляет прочитанное.
++//
++// Тело объекта: версия (1 байт) + пакеты в виде uvarint(длина) | данные.
++// Шифрование делает слой OpenFlux над транспортом (общий ключ профиля).
++package s3box
++
++import (
++	"context"
++	"encoding/binary"
++	"errors"
++	"fmt"
++	"log"
++	"net/url"
++	"strconv"
++	"strings"
++	"sync"
++	"sync/atomic"
++	"time"
++
++	"github.com/p1neappleXpress/OpenFlux/transport"
++)
++
++const (
++	bodyVersion = 1
++	maxBatch    = 1 << 20 // байт в одном объекте
++	coalesce    = 2 * time.Millisecond
++	maxInflight = 8 // одновременных загрузок
++	maxPrefetch = 16
++	minPoll     = 15 * time.Millisecond
++	busyPoll    = 300 * time.Millisecond
++	idlePoll    = time.Second
++	gapSkip     = 6 * time.Second
++	staleAge    = 90 * time.Second
++)
++
++// Presets — облака, которые открываются в «белых списках» мобильных операторов.
++var Presets = map[string]struct{ Host, Region string }{
++	"ycloud":  {"storage.yandexcloud.net", "ru-central1"},
++	"vkcloud": {"hb.ru-msk.vkcs.cloud", "ru-msk"},
++}
++
++// Config разобранный адрес ящика.
++type Config struct {
++	Host, Region, Bucket, Prefix, AK, SK string
++}
++
++// ParseURL понимает s3://КЛЮЧ:СЕКРЕТ@хост/бакет/папка?region=...
++// Для типов ycloud/vkcloud хост и регион можно не писать: КЛЮЧ:СЕКРЕТ@бакет/папка.
++func ParseURL(typ, raw string) (Config, error) {
++	var c Config
++	raw = strings.TrimSpace(raw)
++	if raw == "" {
++		return c, errors.New("s3box: пустой адрес ящика")
++	}
++	scheme := "s3"
++	if i := strings.Index(raw, "://"); i >= 0 {
++		scheme, raw = strings.ToLower(raw[:i]), raw[i+3:]
++	}
++	// ключ и секрет — до последней @ (в секрете бывают / и +)
++	at := strings.LastIndexByte(raw, '@')
++	if at < 0 {
++		return c, errors.New("s3box: в адресе нет ключа доступа (КЛЮЧ:СЕКРЕТ@...)")
++	}
++	cred, rest := raw[:at], raw[at+1:]
++	colon := strings.IndexByte(cred, ':')
++	if colon < 0 {
++		return c, errors.New("s3box: ключ и секрет пишутся через двоеточие")
++	}
++	unesc := func(v string) string {
++		if u, err := url.PathUnescape(v); err == nil {
++			return u
++		}
++		return v
++	}
++	c.AK, c.SK = unesc(cred[:colon]), unesc(cred[colon+1:])
++	query := ""
++	if q := strings.IndexByte(rest, '?'); q >= 0 {
++		rest, query = rest[:q], rest[q+1:]
++	}
++	qv, _ := url.ParseQuery(query)
++	parts := strings.Split(strings.Trim(rest, "/"), "/")
++	pre, havePreset := Presets[typ]
++	if havePreset && !strings.Contains(parts[0], ".") {
++		// КЛЮЧ:СЕКРЕТ@бакет/папка
++		c.Host, c.Region, c.Bucket = pre.Host, pre.Region, parts[0]
++		c.Prefix = strings.Join(parts[1:], "/")
++	} else {
++		c.Host = parts[0]
++		if scheme == "http" {
++			c.Host = "http://" + parts[0]
++		}
++		if len(parts) < 2 || parts[1] == "" {
++			return c, errors.New("s3box: в адресе нет имени бакета")
++		}
++		c.Bucket, c.Prefix = parts[1], strings.Join(parts[2:], "/")
++		if havePreset {
++			c.Region = pre.Region
++		}
++	}
++	if r := qv.Get("region"); r != "" {
++		c.Region = r
++	}
++	if c.Region == "" {
++		c.Region = "us-east-1"
++	}
++	if c.AK == "" || c.SK == "" || c.Bucket == "" {
++		return c, errors.New("s3box: нужны ключ, секрет и бакет")
++	}
++	if c.Prefix == "" {
++		c.Prefix = "pulse"
++	}
++	return c, nil
++}
++
++// Box — транспорт OpenFlux поверх S3.
++type Box struct {
++	*transport.BaseTransport
++	cfg     Config
++	s3      *s3Client
++	outDir  string
++	inDir   string
++	sendQ   chan []byte
++	ctx     context.Context
++	cancel  context.CancelFunc
++	wg      sync.WaitGroup
++	nextOut atomic.Uint64
++	lastErr atomic.Value
++}
++
++// New создаёт транспорт. isExit — роль процесса (нода пишет в e/, клиент в c/).
++func New(typ, rawURL string, base transport.TransportConfig, isExit bool) (*Box, error) {
++	c, err := ParseURL(typ, rawURL)
++	if err != nil {
++		return nil, err
++	}
++	b := &Box{BaseTransport: transport.NewBaseTransport(base), cfg: c, s3: newS3(c.Host, c.Bucket, c.Region, c.AK, c.SK)}
++	b.outDir, b.inDir = c.Prefix+"/c/", c.Prefix+"/e/"
++	if isExit {
++		b.outDir, b.inDir = b.inDir, b.outDir
++	}
++	q := base.MaxQueueSize
++	if q < 64 {
++		q = 1024
++	}
++	b.sendQ = make(chan []byte, q)
++	return b, nil
++}
++
++func key(dir string, seq uint64) string { return fmt.Sprintf("%s%016x", dir, seq) }
++
++func seqOf(k string) (uint64, bool) {
++	i := strings.LastIndexByte(k, '/')
++	v, err := strconv.ParseUint(k[i+1:], 16, 64)
++	return v, err == nil
++}
++
++func (b *Box) Start() error {
++	if err := b.BaseTransport.Start(); err != nil {
++		return err
++	}
++	b.ctx, b.cancel = context.WithCancel(context.Background())
++	b.nextOut.Store(uint64(time.Now().UnixMicro()))
++	b.wg.Add(2)
++	go b.writeLoop()
++	go b.readLoop()
++	return nil
++}
++
++func (b *Box) Stop() error {
++	if b.cancel != nil {
++		b.cancel()
++	}
++	err := b.BaseTransport.Stop()
++	b.wg.Wait()
++	return err
++}
++
++// Send ставит пакет в очередь; пачки уходят в облако каждые ~2 мс или по 1 МБ.
++func (b *Box) Send(data []byte) error {
++	if !b.IsRunning() {
++		return errors.New("s3box: транспорт остановлен")
++	}
++	p := append([]byte(nil), data...)
++	select {
++	case b.sendQ <- p:
++		b.RecordSend(len(data))
++		return nil
++	default:
++		return errors.New("s3box: очередь переполнена")
++	}
++}
++
++func (b *Box) fail(err error) {
++	if err == nil || errors.Is(err, context.Canceled) {
++		return
++	}
++	prev, _ := b.lastErr.Load().(string)
++	if prev != err.Error() {
++		b.lastErr.Store(err.Error())
++		log.Printf("s3box %s: %v", b.cfg.Host, err)
++	}
++	var he *httpError
++	if errors.As(err, &he) && (he.code == 401 || he.code == 403) {
++		b.SetConnected(false)
++	}
++}
++
++func (b *Box) ok() {
++	if !b.IsConnected() {
++		b.SetConnected(true)
++		b.lastErr.Store("")
++	}
++}
++
++func (b *Box) writeLoop() {
++	defer b.wg.Done()
++	sem := make(chan struct{}, maxInflight)
++	var puts sync.WaitGroup
++	defer puts.Wait()
++	buf := make([]byte, 0, 64<<10)
++	for {
++		var first []byte
++		select {
++		case <-b.ctx.Done():
++			return
++		case first = <-b.sendQ:
++		}
++		buf = append(buf[:0], bodyVersion)
++		add := func(p []byte) {
++			buf = binary.AppendUvarint(buf, uint64(len(p)))
++			buf = append(buf, p...)
++		}
++		add(first)
++		timer := time.NewTimer(coalesce)
++	gather:
++		for len(buf) < maxBatch {
++			select {
++			case p := <-b.sendQ:
++				add(p)
++			default:
++				if len(buf) >= 16<<10 {
++					break gather
++				}
++				select {
++				case p := <-b.sendQ:
++					add(p)
++				case <-timer.C:
++					break gather
++				case <-b.ctx.Done():
++					timer.Stop()
++					return
++				}
++			}
++		}
++		timer.Stop()
++		body := append([]byte(nil), buf...)
++		seq := b.nextOut.Add(1) - 1
++		select {
++		case sem <- struct{}{}:
++		case <-b.ctx.Done():
++			return
++		}
++		puts.Add(1)
++		go func(seq uint64, body []byte) {
++			defer func() { <-sem; puts.Done() }()
++			k := key(b.outDir, seq)
++			delay := 100 * time.Millisecond
++			for attempt := 0; attempt < 6; attempt++ {
++				err := b.s3.put(b.ctx, k, body)
++				if err == nil {
++					b.ok()
++					return
++				}
++				b.fail(err)
++				select {
++				case <-b.ctx.Done():
++					return
++				case <-time.After(delay):
++				}
++				delay *= 2
++			}
++		}(seq, body)
++	}
++}
++
++type getRes struct {
++	data []byte
++	err  error
++}
++
++func (b *Box) readLoop() {
++	defer b.wg.Done()
++	var next uint64 // 0 — серия ещё не найдена
++	poll := minPoll
++	lastData := time.Now()
++	var waiting time.Time
++	var lastList time.Time
++	window := 1
++	inflight := map[uint64]chan getRes{}
++	sleep := func(d time.Duration) bool {
++		select {
++		case <-b.ctx.Done():
++			return false
++		case <-time.After(d):
++			return true
++		}
++	}
++	growPoll := func() {
++		max := busyPoll
++		if time.Since(lastData) > time.Minute {
++			max = idlePoll
++		}
++		poll = poll * 3 / 2
++		if poll > max {
++			poll = max
++		}
++	}
++	for b.ctx.Err() == nil {
++		if next == 0 {
++			items, err := b.s3.list(b.ctx, b.inDir, "", 1000)
++			if err != nil {
++				b.fail(err)
++				if !sleep(time.Second) {
++					return
++				}
++				continue
++			}
++			b.ok()
++			for _, it := range items {
++				s, good := seqOf(it.Key)
++				if !good {
++					continue
++				}
++				if it.Age > staleAge {
++					go b.s3.del(context.Background(), it.Key) // хвост прошлых запусков
++					continue
++				}
++				next = s
++				break
++			}
++			if next == 0 {
++				growPoll()
++				if !sleep(poll) {
++					return
++				}
++			}
++			continue
++		}
++		for s := next; s < next+uint64(window); s++ {
++			if inflight[s] == nil {
++				ch := make(chan getRes, 1)
++				inflight[s] = ch
++				go func(s uint64) {
++					d, err := b.s3.get(b.ctx, key(b.inDir, s))
++					ch <- getRes{d, err}
++				}(s)
++			}
++		}
++		var r getRes
++		select {
++		case <-b.ctx.Done():
++			return
++		case r = <-inflight[next]:
++		}
++		delete(inflight, next)
++		switch {
++		case r.err == nil:
++			b.ok()
++			b.deliver(r.data)
++			go b.s3.del(context.Background(), key(b.inDir, next))
++			next++
++			poll, waiting, lastData = minPoll, time.Time{}, time.Now()
++			if window < maxPrefetch {
++				window *= 2
++			}
++		case errors.Is(r.err, errNotFound):
++			b.ok()
++			inflight = map[uint64]chan getRes{} // ранние ответы «нет» уже устарели
++			window = 1
++			if waiting.IsZero() {
++				waiting = time.Now()
++			}
++			// пропуск дыры или новая серия после перезапуска собеседника
++			if time.Since(waiting) > gapSkip/2 && time.Since(lastList) > 2*time.Second {
++				lastList = time.Now()
++				if items, err := b.s3.list(b.ctx, b.inDir, key(b.inDir, next), 5); err == nil && len(items) > 0 {
++					if s, good := seqOf(items[0].Key); good && s > next && (s-next > 1000 || time.Since(waiting) > gapSkip) {
++						next, waiting = s, time.Time{}
++						continue
++					}
++				}
++			}
++			growPoll()
++			if !sleep(poll) {
++				return
++			}
++		default:
++			b.fail(r.err)
++			inflight = map[uint64]chan getRes{}
++			window = 1
++			if !sleep(time.Second) {
++				return
++			}
++		}
++	}
++}
++
++func (b *Box) deliver(body []byte) {
++	if len(body) < 1 || body[0] != bodyVersion {
++		return
++	}
++	p := body[1:]
++	for len(p) > 0 {
++		n, w := binary.Uvarint(p)
++		if w <= 0 || uint64(len(p)-w) < n {
++			return
++		}
++		pkt := p[w : w+int(n)]
++		p = p[w+int(n):]
++		b.RecordReceive(len(pkt))
++		b.CallReceive(append([]byte(nil), pkt...))
++	}
++}
+diff --git a/transport/s3box/box_test.go b/transport/s3box/box_test.go
+new file mode 100644
+index 0000000..254a51e
+--- /dev/null
++++ b/transport/s3box/box_test.go
+@@ -0,0 +1,249 @@
++package s3box
++
++import (
++	"bytes"
++	"crypto/rand"
++	"encoding/xml"
++	"fmt"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"sort"
++	"strconv"
++	"strings"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/p1neappleXpress/OpenFlux/transport"
++)
++
++// Пример подписи из документации AWS (GET Object, «examplebucket»).
++func TestSigV4Vector(t *testing.T) {
++	tm, _ := time.Parse("20060102T150405Z", "20130524T000000Z")
++	h := map[string]string{
++		"host":                 "examplebucket.s3.amazonaws.com",
++		"range":                "bytes=0-9",
++		"x-amz-content-sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
++		"x-amz-date":           "20130524T000000Z",
++	}
++	got := sign("GET", "/test.txt", url.Values{}, h, h["x-amz-content-sha256"], "us-east-1", "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", tm)
++	want := "Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41"
++	if !strings.HasSuffix(got, want) {
++		t.Fatalf("подпись не совпала с эталоном AWS:\n%s", got)
++	}
++}
++
++func TestParseURL(t *testing.T) {
++	c, err := ParseURL("ycloud", "AKID:se%2Fcr%2Bet@mybucket/tunnel1")
++	if err != nil || c.Host != "storage.yandexcloud.net" || c.Region != "ru-central1" || c.Bucket != "mybucket" || c.Prefix != "tunnel1" || c.SK != "se/cr+et" {
++		t.Fatalf("%+v %v", c, err)
++	}
++	c, err = ParseURL("ycloud", "YCAJE:raw/se+cret=@b2")
++	if err != nil || c.SK != "raw/se+cret=" || c.Bucket != "b2" || c.Prefix != "pulse" {
++		t.Fatalf("%+v %v", c, err)
++	}
++	c, err = ParseURL("vkcloud", "s3://AK:SK@hb.ru-msk.vkcs.cloud/b/p?region=ru-msk")
++	if err != nil || c.Host != "hb.ru-msk.vkcs.cloud" || c.Bucket != "b" || c.Prefix != "p" || c.Region != "ru-msk" {
++		t.Fatalf("%+v %v", c, err)
++	}
++}
++
++// ---------- поддельное хранилище S3 с задержкой как у настоящего ----------
++
++type fakeS3 struct {
++	mu      sync.Mutex
++	objs    map[string][]byte
++	mod     map[string]time.Time
++	lat     time.Duration
++	gets    atomic.Int64
++	puts    atomic.Int64
++	lists   atomic.Int64
++	authBad atomic.Int64
++}
++
++func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
++	time.Sleep(f.lat)
++	if !strings.HasPrefix(r.Header.Get("Authorization"), "AWS4-HMAC-SHA256 Credential=AK/") {
++		f.authBad.Add(1)
++		w.WriteHeader(403)
++		return
++	}
++	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
++	p := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
++	key := ""
++	if len(p) == 2 {
++		key = p[1]
++	}
++	f.mu.Lock()
++	defer f.mu.Unlock()
++	switch {
++	case r.Method == "PUT":
++		b, _ := io.ReadAll(r.Body)
++		f.objs[key], f.mod[key] = b, time.Now()
++		f.puts.Add(1)
++	case r.Method == "DELETE":
++		delete(f.objs, key)
++	case r.Method == "GET" && key == "":
++		f.lists.Add(1)
++		q := r.URL.Query()
++		var ks []string
++		for k := range f.objs {
++			if strings.HasPrefix(k, q.Get("prefix")) && k > q.Get("start-after") {
++				ks = append(ks, k)
++			}
++		}
++		sort.Strings(ks)
++		if m, _ := strconv.Atoi(q.Get("max-keys")); m > 0 && len(ks) > m {
++			ks = ks[:m]
++		}
++		type c struct {
++			Key          string
++			LastModified string
++		}
++		var out struct {
++			XMLName  xml.Name `xml:"ListBucketResult"`
++			Contents []c
++		}
++		for _, k := range ks {
++			out.Contents = append(out.Contents, c{k, f.mod[k].UTC().Format(time.RFC3339)})
++		}
++		xml.NewEncoder(w).Encode(out)
++	case r.Method == "GET":
++		f.gets.Add(1)
++		b, ok := f.objs[key]
++		if !ok {
++			w.WriteHeader(404)
++			return
++		}
++		w.Write(b)
++	}
++}
++
++func pair(t *testing.T, lat time.Duration) (*Box, *Box, *fakeS3) {
++	f := &fakeS3{objs: map[string][]byte{}, mod: map[string]time.Time{}, lat: lat}
++	srv := httptest.NewServer(f)
++	t.Cleanup(srv.Close)
++	u := "s3://AK:SK@" + strings.TrimPrefix(srv.URL, "http://") + "/bkt/t1"
++	u = strings.Replace(u, "s3://", "s3://", 1)
++	base := transport.DefaultConfig()
++	cl, err := New("s3", strings.Replace(u, "s3://", "http://", 1), base, false)
++	if err != nil {
++		t.Fatal(err)
++	}
++	ex, _ := New("s3", strings.Replace(u, "s3://", "http://", 1), base, true)
++	return cl, ex, f
++}
++
++func TestTunnelBothWays(t *testing.T) {
++	cl, ex, f := pair(t, 20*time.Millisecond)
++	var gotEx, gotCl [][]byte
++	var mu sync.Mutex
++	ex.Receive(func(p []byte) {
++		mu.Lock()
++		gotEx = append(gotEx, p)
++		mu.Unlock()
++		ex.Send(append([]byte("ответ:"), p...))
++	})
++	cl.Receive(func(p []byte) { mu.Lock(); gotCl = append(gotCl, p); mu.Unlock() })
++	ex.Start()
++	cl.Start()
++	defer cl.Stop()
++	defer ex.Stop()
++	for i := 0; i < 50; i++ {
++		cl.Send([]byte(fmt.Sprintf("пакет %03d", i)))
++	}
++	deadline := time.Now().Add(10 * time.Second)
++	for time.Now().Before(deadline) {
++		mu.Lock()
++		n := len(gotCl)
++		mu.Unlock()
++		if n == 50 {
++			break
++		}
++		time.Sleep(20 * time.Millisecond)
++	}
++	mu.Lock()
++	defer mu.Unlock()
++	if len(gotEx) != 50 || len(gotCl) != 50 {
++		t.Fatalf("дошло %d туда и %d обратно", len(gotEx), len(gotCl))
++	}
++	for i := range gotEx {
++		if string(gotEx[i]) != fmt.Sprintf("пакет %03d", i) {
++			t.Fatalf("нарушен порядок: %q на месте %d", gotEx[i], i)
++		}
++	}
++	if !cl.IsConnected() || !ex.IsConnected() {
++		t.Fatal("не отмечено подключение")
++	}
++	t.Logf("запросов: PUT %d, GET %d, LIST %d", f.puts.Load(), f.gets.Load(), f.lists.Load())
++}
++
++func TestThroughput(t *testing.T) {
++	cl, ex, f := pair(t, 40*time.Millisecond) // как задержка до облака по мобильной сети
++	var got atomic.Int64
++	ex.Receive(func(p []byte) { got.Add(int64(len(p))) })
++	ex.Start()
++	cl.Start()
++	defer cl.Stop()
++	defer ex.Stop()
++	pkt := make([]byte, 1400)
++	rand.Read(pkt)
++	const total = 40 << 20
++	t0 := time.Now()
++	go func() {
++		for sent := 0; sent < total; sent += len(pkt) {
++			for cl.Send(pkt) != nil {
++				time.Sleep(time.Millisecond)
++			}
++		}
++	}()
++	for got.Load() < total*99/100 && time.Since(t0) < 60*time.Second {
++		time.Sleep(10 * time.Millisecond)
++	}
++	d := time.Since(t0)
++	t.Logf("СКОРОСТЬ через ящик (задержка 40 мс на запрос): %.1f Мбит/с, %d МБ за %v; PUT %d GET %d", float64(got.Load()*8)/d.Seconds()/1e6, got.Load()>>20, d.Round(time.Millisecond), f.puts.Load(), f.gets.Load())
++	if got.Load() < total*99/100 {
++		t.Fatal("не всё дошло")
++	}
++}
++
++func TestRestartAndStale(t *testing.T) {
++	cl, ex, _ := pair(t, 5*time.Millisecond)
++	var got atomic.Int64
++	ex.Receive(func(p []byte) { got.Add(1) })
++	ex.Start()
++	defer ex.Stop()
++	cl.Start()
++	cl.Send([]byte("до перезапуска"))
++	time.Sleep(500 * time.Millisecond)
++	cl.Stop()
++	// клиент перезапустился: новая серия номеров
++	cl2, _ := New("s3", "http://AK:SK@"+strings.TrimPrefix(cl.s3.endpoint, "http://")+"/bkt/t1", transport.DefaultConfig(), false)
++	cl2.Start()
++	defer cl2.Stop()
++	cl2.Send([]byte("после"))
++	for i := 0; i < 200 && got.Load() < 2; i++ {
++		time.Sleep(50 * time.Millisecond)
++	}
++	if got.Load() != 2 {
++		t.Fatalf("после перезапуска клиента дошло %d из 2", got.Load())
++	}
++}
++
++func TestBadKey(t *testing.T) {
++	f := &fakeS3{objs: map[string][]byte{}, mod: map[string]time.Time{}}
++	srv := httptest.NewServer(f)
++	defer srv.Close()
++	b, _ := New("s3", "http://WRONG:SK@"+strings.TrimPrefix(srv.URL, "http://")+"/bkt/t1", transport.DefaultConfig(), false)
++	b.Start()
++	defer b.Stop()
++	b.Send([]byte("x"))
++	time.Sleep(300 * time.Millisecond)
++	if b.IsConnected() {
++		t.Fatal("с неверным ключом не должно быть подключения")
++	}
++	_ = bytes.MinRead
++}
+diff --git a/transport/s3box/s3.go b/transport/s3box/s3.go
+new file mode 100644
+index 0000000..1a5c7cf
+--- /dev/null
++++ b/transport/s3box/s3.go
+@@ -0,0 +1,268 @@
++package s3box
++
++// Минимальный клиент S3 (подпись AWS Signature V4) только на стандартной библиотеке:
++// PUT, GET, DELETE и ListObjectsV2. Подходит для Yandex Object Storage
++// (storage.yandexcloud.net) и VK Cloud (hb.ru-msk.vkcs.cloud).
++
++import (
++	"bytes"
++	"context"
++	"crypto/hmac"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/xml"
++	"errors"
++	"fmt"
++	"io"
++	"net/http"
++	"net/url"
++	"sort"
++	"strings"
++	"time"
++)
++
++type s3Client struct {
++	endpoint string // https://host
++	host     string
++	bucket   string
++	region   string
++	ak, sk   string
++	hc       *http.Client
++	now      func() time.Time
++}
++
++var errNotFound = errors.New("s3: not found")
++
++type httpError struct {
++	code int
++	body string
++}
++
++func (e *httpError) Error() string { return fmt.Sprintf("s3: HTTP %d %s", e.code, e.body) }
++
++func newS3(host, bucket, region, ak, sk string) *s3Client {
++	tr := &http.Transport{
++		Proxy:               nil,
++		MaxIdleConns:        64,
++		MaxIdleConnsPerHost: 32,
++		IdleConnTimeout:     90 * time.Second,
++		ForceAttemptHTTP2:   true,
++		TLSHandshakeTimeout: 10 * time.Second,
++	}
++	scheme := "https://"
++	if strings.HasPrefix(host, "http://") {
++		scheme, host = "http://", strings.TrimPrefix(host, "http://")
++	}
++	return &s3Client{
++		endpoint: scheme + host, host: host, bucket: bucket, region: region, ak: ak, sk: sk,
++		hc:  &http.Client{Transport: tr, Timeout: 30 * time.Second},
++		now: time.Now,
++	}
++}
++
++// uriEncode по правилам SigV4: всё, кроме A-Z a-z 0-9 - _ . ~, кодируется; '/' — по флагу
++func uriEncode(s string, slash bool) string {
++	var b strings.Builder
++	for i := 0; i < len(s); i++ {
++		c := s[i]
++		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~' || (c == '/' && !slash) {
++			b.WriteByte(c)
++		} else {
++			fmt.Fprintf(&b, "%%%02X", c)
++		}
++	}
++	return b.String()
++}
++
++func hmacSHA(key []byte, s string) []byte {
++	m := hmac.New(sha256.New, key)
++	m.Write([]byte(s))
++	return m.Sum(nil)
++}
++
++func sha256hex(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
++
++// sign вычисляет заголовок Authorization (SigV4). headers — уже со всеми подписываемыми заголовками.
++func sign(method, path string, query url.Values, headers map[string]string, payloadHash, region, ak, sk string, t time.Time) string {
++	amzDate := t.UTC().Format("20060102T150405Z")
++	day := amzDate[:8]
++	// канонический запрос
++	keys := make([]string, 0, len(query))
++	for k := range query {
++		keys = append(keys, k)
++	}
++	sort.Strings(keys)
++	var cq []string
++	for _, k := range keys {
++		vs := append([]string{}, query[k]...)
++		sort.Strings(vs)
++		for _, v := range vs {
++			cq = append(cq, uriEncode(k, true)+"="+uriEncode(v, true))
++		}
++	}
++	hk := make([]string, 0, len(headers))
++	for k := range headers {
++		hk = append(hk, strings.ToLower(k))
++	}
++	sort.Strings(hk)
++	lower := map[string]string{}
++	for k, v := range headers {
++		lower[strings.ToLower(k)] = strings.TrimSpace(v)
++	}
++	var ch strings.Builder
++	for _, k := range hk {
++		ch.WriteString(k + ":" + lower[k] + "\n")
++	}
++	signed := strings.Join(hk, ";")
++	creq := method + "\n" + uriEncode(path, false) + "\n" + strings.Join(cq, "&") + "\n" + ch.String() + "\n" + signed + "\n" + payloadHash
++	scope := day + "/" + region + "/s3/aws4_request"
++	sts := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + sha256hex([]byte(creq))
++	k := hmacSHA([]byte("AWS4"+sk), day)
++	k = hmacSHA(k, region)
++	k = hmacSHA(k, "s3")
++	k = hmacSHA(k, "aws4_request")
++	sig := hex.EncodeToString(hmacSHA(k, sts))
++	return "AWS4-HMAC-SHA256 Credential=" + ak + "/" + scope + ", SignedHeaders=" + signed + ", Signature=" + sig
++}
++
++func (c *s3Client) do(ctx context.Context, method, key string, query url.Values, body []byte) (*http.Response, []byte, error) {
++	path := "/" + c.bucket
++	if key != "" {
++		path += "/" + key
++	}
++	if query == nil {
++		query = url.Values{}
++	}
++	ph := sha256hex(body)
++	t := c.now()
++	h := map[string]string{
++		"host":                 c.host,
++		"x-amz-content-sha256": ph,
++		"x-amz-date":           t.UTC().Format("20060102T150405Z"),
++	}
++	u := c.endpoint + uriEncode(path, false)
++	if len(query) > 0 {
++		var parts []string
++		for k, vs := range query {
++			for _, v := range vs {
++				parts = append(parts, uriEncode(k, true)+"="+uriEncode(v, true))
++			}
++		}
++		sort.Strings(parts)
++		u += "?" + strings.Join(parts, "&")
++	}
++	req, err := http.NewRequestWithContext(ctx, method, u, bytes.NewReader(body))
++	if err != nil {
++		return nil, nil, err
++	}
++	req.ContentLength = int64(len(body))
++	for k, v := range h {
++		if k != "host" {
++			req.Header.Set(k, v)
++		}
++	}
++	req.Header.Set("Authorization", sign(method, path, query, h, ph, c.region, c.ak, c.sk, t))
++	resp, err := c.hc.Do(req)
++	if err != nil {
++		return nil, nil, err
++	}
++	defer resp.Body.Close()
++	rb, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
++	if err != nil {
++		return resp, nil, err
++	}
++	return resp, rb, nil
++}
++
++func (c *s3Client) put(ctx context.Context, key string, body []byte) error {
++	resp, rb, err := c.do(ctx, http.MethodPut, key, nil, body)
++	if err != nil {
++		return err
++	}
++	if resp.StatusCode/100 != 2 {
++		return &httpError{resp.StatusCode, short(rb)}
++	}
++	return nil
++}
++
++func (c *s3Client) get(ctx context.Context, key string) ([]byte, error) {
++	resp, rb, err := c.do(ctx, http.MethodGet, key, nil, nil)
++	if err != nil {
++		return nil, err
++	}
++	if resp.StatusCode == http.StatusNotFound {
++		return nil, errNotFound
++	}
++	if resp.StatusCode/100 != 2 {
++		return nil, &httpError{resp.StatusCode, short(rb)}
++	}
++	return rb, nil
++}
++
++func (c *s3Client) del(ctx context.Context, key string) error {
++	resp, rb, err := c.do(ctx, http.MethodDelete, key, nil, nil)
++	if err != nil {
++		return err
++	}
++	if resp.StatusCode/100 != 2 && resp.StatusCode != http.StatusNotFound {
++		return &httpError{resp.StatusCode, short(rb)}
++	}
++	return nil
++}
++
++type listed struct {
++	Key string
++	Age time.Duration // насколько объект старше ответа сервера
++}
++
++type listResult struct {
++	Contents []struct {
++		Key          string `xml:"Key"`
++		LastModified string `xml:"LastModified"`
++	} `xml:"Contents"`
++}
++
++// list возвращает ключи с префиксом (по возрастанию), не больше max
++func (c *s3Client) list(ctx context.Context, prefix, startAfter string, max int) ([]listed, error) {
++	q := url.Values{"list-type": {"2"}, "prefix": {prefix}, "max-keys": {fmt.Sprint(max)}}
++	if startAfter != "" {
++		q.Set("start-after", startAfter)
++	}
++	resp, rb, err := c.do(ctx, http.MethodGet, "", q, nil)
++	if err != nil {
++		return nil, err
++	}
++	if resp.StatusCode/100 != 2 {
++		return nil, &httpError{resp.StatusCode, short(rb)}
++	}
++	var lr listResult
++	if err := xml.Unmarshal(rb, &lr); err != nil {
++		return nil, err
++	}
++	now := time.Now()
++	if d, err := http.ParseTime(resp.Header.Get("Date")); err == nil {
++		now = d
++	}
++	out := make([]listed, 0, len(lr.Contents))
++	for _, o := range lr.Contents {
++		age := time.Duration(0)
++		if t, err := time.Parse(time.RFC3339, o.LastModified); err == nil {
++			age = now.Sub(t)
++		}
++		out = append(out, listed{Key: o.Key, Age: age})
++	}
++	return out, nil
++}
++
++func short(b []byte) string {
++	s := strings.TrimSpace(string(b))
++	if i := strings.Index(s, "<Code>"); i >= 0 {
++		if j := strings.Index(s[i:], "</Code>"); j > 0 {
++			return s[i+6 : i+j]
++		}
++	}
++	if len(s) > 120 {
++		s = s[:120]
++	}
++	return s
++}

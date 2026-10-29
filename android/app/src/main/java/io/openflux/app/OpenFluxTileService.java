@@ -158,7 +158,7 @@ public final class OpenFluxTileService extends TileService {
         boolean running = exitMode ? OpenFluxExitService.isRunning()
                 : proxyMode ? OpenFluxProxyService.isRunning() : OpenFluxTunnelService.isRunning();
         tile.setIcon(Icon.createWithResource(this, R.drawable.ic_openflux_notification));
-        tile.setLabel("Яндекс Маяк");
+        tile.setLabel("Яндекс Пульс");
         tile.setState(running ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE);
         if (Build.VERSION.SDK_INT >= 29) {
             tile.setSubtitle(exitMode ? "Выходная нода" : proxyMode ? "Прокси" : "Туннель");

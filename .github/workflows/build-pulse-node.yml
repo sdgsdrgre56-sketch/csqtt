@@ -1,0 +1,72 @@
+name: Build Yandex Pulse node core
+
+# Собирает ядро OpenFlux с патчами этой ветки (в том числе транспорт облачного
+# ящика ycloud/vkcloud) для сервера и Windows и выкладывает пре-релиз с тегом
+# из CORE_VERSION. Существующий релиз не трогает: SHA-256 его файлов закреплены
+# в deploy/node-install.sh. Для новой сборки ядра — новый CORE_VERSION.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [pulse]
+    paths:
+      - "patches/**"
+      - ".github/workflows/build-pulse-node.yml"
+
+permissions:
+  contents: write
+
+env:
+  CORE_VERSION: node-v9.1.0
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Apply core patches
+        run: |
+          for p in patches/core-*.patch; do
+            git -C core apply --verbose "../$p"
+          done
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+
+      - name: Test the cloud transport
+        working-directory: core
+        run: go test ./transport/s3box/ ./transport/registry/
+
+      - name: Build
+        working-directory: core
+        run: |
+          mkdir -p ../out
+          build() {
+            CGO_ENABLED=0 GOOS=$1 GOARCH=$2 GOARM=${3:-} go build -trimpath -ldflags "-s -w -X main.Version=$CORE_VERSION-pulse" -o "../out/$4" .
+          }
+          build linux amd64 "" openflux-linux-amd64
+          build linux arm64 "" openflux-linux-arm64
+          build linux arm 7 openflux-linux-arm
+          build windows amd64 "" openflux-windows-amd64.exe
+          cd ../out && sha256sum openflux-* | tee SHA256SUMS
+
+      - name: Publish pre-release (once per CORE_VERSION)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$CORE_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Релиз $CORE_VERSION уже есть — не трогаю (его SHA-256 закреплены в скрипте)."
+            exit 0
+          fi
+          gh release create "$CORE_VERSION" out/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Yandex Pulse node core $CORE_VERSION" \
+            --notes "OpenFlux core with this branch's patches (cloud box transport ycloud/vkcloud), built from commit $GITHUB_SHA (branch pulse). GPL-3.0-or-later; the source is that commit plus the core submodule."

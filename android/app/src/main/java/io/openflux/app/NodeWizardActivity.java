@@ -73,7 +73,7 @@ public final class NodeWizardActivity extends Activity {
     private FlowStyle ui;
     private final Map<CheckBox, View> choiceFields = new HashMap<>();
     private EditText hostInput, sshPortInput, userInput, passwordInput, privateKeyInput, passphraseInput;
-    private EditText mailruInput, sudoInput;
+    private EditText mailruInput, sudoInput, ycloudInput, vkcloudInput;
     // One row per Yandex document: several documents carry the channel side
     // by side. The first rows are shown at once, the rest on request.
     private static final int MAX_YANDEX_DOCS = 8;
@@ -85,7 +85,7 @@ public final class NodeWizardActivity extends Activity {
     private LinearLayout channelsBox;
     private final List<Button> channelButtons = new java.util.ArrayList<>();
     private final StringBuilder speedHistory = new StringBuilder();
-    private CheckBox yandexCheck, mailruCheck, cupsCheck, autoUpdateCheck, l3Check;
+    private CheckBox yandexCheck, mailruCheck, cupsCheck, autoUpdateCheck, l3Check, ycloudCheck, vkcloudCheck;
     private Button connectButton, changeServerButton, planButton, changeButton, applyButton, verifyButton, saveButton, removeButton;
     private TextView intro, connectedHost, serverInfo, planInfo;
     private TextView keyFileInfo;
@@ -267,6 +267,19 @@ public final class NodeWizardActivity extends Activity {
         choiceFields.put(mailruCheck, (View) mailruInput.getTag());
         ((View) mailruInput.getTag()).setVisibility(View.GONE);
         cupsCheck = choiceTile(configSection, "Cups.online", "Комнаты создаст приложение", R.drawable.ic_code);
+        // Яндекс Пульс: ящик в облачном хранилище (быстрее документов)
+        ycloudCheck = choiceTile(configSection, "Яндекс Облако (Пульс)",
+                "Быстро: Object Storage как почтовый ящик", R.drawable.ic_yandex);
+        ycloudInput = field(configSection, "Ящик: КЛЮЧ:СЕКРЕТ@бакет/папка", "YCAJE…:YCN…@мой-бакет/pulse",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        choiceFields.put(ycloudCheck, (View) ycloudInput.getTag());
+        ((View) ycloudInput.getTag()).setVisibility(View.GONE);
+        vkcloudCheck = choiceTile(configSection, "VK Облако (Пульс)",
+                "Быстро: хранилище VK Cloud как почтовый ящик", R.drawable.ic_mailru);
+        vkcloudInput = field(configSection, "Ящик: КЛЮЧ:СЕКРЕТ@бакет/папка", "ключ:секрет@мой-бакет/pulse",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        choiceFields.put(vkcloudCheck, (View) vkcloudInput.getTag());
+        ((View) vkcloudInput.getTag()).setVisibility(View.GONE);
         sectionLabel(configSection, "УСТАНОВКА");
         autoUpdateCheck = choiceTile(configSection, "Автоматически обновлять ядро",
                 "Настройка общая для всех каналов VPS", R.drawable.ic_swap);
@@ -379,7 +392,7 @@ public final class NodeWizardActivity extends Activity {
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1f);
         titlesParams.leftMargin = dp(12);
         TextView name = new TextView(this);
-        name.setText("Яндекс Маяк");
+        name.setText("Яндекс Пульс");
         name.setTextSize(21);
         ui.heading(name);
         titles.addView(name);
@@ -768,11 +781,13 @@ public final class NodeWizardActivity extends Activity {
         boolean editable = connected && !planned && !applied && savedProfileId == 0 && !busy;
         for (EditText input : yandexInputs) input.setEnabled(editable);
         mailruInput.setEnabled(editable);
+        ycloudInput.setEnabled(editable);
+        vkcloudInput.setEnabled(editable);
         if (addYandexButton != null) addYandexButton.setEnabled(editable);
         for (Button channelButton : channelButtons) channelButton.setEnabled(!busy);
         sudoInput.setEnabled(editable);
         ((View) sudoInput.getTag()).setAlpha(editable ? 1f : 0.55f);
-        for (CheckBox check : new CheckBox[]{yandexCheck, mailruCheck, cupsCheck, autoUpdateCheck, l3Check}) {
+        for (CheckBox check : new CheckBox[]{yandexCheck, mailruCheck, cupsCheck, autoUpdateCheck, l3Check, ycloudCheck, vkcloudCheck}) {
             check.setEnabled(editable);
             ((View) check.getTag()).setAlpha(editable ? 1f : 0.55f);
         }
@@ -1054,6 +1069,10 @@ public final class NodeWizardActivity extends Activity {
             yandexCheck.setChecked(false);
             mailruCheck.setChecked(false);
             cupsCheck.setChecked(false);
+            ycloudCheck.setChecked(false);
+            vkcloudCheck.setChecked(false);
+            ycloudInput.setText("");
+            vkcloudInput.setText("");
             autoUpdateCheck.setChecked(false);
             l3Check.setChecked(false);
             for (int i = 0; i < yandexInputs.size(); i++) {
@@ -1169,7 +1188,7 @@ public final class NodeWizardActivity extends Activity {
     private void measureSpeed(Profile profile, String channel, String modeLabel) {
         if (OpenFluxTunnelService.isRunning() || OpenFluxProxyService.isRunning()
                 || OpenFluxExitService.isRunning()) {
-            showWarning("Отключите Яндекс Маяк перед замером скорости");
+            showWarning("Отключите Яндекс Пульс перед замером скорости");
             return;
         }
         if (!profile.session) {
@@ -1258,6 +1277,14 @@ public final class NodeWizardActivity extends Activity {
         boolean withYandex = yandexCheck.isChecked();
         boolean withMailru = mailruCheck.isChecked();
         boolean withCups = cupsCheck.isChecked();
+        String ycloud = ycloudInput.getText().toString().trim();
+        String vkcloud = vkcloudInput.getText().toString().trim();
+        boolean withYcloud = ycloudCheck.isChecked();
+        boolean withVkcloud = vkcloudCheck.isChecked();
+        if ((withYcloud && !ycloud.contains("@")) || (withVkcloud && !vkcloud.contains("@"))) {
+            showWarning("Укажите облачный ящик в виде КЛЮЧ:СЕКРЕТ@бакет/папка");
+            return;
+        }
         boolean autoUpdate = autoUpdateCheck.isChecked();
         boolean l3 = l3Check.isChecked();
         if (withYandex && yandexLinks.isEmpty()) {
@@ -1284,6 +1311,8 @@ public final class NodeWizardActivity extends Activity {
             }
             if (withMailru) transports.put(new JSONObject().put("type", "mailru").put("url", mailru));
             if (withCups) transports.put(new JSONObject().put("type", "cupsonline").put("url", rooms));
+            if (withYcloud) transports.put(new JSONObject().put("type", "ycloud").put("url", ycloud));
+            if (withVkcloud) transports.put(new JSONObject().put("type", "vkcloud").put("url", vkcloud));
             Mobile.setNodeExitMode(l3 ? "l3" : "l4");
             JSONObject answer = response(Mobile.nodePlan(channelId, 0, transports.toString(), autoUpdate));
             answer.put("cupsRooms", rooms);
@@ -1360,7 +1389,7 @@ public final class NodeWizardActivity extends Activity {
     private void verify() {
         if (OpenFluxTunnelService.isRunning() || OpenFluxProxyService.isRunning()
                 || OpenFluxExitService.isRunning()) {
-            showWarning("Отключите Яндекс Маяк перед проверкой нового канала");
+            showWarning("Отключите Яндекс Пульс перед проверкой нового канала");
             return;
         }
         String host = hostInput.getText().toString().trim();

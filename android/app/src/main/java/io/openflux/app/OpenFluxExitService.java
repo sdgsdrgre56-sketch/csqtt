@@ -118,7 +118,8 @@ public final class OpenFluxExitService extends Service {
         }
         String url = intent == null ? null : intent.getStringExtra(OpenFluxTunnelService.EXTRA_DOCUMENT_URL);
         // MAX takes a token; a Cups.online exit creates its rooms itself.
-        if (!"oneme".equals(transportType) && !"cupsonline".equals(transportType) && sessionTransports.isEmpty()
+        if (!"oneme".equals(transportType) && !"cupsonline".equals(transportType) && !"ycloud".equals(transportType)
+                && !"vkcloud".equals(transportType) && sessionTransports.isEmpty()
                 && (url == null || !url.startsWith("https://"))) {
             failEarly("Некорректная ссылка на документ");
             return START_NOT_STICKY;
@@ -253,7 +254,7 @@ public final class OpenFluxExitService extends Service {
 
     private void createNotificationChannel() {
         getSystemService(NotificationManager.class).createNotificationChannel(new NotificationChannel(
-                CHANNEL_ID, "Яндекс Маяк: выходная нода", NotificationManager.IMPORTANCE_LOW));
+                CHANNEL_ID, "Яндекс Пульс: выходная нода", NotificationManager.IMPORTANCE_LOW));
     }
 
     private Notification notification(String text) {
@@ -263,7 +264,7 @@ public final class OpenFluxExitService extends Service {
                 new Intent(this, OpenFluxExitService.class).setAction(ACTION_STOP),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("Яндекс Маяк · выходная нода")
+                .setContentTitle("Яндекс Пульс · выходная нода")
                 .setContentText(text)
                 .setSmallIcon(R.drawable.ic_openflux_notification)
                 .setOngoing(true)

@@ -9,12 +9,12 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId "ru.mayak.ya"
+        applicationId "ru.mayak.pulse"
         minSdk 26
         targetSdk 35
         // CI numbers the builds; each one installs over the previous.
         versionCode 1000 + mayakBuild
-        versionName "1.1.4-ya" + mayakBuild
+        versionName "1.1.4-pulse" + mayakBuild
 
     }
 

@@ -199,6 +199,7 @@ public final class OpenFluxProxyService extends Service {
         streamType = stream ? transportType : "";
         // MAX takes a token; Cups.online a base64 room code, checked by the core.
         boolean needsUrl = !"oneme".equals(transportType) && !"cupsonline".equals(transportType)
+                && !"ycloud".equals(transportType) && !"vkcloud".equals(transportType) // облачный ящик — не https-ссылка
                 && sessionTransports.isEmpty();
 
         String url = intent == null ? null : intent.getStringExtra(EXTRA_DOCUMENT_URL);
@@ -373,7 +374,7 @@ public final class OpenFluxProxyService extends Service {
     private void createNotificationChannel() {
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(
-                CHANNEL_ID, "Яндекс Маяк: прокси", NotificationManager.IMPORTANCE_LOW));
+                CHANNEL_ID, "Яндекс Пульс: прокси", NotificationManager.IMPORTANCE_LOW));
     }
 
     private Notification notification(String text) {
@@ -384,7 +385,7 @@ public final class OpenFluxProxyService extends Service {
         PendingIntent stopIntent = PendingIntent.getService(
                 this, 0, stop, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("Яндекс Маяк")
+                .setContentTitle("Яндекс Пульс")
                 .setContentText(text)
                 .setSmallIcon(R.drawable.ic_openflux_notification)
                 .setOngoing(true)
