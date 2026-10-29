@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 env:
-  CORE_VERSION: node-v9.1.1
+  CORE_VERSION: node-v9.1.2
 
 jobs:
   node:

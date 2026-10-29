@@ -121,10 +121,10 @@ index d6268b2..fc54d63 100644
  	case "cupsonline":
 diff --git a/transport/s3box/box.go b/transport/s3box/box.go
 new file mode 100644
-index 0000000..6e716fc
+index 0000000..d66c111
 --- /dev/null
 +++ b/transport/s3box/box.go
-@@ -0,0 +1,436 @@
+@@ -0,0 +1,492 @@
 +// Package s3box — транспорт «Пульс через облако»: две стороны обмениваются пачками
 +// пакетов через объектное хранилище S3 (Yandex Object Storage, VK Cloud), как через
 +// почтовый ящик. Для оператора это обычная загрузка и скачивание файлов в облако.
@@ -155,16 +155,25 @@ index 0000000..6e716fc
 +	"github.com/p1neappleXpress/OpenFlux/transport"
 +)
 +
-+const (
-+	bodyVersion = 1
++const bodyVersion = 1
++
++// Настройки темпа. Каждый запрос к облаку платный (PUT/LIST дороже GET),
++// поэтому пачки крупнее и опросы реже там, где это не заметно на глаз.
++var (
 +	maxBatch    = 1 << 20               // байт в одном объекте
-+	coalesce    = 10 * time.Millisecond // копим пакеты в одну загрузку: меньше платных PUT
++	coalesce    = 10 * time.Millisecond // обычное окно сбора пачки
++	bulkWindow  = 40 * time.Millisecond // окно при потоке (видео, загрузки): пачки по сотни КБ
++	quickPoll   = 3 * time.Second       // столько после настоящих данных опрашиваем часто
 +	maxInflight = 8                     // одновременных загрузок
 +	maxPrefetch = 16
 +	minPoll     = 15 * time.Millisecond
-+	busyPoll    = 300 * time.Millisecond
++	busyPoll    = 250 * time.Millisecond
++	calmPoll    = time.Second
 +	idlePoll    = 2 * time.Second // без трафика больше минуты — реже спрашиваем облако (GET платные)
 +	gapSkip     = 6 * time.Second
++	listAfter   = 15 * time.Second // собеседник шлёт служебный пакет раз в 10 с: дольше тишины — проверяем, не перезапустился ли он
++	listEvery   = 5 * time.Second  // как часто в такой тишине проверять (обычными GET)
++	realData    = 1500             // пачка меньше — служебная, ради неё не ускоряемся
 +	staleAge    = 90 * time.Second
 +)
 +
@@ -294,8 +303,10 @@ index 0000000..6e716fc
 +		return err
 +	}
 +	b.ctx, b.cancel = context.WithCancel(context.Background())
-+	b.nextOut.Store(uint64(time.Now().UnixMicro()))
-+	b.wg.Add(2)
++	start := uint64(time.Now().UnixMicro())
++	b.nextOut.Store(start)
++	b.wg.Add(3)
++	go func() { defer b.wg.Done(); b.writeHead(start) }()
 +	go b.writeLoop()
 +	go b.readLoop()
 +	return nil
@@ -353,6 +364,7 @@ index 0000000..6e716fc
 +	var puts sync.WaitGroup
 +	defer puts.Wait()
 +	buf := make([]byte, 0, 64<<10)
++	lastBig := false
 +	for {
 +		var first []byte
 +		select {
@@ -366,28 +378,25 @@ index 0000000..6e716fc
 +			buf = append(buf, p...)
 +		}
 +		add(first)
-+		timer := time.NewTimer(coalesce)
++		win := coalesce
++		if lastBig {
++			win = bulkWindow
++		}
++		timer := time.NewTimer(win)
 +	gather:
 +		for len(buf) < maxBatch {
 +			select {
 +			case p := <-b.sendQ:
 +				add(p)
-+			default:
-+				if len(buf) >= 16<<10 {
-+					break gather
-+				}
-+				select {
-+				case p := <-b.sendQ:
-+					add(p)
-+				case <-timer.C:
-+					break gather
-+				case <-b.ctx.Done():
-+					timer.Stop()
-+					return
-+				}
++			case <-timer.C:
++				break gather
++			case <-b.ctx.Done():
++				timer.Stop()
++				return
 +			}
 +		}
 +		timer.Stop()
++		lastBig = len(buf) > 64<<10
 +		body := append([]byte(nil), buf...)
 +		seq := b.nextOut.Add(1) - 1
 +		select {
@@ -423,13 +432,64 @@ index 0000000..6e716fc
 +	err  error
 +}
 +
++// headKey — объект с номером, с которого пишет текущий запуск стороны. Его читают
++// обычным (дешёвым) GET вместо дорогого LIST: так получатель находит серию при старте
++// и замечает перезапуск собеседника.
++func headKey(dir string) string { return dir + "head" }
++
++// writeHead публикует начало своей серии (с повторами, пока не получится).
++func (b *Box) writeHead(start uint64) {
++	delay := 200 * time.Millisecond
++	for b.ctx.Err() == nil {
++		if err := b.s3.put(b.ctx, headKey(b.outDir), []byte(fmt.Sprintf("%016x", start))); err == nil {
++			b.ok()
++			return
++		} else {
++			b.fail(err)
++		}
++		select {
++		case <-b.ctx.Done():
++			return
++		case <-time.After(delay):
++		}
++		if delay < 5*time.Second {
++			delay *= 2
++		}
++	}
++}
++
++func (b *Box) readHead() (uint64, error) {
++	d, err := b.s3.get(b.ctx, headKey(b.inDir))
++	if err != nil {
++		return 0, err
++	}
++	v, err := strconv.ParseUint(strings.TrimSpace(string(d)), 16, 64)
++	if err != nil {
++		return 0, errNotFound
++	}
++	return v, nil
++}
++
++// cleanup один раз при старте убирает хвосты прошлых запусков собеседника.
++func (b *Box) cleanup() {
++	items, err := b.s3.list(b.ctx, b.inDir, "", 1000)
++	if err != nil {
++		return
++	}
++	for _, it := range items {
++		if _, good := seqOf(it.Key); good && it.Age > staleAge {
++			b.s3.del(context.Background(), it.Key)
++		}
++	}
++}
++
 +func (b *Box) readLoop() {
 +	defer b.wg.Done()
-+	var next uint64 // 0 — серия ещё не найдена
++	go b.cleanup()
++	var next, series uint64 // 0 — серия собеседника ещё не найдена
 +	poll := minPoll
 +	lastData := time.Now()
-+	var waiting time.Time
-+	var lastList time.Time
++	var waiting, lastCheck time.Time
 +	window := 1
 +	inflight := map[uint64]chan getRes{}
 +	sleep := func(d time.Duration) bool {
@@ -442,8 +502,11 @@ index 0000000..6e716fc
 +	}
 +	growPoll := func() {
 +		max := busyPoll
-+		if time.Since(lastData) > time.Minute {
++		switch since := time.Since(lastData); {
++		case since > time.Minute:
 +			max = idlePoll
++		case since > quickPoll:
++			max = calmPoll
 +		}
 +		poll = poll * 3 / 2
 +		if poll > max {
@@ -452,32 +515,20 @@ index 0000000..6e716fc
 +	}
 +	for b.ctx.Err() == nil {
 +		if next == 0 {
-+			items, err := b.s3.list(b.ctx, b.inDir, "", 1000)
-+			if err != nil {
-+				b.fail(err)
-+				if !sleep(time.Second) {
-+					return
-+				}
++			h, err := b.readHead()
++			switch {
++			case err == nil:
++				b.ok()
++				next, series = h, h
 +				continue
++			case errors.Is(err, errNotFound):
++				b.ok()
++			default:
++				b.fail(err)
 +			}
-+			b.ok()
-+			for _, it := range items {
-+				s, good := seqOf(it.Key)
-+				if !good {
-+					continue
-+				}
-+				if it.Age > staleAge {
-+					go b.s3.del(context.Background(), it.Key) // хвост прошлых запусков
-+					continue
-+				}
-+				next = s
-+				break
-+			}
-+			if next == 0 {
-+				growPoll()
-+				if !sleep(poll) {
-+					return
-+				}
++			growPoll()
++			if !sleep(poll) {
++				return
 +			}
 +			continue
 +		}
@@ -504,9 +555,15 @@ index 0000000..6e716fc
 +			b.deliver(r.data)
 +			go b.s3.del(context.Background(), key(b.inDir, next))
 +			next++
-+			poll, waiting, lastData = minPoll, time.Time{}, time.Now()
-+			if window < maxPrefetch {
-+				window *= 2
++			waiting = time.Time{}
++			if len(r.data) >= realData {
++				// настоящий трафик: опрашиваем часто и читаем вперёд
++				poll, lastData = minPoll, time.Now()
++				if window < maxPrefetch {
++					window *= 2
++				}
++			} else {
++				window = 1 // служебный пакет: темп не меняем
 +			}
 +		case errors.Is(r.err, errNotFound):
 +			b.ok()
@@ -515,19 +572,18 @@ index 0000000..6e716fc
 +			if waiting.IsZero() {
 +				waiting = time.Now()
 +			}
-+			// пропуск дыры или новая серия после перезапуска собеседника
-+			// LIST дорогой (как PUT): при активном обмене — не чаще раза в 2 с, в простое — раз в 30 с
-+			listEvery := 2 * time.Second
-+			if time.Since(lastData) > time.Minute {
-+				listEvery = 30 * time.Second
-+			}
-+			if time.Since(waiting) > gapSkip/2 && time.Since(lastList) > listEvery {
-+				lastList = time.Now()
-+				if items, err := b.s3.list(b.ctx, b.inDir, key(b.inDir, next), 5); err == nil && len(items) > 0 {
-+					if s, good := seqOf(items[0].Key); good && s > next && (s-next > 1000 || time.Since(waiting) > gapSkip) {
-+						next, waiting = s, time.Time{}
-+						continue
-+					}
++			// Живой собеседник шлёт что-нибудь минимум раз в 10 с. Тишина дольше listAfter —
++			// дешёвыми GET проверяем, не перезапустился ли он (новая серия) и нет ли дыры
++			// (пачка, которую так и не удалось записать).
++			if time.Since(waiting) > listAfter && time.Since(lastCheck) > listEvery {
++				lastCheck = time.Now()
++				if h, err := b.readHead(); err == nil && h != series {
++					next, series, waiting = h, h, time.Time{}
++					continue
++				}
++				if _, err := b.s3.get(b.ctx, key(b.inDir, next+1)); err == nil {
++					next++ // дыра в одну пачку: пропускаем
++					continue
 +				}
 +			}
 +			growPoll()
@@ -563,10 +619,10 @@ index 0000000..6e716fc
 +}
 diff --git a/transport/s3box/box_test.go b/transport/s3box/box_test.go
 new file mode 100644
-index 0000000..254a51e
+index 0000000..946dc26
 --- /dev/null
 +++ b/transport/s3box/box_test.go
-@@ -0,0 +1,249 @@
+@@ -0,0 +1,290 @@
 +package s3box
 +
 +import (
@@ -780,6 +836,9 @@ index 0000000..254a51e
 +}
 +
 +func TestRestartAndStale(t *testing.T) {
++	la, le := listAfter, listEvery
++	listAfter, listEvery = time.Second, time.Second
++	defer func() { listAfter, listEvery = la, le }()
 +	cl, ex, _ := pair(t, 5*time.Millisecond)
 +	var got atomic.Int64
 +	ex.Receive(func(p []byte) { got.Add(1) })
@@ -815,6 +874,44 @@ index 0000000..254a51e
 +		t.Fatal("с неверным ключом не должно быть подключения")
 +	}
 +	_ = bytes.MinRead
++}
++
++// Сколько платных запросов уходит: поток 4 МБ/с и простой со служебными пакетами.
++func TestCostProfile(t *testing.T) {
++	cl, ex, f := pair(t, 30*time.Millisecond)
++	var got atomic.Int64
++	ex.Receive(func(p []byte) { got.Add(int64(len(p))) })
++	cl.Receive(func(p []byte) {})
++	ex.Start()
++	cl.Start()
++	defer cl.Stop()
++	defer ex.Stop()
++	time.Sleep(300 * time.Millisecond)
++	// поток: 4 МБ/с пакетами по 1400 байт в течение 3 с
++	pkt := make([]byte, 1400)
++	p0, g0 := f.puts.Load(), f.gets.Load()
++	t0 := time.Now()
++	for time.Since(t0) < 3*time.Second {
++		for i := 0; i < 30; i++ {
++			for cl.Send(pkt) != nil {
++				time.Sleep(time.Millisecond)
++			}
++		}
++		time.Sleep(10 * time.Millisecond) // ~4 МБ/с
++	}
++	time.Sleep(500 * time.Millisecond)
++	mb := float64(got.Load()) / 1e6
++	t.Logf("ПОТОК: %.1f МБ, PUT %d (%.1f на МБ), GET %d", mb, f.puts.Load()-p0, float64(f.puts.Load()-p0)/mb, f.gets.Load()-g0)
++	// простой: служебный пакет раз в 2 с, 12 с
++	time.Sleep(4 * time.Second) // темп успокаивается
++	p1, g1, l1 := f.puts.Load(), f.gets.Load(), f.lists.Load()
++	t1 := time.Now()
++	for time.Since(t1) < 12*time.Second {
++		cl.Send([]byte("keepalive"))
++		time.Sleep(2 * time.Second)
++	}
++	d := time.Since(t1).Seconds()
++	t.Logf("ПРОСТОЙ: в секунду PUT %.2f, GET %.2f (обе стороны), LIST за 12 с: %d", float64(f.puts.Load()-p1)/d, float64(f.gets.Load()-g1)/d, f.lists.Load()-l1)
 +}
 diff --git a/transport/s3box/s3.go b/transport/s3box/s3.go
 new file mode 100644
