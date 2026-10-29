@@ -164,8 +164,23 @@ final class Profile {
 
     // Puts what both connection services need to start this profile; they
     // read the same extra keys. scripts resolves JS carriers to their files.
+    // Темп облачного ящика (ползунок «Скорость Пульса» в настройках): 0 — по облаку,
+    // 1 — эконом … 5 — максимум. Действует на сторону телефона, хранится в настройках приложения.
+    static int pulseTempo = 0;
+
+    static void loadPulseTempo(android.content.Context ctx) {
+        pulseTempo = ctx.getSharedPreferences(MainActivity.SETTINGS_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+                .getInt("pulse_tempo", 0);
+    }
+
+    static String withTempo(String type, String url) {
+        if (pulseTempo < 1 || url == null || url.isEmpty()) return url;
+        if (!"ycloud".equals(type) && !"vkcloud".equals(type)) return url;
+        return url + (url.contains("?") ? "&" : "?") + "tempo=" + pulseTempo;
+    }
+
     void putConnectionExtras(Intent intent, ScriptStore scripts) {
-        intent.putExtra(OpenFluxTunnelService.EXTRA_DOCUMENT_URL, documentUrl);
+        intent.putExtra(OpenFluxTunnelService.EXTRA_DOCUMENT_URL, withTempo(transportType, documentUrl));
         intent.putExtra(OpenFluxTunnelService.EXTRA_ENCRYPTION_SECRET, encryptionSecret);
         intent.putExtra(OpenFluxTunnelService.EXTRA_TRANSPORT_TYPE, transportType);
         intent.putExtra(OpenFluxTunnelService.EXTRA_CODEC, codec);
@@ -294,7 +309,7 @@ final class Profile {
                 if (merged.length() > 0) params.put("settings", merged);
             }
         } else {
-            url = value;
+            url = withTempo(type, value);
         }
         return new JSONObject()
                 .put("name", n == 1 ? type : type + "-" + n)

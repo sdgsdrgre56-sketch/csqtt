@@ -121,10 +121,10 @@ index d6268b2..fc54d63 100644
  	case "cupsonline":
 diff --git a/transport/s3box/box.go b/transport/s3box/box.go
 new file mode 100644
-index 0000000..d66c111
+index 0000000..069e498
 --- /dev/null
 +++ b/transport/s3box/box.go
-@@ -0,0 +1,492 @@
+@@ -0,0 +1,520 @@
 +// Package s3box — транспорт «Пульс через облако»: две стороны обмениваются пачками
 +// пакетов через объектное хранилище S3 (Yandex Object Storage, VK Cloud), как через
 +// почтовый ящик. Для оператора это обычная загрузка и скачивание файлов в облако.
@@ -160,21 +160,12 @@ index 0000000..d66c111
 +// Настройки темпа. Каждый запрос к облаку платный (PUT/LIST дороже GET),
 +// поэтому пачки крупнее и опросы реже там, где это не заметно на глаз.
 +var (
-+	maxBatch    = 1 << 20               // байт в одном объекте
-+	coalesce    = 10 * time.Millisecond // обычное окно сбора пачки
-+	bulkWindow  = 40 * time.Millisecond // окно при потоке (видео, загрузки): пачки по сотни КБ
-+	quickPoll   = 3 * time.Second       // столько после настоящих данных опрашиваем часто
-+	maxInflight = 8                     // одновременных загрузок
-+	maxPrefetch = 16
-+	minPoll     = 15 * time.Millisecond
-+	busyPoll    = 250 * time.Millisecond
-+	calmPoll    = time.Second
-+	idlePoll    = 2 * time.Second // без трафика больше минуты — реже спрашиваем облако (GET платные)
-+	gapSkip     = 6 * time.Second
-+	listAfter   = 15 * time.Second // собеседник шлёт служебный пакет раз в 10 с: дольше тишины — проверяем, не перезапустился ли он
-+	listEvery   = 5 * time.Second  // как часто в такой тишине проверять (обычными GET)
-+	realData    = 1500             // пачка меньше — служебная, ради неё не ускоряемся
-+	staleAge    = 90 * time.Second
++	maxBatch  = 1 << 20 // байт в одном объекте
++	gapSkip   = 6 * time.Second
++	listAfter = 15 * time.Second // собеседник шлёт служебный пакет раз в 10 с: дольше тишины — проверяем, не перезапустился ли он
++	listEvery = 5 * time.Second  // как часто в такой тишине проверять (обычными GET)
++	realData  = 1500             // пачка меньше — служебная, ради неё не ускоряемся
++	staleAge  = 90 * time.Second
 +)
 +
 +// Presets — облака, которые открываются в «белых списках» мобильных операторов.
@@ -186,6 +177,7 @@ index 0000000..d66c111
 +// Config разобранный адрес ящика.
 +type Config struct {
 +	Host, Region, Bucket, Prefix, AK, SK string
++	Tempo                                int // 1 (эконом) … 5 (максимум); 0 — по облаку
 +}
 +
 +// ParseURL понимает s3://КЛЮЧ:СЕКРЕТ@хост/бакет/папка?region=...
@@ -244,6 +236,9 @@ index 0000000..d66c111
 +	if r := qv.Get("region"); r != "" {
 +		c.Region = r
 +	}
++	if v, err := strconv.Atoi(qv.Get("tempo")); err == nil && v >= 1 && v <= 5 {
++		c.Tempo = v
++	}
 +	if c.Region == "" {
 +		c.Region = "us-east-1"
 +	}
@@ -269,6 +264,39 @@ index 0000000..d66c111
 +	wg      sync.WaitGroup
 +	nextOut atomic.Uint64
 +	lastErr atomic.Value
++	t       tempo
++}
++
++// tempo — темп обмена. У Яндекса запросы платные — темп экономный;
++// у VK Cloud запросы бесплатны (платится только трафик), поэтому там «на максимум»:
++// мельче пачки (меньше задержка), чаще опрос, больше параллельных загрузок.
++type tempo struct {
++	coalesce, bulk                            time.Duration
++	inflight, prefetch                        int
++	minPoll, busyPoll, calmPoll, idlePoll, qp time.Duration
++}
++
++// Шкала темпа 1…5 (ползунок в приложении): 1 — эконом (меньше всего запросов,
++// для платных облаков), 5 — максимум (меньше задержка, быстрее поток).
++var tempoLevels = [6]tempo{
++	{}, // 0 — по облаку, см. tempoFor
++	{20 * time.Millisecond, 60 * time.Millisecond, 4, 8, 30 * time.Millisecond, 400 * time.Millisecond, 2 * time.Second, 3 * time.Second, 2 * time.Second},
++	{10 * time.Millisecond, 40 * time.Millisecond, 8, 16, 15 * time.Millisecond, 250 * time.Millisecond, time.Second, 2 * time.Second, 3 * time.Second},
++	{6 * time.Millisecond, 25 * time.Millisecond, 12, 24, 10 * time.Millisecond, 150 * time.Millisecond, 500 * time.Millisecond, 1500 * time.Millisecond, 5 * time.Second},
++	{4 * time.Millisecond, 20 * time.Millisecond, 16, 32, 7 * time.Millisecond, 100 * time.Millisecond, 350 * time.Millisecond, 1200 * time.Millisecond, 8 * time.Second},
++	{3 * time.Millisecond, 15 * time.Millisecond, 24, 32, 5 * time.Millisecond, 60 * time.Millisecond, 250 * time.Millisecond, time.Second, 10 * time.Second},
++}
++
++// tempoFor: заданный уровень, иначе по облаку — VK (запросы бесплатные) на максимум,
++// Яндекс (запросы платные) экономно.
++func tempoFor(typ string, level int) tempo {
++	if level >= 1 && level <= 5 {
++		return tempoLevels[level]
++	}
++	if typ == "vkcloud" {
++		return tempoLevels[5]
++	}
++	return tempoLevels[2]
 +}
 +
 +// New создаёт транспорт. isExit — роль процесса (нода пишет в e/, клиент в c/).
@@ -277,7 +305,7 @@ index 0000000..d66c111
 +	if err != nil {
 +		return nil, err
 +	}
-+	b := &Box{BaseTransport: transport.NewBaseTransport(base), cfg: c, s3: newS3(c.Host, c.Bucket, c.Region, c.AK, c.SK)}
++	b := &Box{BaseTransport: transport.NewBaseTransport(base), cfg: c, s3: newS3(c.Host, c.Bucket, c.Region, c.AK, c.SK), t: tempoFor(typ, c.Tempo)}
 +	b.outDir, b.inDir = c.Prefix+"/c/", c.Prefix+"/e/"
 +	if isExit {
 +		b.outDir, b.inDir = b.inDir, b.outDir
@@ -360,7 +388,7 @@ index 0000000..d66c111
 +
 +func (b *Box) writeLoop() {
 +	defer b.wg.Done()
-+	sem := make(chan struct{}, maxInflight)
++	sem := make(chan struct{}, b.t.inflight)
 +	var puts sync.WaitGroup
 +	defer puts.Wait()
 +	buf := make([]byte, 0, 64<<10)
@@ -378,9 +406,9 @@ index 0000000..d66c111
 +			buf = append(buf, p...)
 +		}
 +		add(first)
-+		win := coalesce
++		win := b.t.coalesce
 +		if lastBig {
-+			win = bulkWindow
++			win = b.t.bulk
 +		}
 +		timer := time.NewTimer(win)
 +	gather:
@@ -487,7 +515,7 @@ index 0000000..d66c111
 +	defer b.wg.Done()
 +	go b.cleanup()
 +	var next, series uint64 // 0 — серия собеседника ещё не найдена
-+	poll := minPoll
++	poll := b.t.minPoll
 +	lastData := time.Now()
 +	var waiting, lastCheck time.Time
 +	window := 1
@@ -501,12 +529,12 @@ index 0000000..d66c111
 +		}
 +	}
 +	growPoll := func() {
-+		max := busyPoll
++		max := b.t.busyPoll
 +		switch since := time.Since(lastData); {
 +		case since > time.Minute:
-+			max = idlePoll
-+		case since > quickPoll:
-+			max = calmPoll
++			max = b.t.idlePoll
++		case since > b.t.qp:
++			max = b.t.calmPoll
 +		}
 +		poll = poll * 3 / 2
 +		if poll > max {
@@ -558,8 +586,8 @@ index 0000000..d66c111
 +			waiting = time.Time{}
 +			if len(r.data) >= realData {
 +				// настоящий трафик: опрашиваем часто и читаем вперёд
-+				poll, lastData = minPoll, time.Now()
-+				if window < maxPrefetch {
++				poll, lastData = b.t.minPoll, time.Now()
++				if window < b.t.prefetch {
 +					window *= 2
 +				}
 +			} else {
@@ -619,10 +647,10 @@ index 0000000..d66c111
 +}
 diff --git a/transport/s3box/box_test.go b/transport/s3box/box_test.go
 new file mode 100644
-index 0000000..946dc26
+index 0000000..c7ebbb8
 --- /dev/null
 +++ b/transport/s3box/box_test.go
-@@ -0,0 +1,290 @@
+@@ -0,0 +1,323 @@
 +package s3box
 +
 +import (
@@ -669,6 +697,10 @@ index 0000000..946dc26
 +	c, err = ParseURL("ycloud", "YCAJE:raw/se+cret=@b2")
 +	if err != nil || c.SK != "raw/se+cret=" || c.Bucket != "b2" || c.Prefix != "pulse" {
 +		t.Fatalf("%+v %v", c, err)
++	}
++	c, err = ParseURL("vkcloud", "AK:SK@hb.ru-msk.vkcloud-storage.ru/b/p?tempo=1")
++	if err != nil || c.Tempo != 1 || c.Region != "ru-msk" || tempoFor("vkcloud", c.Tempo).inflight != 4 || tempoFor("vkcloud", 0).inflight != 24 {
++		t.Fatalf("темп: %+v %v", c, err)
 +	}
 +	c, err = ParseURL("vkcloud", "s3://AK:SK@hb.ru-msk.vkcs.cloud/b/p?region=ru-msk")
 +	if err != nil || c.Host != "hb.ru-msk.vkcs.cloud" || c.Bucket != "b" || c.Prefix != "p" || c.Region != "ru-msk" {
@@ -913,9 +945,38 @@ index 0000000..946dc26
 +	d := time.Since(t1).Seconds()
 +	t.Logf("ПРОСТОЙ: в секунду PUT %.2f, GET %.2f (обе стороны), LIST за 12 с: %d", float64(f.puts.Load()-p1)/d, float64(f.gets.Load()-g1)/d, f.lists.Load()-l1)
 +}
++
++// Задержка одного пакета туда-обратно: экономный темп и темп VK «на максимум».
++func TestLatencyTempo(t *testing.T) {
++	for _, typ := range []string{"s3", "vkcloud"} {
++		f := &fakeS3{objs: map[string][]byte{}, mod: map[string]time.Time{}, lat: 30 * time.Millisecond}
++		srv := httptest.NewServer(f)
++		u := "http://AK:SK@" + strings.TrimPrefix(srv.URL, "http://") + "/bkt/t1?region=ru-msk"
++		cl, _ := New(typ, u, transport.DefaultConfig(), false)
++		ex, _ := New(typ, u, transport.DefaultConfig(), true)
++		back := make(chan time.Time, 16)
++		ex.Receive(func(p []byte) { ex.Send(p) })
++		cl.Receive(func(p []byte) { back <- time.Now() })
++		ex.Start()
++		cl.Start()
++		big := make([]byte, 2000)
++		cl.Send(big)
++		<-back // прогрев: серии найдены
++		var sum time.Duration
++		for i := 0; i < 5; i++ {
++			t0 := time.Now()
++			cl.Send(big)
++			sum += (<-back).Sub(t0)
++		}
++		t.Logf("%-8s пинг через ящик (30 мс на запрос): %v", typ, (sum / 5).Round(time.Millisecond))
++		cl.Stop()
++		ex.Stop()
++		srv.Close()
++	}
++}
 diff --git a/transport/s3box/s3.go b/transport/s3box/s3.go
 new file mode 100644
-index 0000000..1a5c7cf
+index 0000000..4ad15c5
 --- /dev/null
 +++ b/transport/s3box/s3.go
 @@ -0,0 +1,268 @@
@@ -964,8 +1025,8 @@ index 0000000..1a5c7cf
 +func newS3(host, bucket, region, ak, sk string) *s3Client {
 +	tr := &http.Transport{
 +		Proxy:               nil,
-+		MaxIdleConns:        64,
-+		MaxIdleConnsPerHost: 32,
++		MaxIdleConns:        128,
++		MaxIdleConnsPerHost: 64,
 +		IdleConnTimeout:     90 * time.Second,
 +		ForceAttemptHTTP2:   true,
 +		TLSHandshakeTimeout: 10 * time.Second,

@@ -93,6 +93,7 @@ public final class OpenFluxTileService extends TileService {
         Profile selected = selectedProfile();
         if (selected == null) return false;
         Intent intent = new Intent(this, OpenFluxExitService.class).setAction(OpenFluxExitService.ACTION_START);
+        Profile.loadPulseTempo(this);
         selected.putConnectionExtras(intent, new ScriptStore(this));
         startForegroundService(intent);
         return true;
@@ -119,7 +120,8 @@ public final class OpenFluxTileService extends TileService {
             boolean authEnabled = prefs.getBoolean("proxy_auth_enabled", false);
             Intent intent = new Intent(this, OpenFluxProxyService.class);
             intent.setAction(OpenFluxProxyService.ACTION_START);
-            selected.putConnectionExtras(intent, new ScriptStore(this));
+            Profile.loadPulseTempo(this);
+        selected.putConnectionExtras(intent, new ScriptStore(this));
             intent.putExtra(OpenFluxProxyService.EXTRA_PORT, prefs.getInt("proxy_port", 1080));
             intent.putExtra(OpenFluxProxyService.EXTRA_LAN_ACCESS, lanAccess);
             if (lanAccess && authEnabled) {
@@ -130,7 +132,8 @@ public final class OpenFluxTileService extends TileService {
         } else {
             Intent intent = new Intent(this, OpenFluxTunnelService.class);
             intent.setAction(OpenFluxTunnelService.ACTION_START);
-            selected.putConnectionExtras(intent, new ScriptStore(this));
+            Profile.loadPulseTempo(this);
+        selected.putConnectionExtras(intent, new ScriptStore(this));
             intent.putExtra(OpenFluxTunnelService.EXTRA_DNS_SERVER, prefs.getString("dns_server", ""));
             intent.putExtra(OpenFluxTunnelService.EXTRA_MTU, prefs.getInt("mtu", 1400));
             startForegroundService(intent);

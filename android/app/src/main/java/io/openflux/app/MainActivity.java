@@ -1769,7 +1769,7 @@ public final class MainActivity extends Activity {
         list.addView(settingsListRow(R.drawable.ic_swap, "Режим работы",
                 modeLabel(connectionMode), SETTINGS_MODE));
         list.addView(settingsListRow(R.drawable.ic_public, "Сеть",
-                "DNS-сервер и MTU", SETTINGS_NETWORK));
+                "Скорость Пульса, DNS-сервер и MTU", SETTINGS_NETWORK));
         list.addView(settingsListRow(R.drawable.ic_apps, "Приложения",
                 "Какие приложения используют туннель", SETTINGS_APPS));
         list.addView(settingsListRow(R.drawable.ic_routing, "Маршрутизация",
@@ -3126,6 +3126,7 @@ public final class MainActivity extends Activity {
 
     private View buildNetworkSettings() {
         LinearLayout section = page();
+        section.addView(buildPulseTempo(), matchWrap());
 
         Switch dnsAutoSwitch = settingSwitch(R.drawable.ic_public, "DNS-сервер: по умолчанию",
                 "1.1.1.1 через выходную ноду; DNS-запросы в VPN идут через туннель",
@@ -3313,6 +3314,56 @@ public final class MainActivity extends Activity {
         params.rightMargin = dp(4);
         hint.setLayoutParams(params);
         return hint;
+    }
+
+    // Ползунок «Скорость Пульса»: темп облачного ящика (VK / Яндекс Облако) на телефоне.
+    private View buildPulseTempo() {
+        String[] names = {"По облаку (VK — максимум, Яндекс — эконом)", "1 · Эконом", "2 · Бережно", "3 · Средне", "4 · Быстро", "5 · Максимум"};
+        String[] hints = {
+                "VK Cloud: запросы бесплатные — на максимум. Яндекс Облако: запросы платные — экономно.",
+                "Меньше всего запросов к облаку. Задержка больше, скорость ниже. Для Яндекса — дешевле всего.",
+                "Как экономный режим Яндекса по умолчанию.",
+                "Баланс скорости и числа запросов.",
+                "Меньше задержка, быстрее загрузки. На Яндексе заметно дороже.",
+                "Самая низкая задержка и самая высокая скорость. На Яндексе — дорого, на VK — бесплатно."};
+        android.content.SharedPreferences prefs = getSharedPreferences(SETTINGS_PREFS_NAME, MODE_PRIVATE);
+        int cur = Math.max(0, Math.min(5, prefs.getInt("pulse_tempo", 0)));
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(14), dp(14), dp(14), dp(14));
+        box.setBackground(rounded(surface, border, 1, 16));
+        box.addView(text("Скорость Пульса", 15, text, true));
+        TextView value = text(names[cur], 14, accent, true);
+        LinearLayout.LayoutParams vp = matchWrap();
+        vp.topMargin = dp(6);
+        box.addView(value, vp);
+        android.widget.SeekBar bar = new android.widget.SeekBar(this);
+        bar.setMax(5);
+        bar.setProgress(cur);
+        LinearLayout.LayoutParams bp = matchWrap();
+        bp.topMargin = dp(8);
+        box.addView(bar, bp);
+        TextView hint = text(hints[cur], 12, secondary, false);
+        box.addView(hint, matchWrap());
+        TextView note = text("Применяется при следующем подключении. Касается облачных транспортов (VK / Яндекс Облако).", 11, secondary, false);
+        LinearLayout.LayoutParams np = matchWrap();
+        np.topMargin = dp(6);
+        box.addView(note, np);
+        bar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar s, int p, boolean user) {
+                value.setText(names[p]);
+                hint.setText(hints[p]);
+                prefs.edit().putInt("pulse_tempo", p).apply();
+                Profile.pulseTempo = p;
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar s) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar s) { }
+        });
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.setPadding(0, 0, 0, dp(12));
+        wrap.addView(box, matchWrap());
+        return wrap;
     }
 
     private View buildInterfaceSettings() {
@@ -4742,6 +4793,7 @@ public final class MainActivity extends Activity {
     private void putProfileExtras(Intent intent) {
         Profile p = selectedProfile();
         if (p != null) {
+            Profile.loadPulseTempo(this);
             p.putConnectionExtras(intent, new ScriptStore(this));
             return;
         }
