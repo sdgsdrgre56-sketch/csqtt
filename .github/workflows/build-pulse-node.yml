@@ -9,9 +9,6 @@ on:
   workflow_dispatch:
   push:
     branches: [pulse]
-    paths:
-      - "patches/**"
-      - ".github/workflows/build-pulse-node.yml"
 
 permissions:
   contents: write
