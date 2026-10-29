@@ -66,11 +66,11 @@
 set -u
 umask 077
 
-CORE_VERSION="node-v9.1.2"
-SHA_amd64="15d7fa401e47453fb96acd132a75e04e416bc86dc13eb1f55c014017de76d5d0"
-SHA_arm64="00e65637aba4321fa873078c4760dafcd5eabb671bfc9b85322280c5f75f1c74"
-SHA_arm="9513f1ce33831b4fea393020c15a168f815d64d939c9de3d2f4ea3af70a471b7"
-# Яндекс Пульс: ядро — сборка этой ветки с транспортом облачного ящика (пре-релиз node-v9.1.2).
+CORE_VERSION="node-v9.1.3"
+SHA_amd64="cc85039abfe242722e42513456dc7497673b9aab2f0f11eba069403487b61d3f"
+SHA_arm64="53e6a3030cdfda1fa05e5cc94980fc1e0267e2287f9ad0009caff9438fe6b39a"
+SHA_arm="94b8995c9c95a41392ed944abba46670800821d92a8863c0a7e6e7e48370663c"
+# Яндекс Пульс: ядро — сборка этой ветки с транспортом облачного ящика (пре-релиз node-v9.1.3).
 # The repository this script and its core come from: the core is one of its
 # node-v* releases, and the updater follows them (UPDATE_CONF may override
 # that with a "repo=owner/name" line).
