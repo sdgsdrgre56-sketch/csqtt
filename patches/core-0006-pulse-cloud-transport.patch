@@ -121,10 +121,10 @@ index d6268b2..fc54d63 100644
  	case "cupsonline":
 diff --git a/transport/s3box/box.go b/transport/s3box/box.go
 new file mode 100644
-index 0000000..515a35b
+index 0000000..6e716fc
 --- /dev/null
 +++ b/transport/s3box/box.go
-@@ -0,0 +1,431 @@
+@@ -0,0 +1,436 @@
 +// Package s3box — транспорт «Пульс через облако»: две стороны обмениваются пачками
 +// пакетов через объектное хранилище S3 (Yandex Object Storage, VK Cloud), как через
 +// почтовый ящик. Для оператора это обычная загрузка и скачивание файлов в облако.
@@ -157,13 +157,13 @@ index 0000000..515a35b
 +
 +const (
 +	bodyVersion = 1
-+	maxBatch    = 1 << 20 // байт в одном объекте
-+	coalesce    = 2 * time.Millisecond
-+	maxInflight = 8 // одновременных загрузок
++	maxBatch    = 1 << 20               // байт в одном объекте
++	coalesce    = 10 * time.Millisecond // копим пакеты в одну загрузку: меньше платных PUT
++	maxInflight = 8                     // одновременных загрузок
 +	maxPrefetch = 16
 +	minPoll     = 15 * time.Millisecond
 +	busyPoll    = 300 * time.Millisecond
-+	idlePoll    = time.Second
++	idlePoll    = 2 * time.Second // без трафика больше минуты — реже спрашиваем облако (GET платные)
 +	gapSkip     = 6 * time.Second
 +	staleAge    = 90 * time.Second
 +)
@@ -516,7 +516,12 @@ index 0000000..515a35b
 +				waiting = time.Now()
 +			}
 +			// пропуск дыры или новая серия после перезапуска собеседника
-+			if time.Since(waiting) > gapSkip/2 && time.Since(lastList) > 2*time.Second {
++			// LIST дорогой (как PUT): при активном обмене — не чаще раза в 2 с, в простое — раз в 30 с
++			listEvery := 2 * time.Second
++			if time.Since(lastData) > time.Minute {
++				listEvery = 30 * time.Second
++			}
++			if time.Since(waiting) > gapSkip/2 && time.Since(lastList) > listEvery {
 +				lastList = time.Now()
 +				if items, err := b.s3.list(b.ctx, b.inDir, key(b.inDir, next), 5); err == nil && len(items) > 0 {
 +					if s, good := seqOf(items[0].Key); good && s > next && (s-next > 1000 || time.Since(waiting) > gapSkip) {
