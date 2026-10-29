@@ -65,14 +65,15 @@
 set -u
 umask 077
 
-CORE_VERSION="node-v1.2.2"
-SHA_amd64="08b0ba92fa4670414dcd5e6f659fc5fa9492ce0779a78b2ac3f06809d8792987"
-SHA_arm64="c9322271f5fa11ca47383909d1f1f54bdf5749d1b190ae8e4785c309636631d2"
-SHA_arm="1f706970316d2ec0b70dcebc889f9b8aa0ecf9d495930d3b5b2ae07c43640302"
+CORE_VERSION="node-v9.1.0"
+SHA_amd64="da78b269fc59f512287375ae82eab289327333b96e3041e627f9f481c6fac928"
+SHA_arm64="134ddc775064511d1c206d3ef36a7a0e2a3d9ca1a27110674d795bcd85da8d79"
+SHA_arm="cf26117ef15577f540af507267460d19273cf66c3c894320e4eab2e1415efda9"
+# Яндекс Пульс: ядро — сборка этой ветки с транспортом облачного ящика (пре-релиз node-v9.1.0).
 # The repository this script and its core come from: the core is one of its
 # node-v* releases, and the updater follows them (UPDATE_CONF may override
 # that with a "repo=owner/name" line).
-RELEASE_REPO="p1neappleXpress/OpenFlux"
+RELEASE_REPO="sdgsdrgre56-sketch/csqtt"
 GITHUB_API="https://api.github.com"
 GITHUB_RAW="https://raw.githubusercontent.com"
 GITHUB_WEB="https://github.com"
