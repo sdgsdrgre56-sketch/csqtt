@@ -11,6 +11,21 @@ index 8eb01d6..800414c 100644
  		default:
  			log.Fatalf("Unknown transport type: %s", *transportType)
  		}
+diff --git a/provision/pin.go b/provision/pin.go
+index a36717c..1bd08f7 100644
+--- a/provision/pin.go
++++ b/provision/pin.go
+@@ -11,8 +11,8 @@ const (
+ 	// "ya" branch of the repository below). The core binaries the script
+ 	// installs still come from upstream's releases.
+ 	PinnedRepo   = "sdgsdrgre56-sketch/csqtt"
+-	PinnedCommit = "b8c1eaa19eaad949768a3cb297412496c92f6bff"
+-	PinnedSHA256 = "f9011a1abf16cb993970afa0226bc34ff83d9638f5380165f9c21da78ecd566a"
++	PinnedCommit = "f40d46fa8a15f6cbba714e1cace9062890d6b7d0"
++	PinnedSHA256 = "df63e29b034ac4b5fc5c931e529f2973c1923d5c257eb39cae8a8b60491ba9a0"
+ )
+ 
+ // Pinned returns the script location for this build.
 diff --git a/provision/transports.go b/provision/transports.go
 index 17ee035..4b0300b 100644
 --- a/provision/transports.go
