@@ -42,7 +42,8 @@
 # The config is "key=value" lines: channel, key, port, the transports
 # (vyandex= or its old name url=: a Yandex document; mailru=: a Mail.ru
 # public document; cupsonline=: the packed room list; ycloud= / vkcloud=: a
-# Yandex Pulse box in Yandex Object Storage / VK Cloud, KEY:SECRET@bucket/folder)
+# Yandex Pulse box in Yandex Object Storage / VK Cloud, KEY:SECRET@bucket/folder;
+# VK first (priority 130: its requests are free), Yandex as the fallback at 120)
 # and autoupdate=yes|no.
 # vyandex= may be given several times (up to MAX_YANDEX_DOCS): the channel
 # then carries traffic over all those documents at once, at one priority, so
@@ -728,7 +729,7 @@ EOF
     done
     set +f
     [ -n "$YCLOUD" ] && printf '\n[Transport ycloud]\nType = ycloud\nPriority = 120\nURL = %s\n' "$YCLOUD"
-    [ -n "$VKCLOUD" ] && printf '\n[Transport vkcloud]\nType = vkcloud\nPriority = 120\nURL = %s\n' "$VKCLOUD"
+    [ -n "$VKCLOUD" ] && printf '\n[Transport vkcloud]\nType = vkcloud\nPriority = 130\nURL = %s\n' "$VKCLOUD"
     [ -n "$MAILRU" ] && printf '\n[Transport mailru]\nType = mailru\nPriority = 90\nURL = %s\n' "$MAILRU"
     [ -n "$CUPS" ] && printf '\n[Transport cupsonline]\nType = cupsonline\nPriority = 70\nURL = %s\n' "$CUPS"
     printf '\n[Transport direct]\nType = direct\nPriority = 50\nListen = 0.0.0.0:%s\n' "$PORT"
