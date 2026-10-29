@@ -12,7 +12,7 @@ index 8eb01d6..800414c 100644
  			log.Fatalf("Unknown transport type: %s", *transportType)
  		}
 diff --git a/provision/pin.go b/provision/pin.go
-index a36717c..5db4b7f 100644
+index a36717c..3cb2975 100644
 --- a/provision/pin.go
 +++ b/provision/pin.go
 @@ -11,8 +11,8 @@ const (
@@ -21,13 +21,13 @@ index a36717c..5db4b7f 100644
  	PinnedRepo   = "sdgsdrgre56-sketch/csqtt"
 -	PinnedCommit = "b8c1eaa19eaad949768a3cb297412496c92f6bff"
 -	PinnedSHA256 = "f9011a1abf16cb993970afa0226bc34ff83d9638f5380165f9c21da78ecd566a"
-+	PinnedCommit = "af2299788c59ef7982b89b9349948b3e397fd43c"
-+	PinnedSHA256 = "0d10172a0c31b6e6431f68c623ab65e6b8c87ea4ff011f34d7f1b5ae1fae2dc9"
++	PinnedCommit = "147ac51ac235592f42e90199e8ab08f6918f09e3"
++	PinnedSHA256 = "e9546187260c97741d5850052601f354d5920cc04df7a8c15dcc77b246f831b6"
  )
  
  // Pinned returns the script location for this build.
 diff --git a/provision/transports.go b/provision/transports.go
-index 17ee035..4b0300b 100644
+index 17ee035..4e0397f 100644
 --- a/provision/transports.go
 +++ b/provision/transports.go
 @@ -11,6 +11,7 @@ import (
@@ -43,7 +43,7 @@ index 17ee035..4b0300b 100644
  // transportPriority is what node-install.sh's write_node_conf gives each
  // carrier, and so what the channel's link must say too.
 -var transportPriority = map[string]int{"vyandex": 100, "mailru": 90, "cupsonline": 70}
-+var transportPriority = map[string]int{"ycloud": 120, "vkcloud": 120, "vyandex": 100, "mailru": 90, "cupsonline": 70}
++var transportPriority = map[string]int{"vkcloud": 130, "ycloud": 120, "vyandex": 100, "mailru": 90, "cupsonline": 70}
  
  const directPriority = 50
  
