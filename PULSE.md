@@ -16,3 +16,4 @@
 - нода: `deploy/node-install.sh` понимает строки `ycloud=` и `vkcloud=`; ядро для сервера
   собирает `.github/workflows/build-pulse-node.yml` в пре-релиз `node-v9.1.0` этого репозитория;
 - APK: `.github/workflows/build-pulse.yml`, пре-релизы `pulse-build-N`.
+
