@@ -58,6 +58,7 @@ func newS3(c BoxCfg) *s3Client {
 		MaxIdleConnsPerHost: 128,
 		IdleConnTimeout:     90 * time.Second,
 		TLSHandshakeTimeout: 10 * time.Second,
+		TLSClientConfig:     &tls.Config{RootCAs: rootCAs()},
 		// HTTP/1.1 с пулом соединений: на мобильной сети одна потеря пакета не
 		// тормозит все запросы разом, как в одном соединении HTTP/2.
 		TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{},
