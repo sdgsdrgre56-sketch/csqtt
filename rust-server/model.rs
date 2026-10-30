@@ -17,7 +17,7 @@ use std::{
 };
 use x25519_dalek::{PublicKey, StaticSecret};
 
-pub const MAX_PASSWORDS: usize = 20;
+pub const MAX_PASSWORDS: usize = 50;
 pub const PASSWORD_LEN: usize = 16;
 pub const PASS_CHARS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
 pub const DEFAULT_AUTO_RESTART_INTERVAL_HOURS: u8 = 0;
