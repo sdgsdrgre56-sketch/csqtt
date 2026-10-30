@@ -290,15 +290,41 @@ internal object MayakSyncAdmin {
         return content to obj.optString("sha", "")
     }
 
-    private fun putFile(token: String, path: String, content: String, message: String, knownSha: String? = null) {
-        val sha = knownSha ?: getFile(token, path)?.second
-        val body = JSONObject()
-            .put("message", message)
-            .put("content", Base64.encodeToString(content.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
-        if (!sha.isNullOrBlank()) body.put("sha", sha)
-        val (code, _) = http(token, "PUT", "$API/$path", body.toString())
-        if (code !in 200..201) throw SyncException(githubError(code))
+    // GitHub lets one token create content at most ~80 times a minute ("secondary rate limit").
+    // A list for 20+ people is hundreds of files, so writes are paced, and when GitHub still asks
+    // to slow down the write waits and is repeated instead of being dropped.
+    private const val PUT_GAP_MS = 900L
+    private const val LIMIT_WAIT_MS = 65_000L
+    private const val LIMIT_TRIES = 4
+    private var lastPutAt = 0L
+
+    private fun pace() {
+        val wait = lastPutAt + PUT_GAP_MS - System.currentTimeMillis()
+        if (wait > 0) Thread.sleep(wait)
+        lastPutAt = System.currentTimeMillis()
     }
+
+    private fun putFile(token: String, path: String, content: String, message: String, knownSha: String? = null) {
+        var sha = knownSha ?: getFile(token, path)?.second
+        repeat(LIMIT_TRIES) { attempt ->
+            val body = JSONObject()
+                .put("message", message)
+                .put("content", Base64.encodeToString(content.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
+            if (!sha.isNullOrBlank()) body.put("sha", sha)
+            pace()
+            val (code, text) = http(token, "PUT", "$API/$path", body.toString())
+            when {
+                code in 200..201 -> return
+                isRateLimited(code, text) && attempt < LIMIT_TRIES - 1 -> Thread.sleep(LIMIT_WAIT_MS)
+                code == 409 && attempt < LIMIT_TRIES - 1 -> sha = getFile(token, path)?.second // changed meanwhile
+                isRateLimited(code, text) -> throw SyncException("GitHub просит подождать (лимит записей). Нажми «Разослать» ещё раз через час.")
+                else -> throw SyncException(githubError(code))
+            }
+        }
+    }
+
+    private fun isRateLimited(code: Int, text: String): Boolean =
+        code == 429 || (code == 403 && (text.contains("rate limit", ignoreCase = true) || text.contains("abuse", ignoreCase = true)))
 
     private fun githubError(code: Int): String = when (code) {
         401 -> "GitHub не принял токен. Проверь, что он вставлен целиком и не просрочен."
