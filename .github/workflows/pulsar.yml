@@ -81,6 +81,10 @@ jobs:
           echo "hev-socks5-tunnel: $(git -C hev/jni rev-parse HEAD)"
           echo "--- JNI:"; grep -rn "TProxyStartService\|TProxyStopService\|TProxyGetStats\|PKGNAME\|CLSNAME" hev/jni/src/*jni* | head -20
           grep -rq '(Ljava/lang/String;I)Z' hev/jni/src/ || { echo "::error::подпись TProxyStartService изменилась — поправить TProxyService.java"; exit 1; }
+          # каждая функция, которую регистрирует библиотека, должна быть объявлена в TProxyService.java
+          for f in $(grep -rhoE '"TProxy[A-Za-z]+"' hev/jni/src/ | tr -d '"' | sort -u); do
+            grep -q "$f(" android/app/src/main/java/ru/mayak/pulsar/TProxyService.java || { echo "::error::в TProxyService.java нет $f"; exit 1; }
+          done
           echo "--- Application.mk было:"; cat hev/jni/Application.mk || true
           cat android/hev/Application.mk >> hev/jni/Application.mk
           cd hev && "$ANDROID_HOME/ndk/27.0.12077973/ndk-build" -j4 > ndk.log 2>&1 || { tail -50 ndk.log; exit 1; }

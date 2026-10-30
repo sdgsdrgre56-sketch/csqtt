@@ -13,4 +13,7 @@ final class TProxyService {
     static native boolean TProxyStopService();
 
     static native long[] TProxyGetStats();
+
+    // объявлены все функции, которые регистрирует библиотека, иначе RegisterNatives падает
+    static native boolean TProxyIsRunning();
 }
