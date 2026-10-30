@@ -112,6 +112,8 @@ internal object MayakSyncAdmin {
         val problems = mutableListOf<String>()
         // name -> list of (server number, host, person)
         val byName = linkedMapOf<String, MutableList<Triple<Int, String, PanelPerson>>>()
+        // host -> server number of servers whose panel did not answer this time
+        val silent = linkedMapOf<String, Int>()
         // server number -> the admin's note about it, carried inside each link
         val notes = (0 until MayakConfig.ADMIN_SERVERS).associate { it + 1 to runCatching { store.serverNote(it) }.getOrDefault("") }
         for (profile in store.adminPanelProfiles(MayakConfig.ADMIN_SERVERS)) {
@@ -124,7 +126,8 @@ internal object MayakSyncAdmin {
                 throw failure
             } catch (failure: Exception) {
                 // One server that is down or answers nonsense must not stop the lists for everyone else.
-                problems += "сервер $number: ${failure.message ?: "не отвечает"}"
+                problems += "сервер $number: ${failure.message ?: "не отвечает"} — у людей он остаётся как был"
+                silent[profile.host] = number
                 continue
             }
             for (person in people) {
@@ -142,16 +145,30 @@ internal object MayakSyncAdmin {
         val yandexProblems = linkedSetOf<String>()
         for ((_, entries) in byName) {
             val sorted = entries.sortedBy { it.first }
-            val links = sorted
+            val current = sorted
                 .filter { (_, _, person) -> person.enabled && (person.expiresAt == 0L || person.expiresAt > now) }
                 .map { (number, host, person) ->
                     val port = if (person.dtlsPort in 1..65535) person.dtlsPort else CsqttConstants.Network.DEFAULT_SERVER_PEER_PORT
-                    PanelApi.buildLink(
+                    number to PanelApi.buildLink(
                         host, port, person.password, person.expiresAt, notes[number].orEmpty(),
                         ServerFlags.manual(context, host).orEmpty(),
                     )
                 }
-            if (links.isEmpty()) continue // switched off or expired everywhere: leave the old list
+            if (current.isEmpty()) continue // switched off or expired everywhere: leave the old list
+            // A server whose panel did not answer must not vanish from people's phones: its links
+            // are carried over from the list published last time.
+            val carried = if (silent.isEmpty() || token == null) emptyList() else runCatching {
+                val previous = sorted.firstNotNullOfOrNull { (_, _, person) ->
+                    getFile(token, MayakSync.filePath(person.password))?.first
+                        ?.let { MayakSync.decrypt(it, person.password) }
+                        ?.let(MayakSync::decodeList)
+                }
+                previous?.links.orEmpty().mapNotNull { link ->
+                    val host = com.csqtt.client.ui.utils.parseCsqttLink(link)?.host ?: return@mapNotNull null
+                    silent[host]?.let { number -> number to link }
+                }
+            }.getOrDefault(emptyList())
+            val links = (current + carried).sortedBy { it.first }.map { it.second }.distinct()
             for ((_, _, person) in sorted) {
                 val fresh by lazy {
                     MayakSync.encrypt(
