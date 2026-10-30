@@ -121,10 +121,10 @@ index d6268b2..fc54d63 100644
  	case "cupsonline":
 diff --git a/transport/s3box/box.go b/transport/s3box/box.go
 new file mode 100644
-index 0000000..069e498
+index 0000000..bb05717
 --- /dev/null
 +++ b/transport/s3box/box.go
-@@ -0,0 +1,520 @@
+@@ -0,0 +1,546 @@
 +// Package s3box — транспорт «Пульс через облако»: две стороны обмениваются пачками
 +// пакетов через объектное хранилище S3 (Yandex Object Storage, VK Cloud), как через
 +// почтовый ящик. Для оператора это обычная загрузка и скачивание файлов в облако.
@@ -144,7 +144,6 @@ index 0000000..069e498
 +	"encoding/binary"
 +	"errors"
 +	"fmt"
-+	"log"
 +	"net/url"
 +	"strconv"
 +	"strings"
@@ -153,6 +152,7 @@ index 0000000..069e498
 +	"time"
 +
 +	"github.com/p1neappleXpress/OpenFlux/transport"
++	"github.com/p1neappleXpress/OpenFlux/utils"
 +)
 +
 +const bodyVersion = 1
@@ -371,7 +371,7 @@ index 0000000..069e498
 +	prev, _ := b.lastErr.Load().(string)
 +	if prev != err.Error() {
 +		b.lastErr.Store(err.Error())
-+		log.Printf("s3box %s: %v", b.cfg.Host, err)
++		utils.Infof("[PULSE] ОШИБКА облака %s: %v", b.cfg.Host, err)
 +	}
 +	var he *httpError
 +	if errors.As(err, &he) && (he.code == 401 || he.code == 403) {
@@ -383,6 +383,7 @@ index 0000000..069e498
 +	if !b.IsConnected() {
 +		b.SetConnected(true)
 +		b.lastErr.Store("")
++		utils.Infof("[PULSE] облако %s/%s отвечает", b.cfg.Host, b.cfg.Bucket)
 +	}
 +}
 +
@@ -466,7 +467,13 @@ index 0000000..069e498
 +func headKey(dir string) string { return dir + "head" }
 +
 +// writeHead публикует начало своей серии (с повторами, пока не получится).
++// testNoHead — только для тестов: ведёт себя как старая сборка без объекта head.
++var testNoHead bool
++
 +func (b *Box) writeHead(start uint64) {
++	if testNoHead {
++		return
++	}
 +	delay := 200 * time.Millisecond
 +	for b.ctx.Err() == nil {
 +		if err := b.s3.put(b.ctx, headKey(b.outDir), []byte(fmt.Sprintf("%016x", start))); err == nil {
@@ -548,9 +555,28 @@ index 0000000..069e498
 +			case err == nil:
 +				b.ok()
 +				next, series = h, h
++				utils.Infof("[PULSE] %s: собеседник найден, читаю с %016x", b.cfg.Host, h)
 +				continue
 +			case errors.Is(err, errNotFound):
 +				b.ok()
++				// Собеседник старой сборки не пишет head: раз в 10 с ищем его серию списком.
++				if time.Since(lastCheck) > 10*time.Second {
++					lastCheck = time.Now()
++					if items, err := b.s3.list(b.ctx, b.inDir, "", 50); err == nil {
++						for _, it := range items {
++							if sq, good := seqOf(it.Key); good && it.Age < staleAge {
++								next, series = sq, sq
++								utils.Infof("[PULSE] %s: собеседник найден по списку, читаю с %016x", b.cfg.Host, sq)
++								break
++							}
++						}
++						if next != 0 {
++							continue
++						}
++					} else {
++						b.fail(err)
++					}
++				}
 +			default:
 +				b.fail(err)
 +			}
@@ -647,10 +673,10 @@ index 0000000..069e498
 +}
 diff --git a/transport/s3box/box_test.go b/transport/s3box/box_test.go
 new file mode 100644
-index 0000000..c7ebbb8
+index 0000000..049d88c
 --- /dev/null
 +++ b/transport/s3box/box_test.go
-@@ -0,0 +1,323 @@
+@@ -0,0 +1,346 @@
 +package s3box
 +
 +import (
@@ -972,6 +998,29 @@ index 0000000..c7ebbb8
 +		cl.Stop()
 +		ex.Stop()
 +		srv.Close()
++	}
++}
++
++// Собеседник старой сборки (без head) находится по списку.
++func TestOldPeerWithoutHead(t *testing.T) {
++	cl, ex, _ := pair(t, 5*time.Millisecond)
++	got := make(chan []byte, 4)
++	cl.Receive(func(p []byte) { got <- p })
++	ex.Receive(func(p []byte) {})
++	testNoHead = true
++	ex.Start()
++	testNoHead = false
++	cl.Start()
++	defer cl.Stop()
++	defer ex.Stop()
++	ex.Send([]byte("я старая нода"))
++	select {
++	case p := <-got:
++		if string(p) != "я старая нода" {
++			t.Fatalf("%q", p)
++		}
++	case <-time.After(15 * time.Second):
++		t.Fatal("старая нода без head так и не найдена")
 +	}
 +}
 diff --git a/transport/s3box/s3.go b/transport/s3box/s3.go
