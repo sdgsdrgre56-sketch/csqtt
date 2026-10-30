@@ -104,7 +104,14 @@ jobs:
             } >> "$GITHUB_ENV"
             echo "Подпись своим ключом из секретов репозитория."
           else
-            echo "::error::нет секрета SIGNING_KEYSTORE_B64"; exit 1
+            # постоянный ключ приложения из ветки: обновления ставятся поверх
+            {
+              echo "ANDROID_KEYSTORE_FILE=$GITHUB_WORKSPACE/ci/pulsar-signing.p12"
+              echo "ANDROID_KEYSTORE_PASSWORD=pulsar-key"
+              echo "ANDROID_KEY_ALIAS=pulsar"
+              echo "ANDROID_KEY_PASSWORD=pulsar-key"
+            } >> "$GITHUB_ENV"
+            echo "Подпись ключом ci/pulsar-signing.p12."
           fi
       - uses: gradle/actions/setup-gradle@v4
         with:
