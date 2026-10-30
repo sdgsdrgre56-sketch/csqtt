@@ -1,0 +1,49 @@
+name: Pulsar
+
+# Ядро «Пульсар» (сервер, клиент для ПК и телефона) и приложение для Android.
+# Ядро выкладывается релизом pulsar-v<VERSION> один раз на версию (его скачивает
+# server/install.sh); приложение — релизом pulsar-app-<номер сборки>.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [pulsar]
+
+permissions:
+  contents: write
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Test (модель облака VK с настоящими задержками)
+        run: go test -count=1 -v ./core/ 2>&1 | grep -E "^(=== RUN|--- |ok|FAIL|PASS)|ЗАГРУЗКА|ПОТОК|ОТДАЧА|СТРАНИЦ|восстанов|panic" ; test ${PIPESTATUS[0]} -eq 0
+      - name: Build
+        run: |
+          V=$(cat VERSION)
+          mkdir -p out
+          b() { CGO_ENABLED=0 GOOS=$1 GOARCH=$2 go build -trimpath -ldflags "-s -w -X main.Version=$V" -o "out/$3" ./cmd/pulsar; }
+          b linux amd64 pulsar-linux-amd64
+          b linux arm64 pulsar-linux-arm64
+          b windows amd64 pulsar-windows-amd64.exe
+          cd out && sha256sum pulsar-* | tee SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core
+          path: out/
+      - name: Release (один раз на версию)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          T="pulsar-v$(cat VERSION)"
+          if gh release view "$T" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Релиз $T уже есть — не трогаю"; exit 0
+          fi
+          gh release create "$T" out/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Пульсар $(cat VERSION) — ядро" \
+            --notes "Сервер и клиент «Пульсар». Установка сервера: см. server/install.sh в ветке pulsar."
