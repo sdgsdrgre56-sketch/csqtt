@@ -121,10 +121,10 @@ index d6268b2..fc54d63 100644
  	case "cupsonline":
 diff --git a/transport/s3box/box.go b/transport/s3box/box.go
 new file mode 100644
-index 0000000..bb05717
+index 0000000..1bc0b19
 --- /dev/null
 +++ b/transport/s3box/box.go
-@@ -0,0 +1,546 @@
+@@ -0,0 +1,570 @@
 +// Package s3box — транспорт «Пульс через облако»: две стороны обмениваются пачками
 +// пакетов через объектное хранилище S3 (Yandex Object Storage, VK Cloud), как через
 +// почтовый ящик. Для оператора это обычная загрузка и скачивание файлов в облако.
@@ -518,6 +518,24 @@ index 0000000..bb05717
 +	}
 +}
 +
++// firstFrom ищет списком самый ранний объект собеседника с номером >= from.
++// Нужен, когда объект from пропал: собеседник при своём старте убрал старые хвосты
++// (cleanup) — а head всё ещё указывает на начало его серии. Без этого чтение
++// навсегда застревало бы на удалённом объекте.
++func (b *Box) firstFrom(from uint64) (uint64, time.Duration, bool) {
++	items, err := b.s3.list(b.ctx, b.inDir, "", 1000)
++	if err != nil {
++		b.fail(err)
++		return 0, 0, false
++	}
++	for _, it := range items { // ключи идут по возрастанию номера
++		if sq, good := seqOf(it.Key); good && sq >= from {
++			return sq, it.Age, true
++		}
++	}
++	return 0, 0, false
++}
++
 +func (b *Box) readLoop() {
 +	defer b.wg.Done()
 +	go b.cleanup()
@@ -555,7 +573,11 @@ index 0000000..bb05717
 +			case err == nil:
 +				b.ok()
 +				next, series = h, h
-+				utils.Infof("[PULSE] %s: собеседник найден, читаю с %016x", b.cfg.Host, h)
++				// Начало серии могло быть уже удалено: тогда сразу к первому живому объекту.
++				if sq, age, found := b.firstFrom(h); found && sq > h && age > 3*time.Second {
++					next = sq
++				}
++				utils.Infof("[PULSE] %s: собеседник найден, читаю с %016x", b.cfg.Host, next)
 +				continue
 +			case errors.Is(err, errNotFound):
 +				b.ok()
@@ -635,8 +657,10 @@ index 0000000..bb05717
 +					next, series, waiting = h, h, time.Time{}
 +					continue
 +				}
-+				if _, err := b.s3.get(b.ctx, key(b.inDir, next+1)); err == nil {
-+					next++ // дыра в одну пачку: пропускаем
++				// Дыра любой длины (пачка не записалась или хвост удалён): к первому живому.
++				if sq, _, found := b.firstFrom(next); found && sq > next {
++					utils.Infof("[PULSE] %s: пропуск %d пачек, читаю с %016x", b.cfg.Host, sq-next, sq)
++					next, waiting = sq, time.Time{}
 +					continue
 +				}
 +			}
@@ -673,10 +697,10 @@ index 0000000..bb05717
 +}
 diff --git a/transport/s3box/box_test.go b/transport/s3box/box_test.go
 new file mode 100644
-index 0000000..049d88c
+index 0000000..9f7adfa
 --- /dev/null
 +++ b/transport/s3box/box_test.go
-@@ -0,0 +1,346 @@
+@@ -0,0 +1,431 @@
 +package s3box
 +
 +import (
@@ -1021,6 +1045,91 @@ index 0000000..049d88c
 +		}
 +	case <-time.After(15 * time.Second):
 +		t.Fatal("старая нода без head так и не найдена")
++	}
++}
++
++// Так было в бакете 30.10: нода давно запущена, телефон подключился позже и при старте
++// убрал старые объекты ноды — в том числе тот, на который указывает её head. Чтение
++// не должно застревать на удалённом объекте.
++func TestHeadPointsToDeleted(t *testing.T) {
++	la, le := listAfter, listEvery
++	listAfter, listEvery = time.Second, 500*time.Millisecond
++	defer func() { listAfter, listEvery = la, le }()
++	cl, ex, f := pair(t, 5*time.Millisecond)
++	var got []string
++	var mu sync.Mutex
++	cl.Receive(func(p []byte) { mu.Lock(); got = append(got, string(p)); mu.Unlock() })
++	ex.Start()
++	defer ex.Stop()
++	for i := 0; i < 3; i++ {
++		ex.Send([]byte("старое"))
++		time.Sleep(50 * time.Millisecond)
++	}
++	time.Sleep(300 * time.Millisecond)
++	f.mu.Lock()
++	for k := range f.objs {
++		if strings.HasPrefix(k, "t1/e/") && !strings.HasSuffix(k, "head") {
++			delete(f.objs, k) // хвост убран, head остался
++		}
++	}
++	f.mu.Unlock()
++	cl.Start()
++	defer cl.Stop()
++	time.Sleep(200 * time.Millisecond)
++	for i := 0; i < 3; i++ {
++		ex.Send([]byte("живой"))
++		time.Sleep(100 * time.Millisecond)
++	}
++	for i := 0; i < 100; i++ {
++		mu.Lock()
++		n := len(got)
++		mu.Unlock()
++		if n >= 3 {
++			break
++		}
++		time.Sleep(50 * time.Millisecond)
++	}
++	mu.Lock()
++	defer mu.Unlock()
++	if len(got) < 3 {
++		t.Fatalf("клиент застрял на удалённом объекте: получено %v", got)
++	}
++	// А если удалено давно (старше 3 с) — прыжок сразу, без ожидания listAfter.
++}
++
++// Удалённое начало серии, а живые объекты старше 3 с: читаем сразу с них.
++func TestHeadPointsToDeletedOldTail(t *testing.T) {
++	cl, ex, f := pair(t, 5*time.Millisecond)
++	var got atomic.Int64
++	cl.Receive(func(p []byte) { got.Add(1) })
++	ex.Start()
++	defer ex.Stop()
++	for i := 0; i < 4; i++ {
++		ex.Send([]byte("x"))
++		time.Sleep(50 * time.Millisecond)
++	}
++	time.Sleep(300 * time.Millisecond)
++	f.mu.Lock()
++	var ks []string
++	for k := range f.objs {
++		if strings.HasPrefix(k, "t1/e/") && !strings.HasSuffix(k, "head") {
++			ks = append(ks, k)
++		}
++	}
++	sort.Strings(ks)
++	delete(f.objs, ks[0])
++	for _, k := range ks[1:] {
++		f.mod[k] = time.Now().Add(-10 * time.Second)
++	}
++	f.mu.Unlock()
++	t0 := time.Now()
++	cl.Start()
++	defer cl.Stop()
++	for got.Load() < 3 && time.Since(t0) < 5*time.Second {
++		time.Sleep(20 * time.Millisecond)
++	}
++	if got.Load() < 3 || time.Since(t0) > 2*time.Second {
++		t.Fatalf("получено %d за %v", got.Load(), time.Since(t0))
 +	}
 +}
 diff --git a/transport/s3box/s3.go b/transport/s3box/s3.go
