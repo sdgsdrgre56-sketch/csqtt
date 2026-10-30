@@ -25,6 +25,12 @@ var (
 	maxPending  = 24 << 20 // сколько данных может ждать отправки, дальше — подпор
 	prefetchMax = 24
 
+	activeGap    = 20 * time.Millisecond
+	activeProbes = 3
+	warmGap      = 150 * time.Millisecond
+	idleGap      = 700 * time.Millisecond
+	quietBytes   = 48
+
 	coalesceAt   = 2         // столько объектов в полёте — уже «под нагрузкой»
 	coalesceMin  = 512 << 10 // если накопилось меньше — подождать
 	coalesceWait = 10 * time.Millisecond
@@ -134,6 +140,7 @@ func (p *pipe) writeLoop() {
 			*q = (*q)[n:]
 		}
 		take(&p.ctrl)
+		hadData := len(p.data) > 0
 		take(&p.data)
 		p.pending -= len(body)
 		seq := p.nextSeq
@@ -142,7 +149,9 @@ func (p *pipe) writeLoop() {
 		p.cond.Broadcast()
 		p.mu.Unlock()
 
-		p.lastTx.Store(time.Now().UnixNano())
+		if hadData {
+			p.lastTx.Store(time.Now().UnixNano())
+		}
 		obj := p.tx.seal(seq, body)
 		puts.Add(1)
 		go func() {
@@ -215,12 +224,14 @@ func (p *pipe) readLoop() {
 		now := time.Now()
 		sinceData := now.Sub(lastData)
 		sinceTx := now.Sub(time.Unix(0, p.lastTx.Load()))
-		gap, maxProbe := 400*time.Millisecond, 1
+		// Темп опроса облака: часто — только пока идут данные; в простое — редко,
+		// чтобы не забрасывать облако запросами (служебные пинги активностью не считаются).
+		gap, maxProbe := idleGap, 1
 		switch {
 		case sinceData < 3*time.Second || sinceTx < 3*time.Second:
-			gap, maxProbe = 12*time.Millisecond, 5
-		case sinceData < 30*time.Second || sinceTx < 30*time.Second:
-			gap, maxProbe = 100*time.Millisecond, 2
+			gap, maxProbe = activeGap, activeProbes
+		case sinceData < 20*time.Second || sinceTx < 20*time.Second:
+			gap, maxProbe = warmGap, 1
 		}
 		if now.After(errUntil) {
 			for s := next + 1; s <= next+uint64(window); s++ {
@@ -288,8 +299,11 @@ func (p *pipe) readLoop() {
 			k := objKey(p.in, next)
 			go p.s3.del(context.Background(), k)
 			next++
-			lastData = time.Now()
-			p.lastRx.Store(lastData.UnixNano())
+			p.lastRx.Store(time.Now().UnixNano())
+			// служебные мелочи (пинг, подтверждения) не будят частый опрос
+			if len(plain) > quietBytes {
+				lastData = time.Now()
+			}
 			if window == 0 {
 				window = 1
 			} else if window < prefetchMax {

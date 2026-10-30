@@ -30,11 +30,12 @@ var LogHook = func(s string) { log.Print(s) }
 func logf(f string, a ...any) { LogHook(fmt.Sprintf(f, a...)) }
 
 var (
-	pingEvery   = 5 * time.Second
-	clientDead  = 15 * time.Second // нет ответа сервера столько — новая сессия
-	serverDead  = 90 * time.Second // нет ничего от клиента — сессия закрыта
+	pingEvery   = 15 * time.Second
+	clientDead  = 45 * time.Second  // нет ответа сервера столько — новая сессия
+	serverDead  = 150 * time.Second // нет ничего от клиента — сессия закрыта
 	helloMaxAge = 2 * time.Minute
-	helloPoll   = 400 * time.Millisecond
+	helloPoll   = time.Second
+	cloudDead   = 3 * time.Minute // облако недоступно столько подряд — сервер выходит, systemd перезапустит
 )
 
 func newSID() string {
@@ -287,10 +288,11 @@ func (s *Server) Check(ctx context.Context) error {
 	return s.s3.del(ctx, k)
 }
 
-func (s *Server) Run(ctx context.Context) {
+func (s *Server) Run(ctx context.Context) error {
 	go s.janitor(ctx)
 	seen := map[string]time.Time{}
 	failing := false
+	lastOK := time.Now()
 	for ctx.Err() == nil {
 		items, err := s.s3.list(ctx, s.box.Prefix+"/h/", 1000)
 		if err != nil {
@@ -298,9 +300,15 @@ func (s *Server) Run(ctx context.Context) {
 				logf("облако: %v", err)
 			}
 			failing = true
+			// зависшие соединения не переиспользуем
+			s.s3.hc.CloseIdleConnections()
+			if time.Since(lastOK) > cloudDead {
+				return fmt.Errorf("облако недоступно %v подряд: %v", time.Since(lastOK).Round(time.Second), err)
+			}
 			sleepCtx(ctx, 2*time.Second)
 			continue
 		}
+		lastOK = time.Now()
 		if failing {
 			logf("облако снова отвечает")
 			failing = false
@@ -320,6 +328,7 @@ func (s *Server) Run(ctx context.Context) {
 		}
 		sleepCtx(ctx, helloPoll)
 	}
+	return nil
 }
 
 func (s *Server) accept(ctx context.Context, key, sid string, age time.Duration) {

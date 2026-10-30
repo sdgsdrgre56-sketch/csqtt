@@ -118,7 +118,9 @@ func server(args []string) {
 	cancel()
 	core.LogHook = func(s string) { fmt.Fprintln(os.Stderr, s) }
 	fmt.Fprintf(os.Stderr, "Пульсар %s: сервер запущен, облако отвечает\n", Version)
-	s.Run(ctx)
+	if err := s.Run(ctx); err != nil {
+		fail("%v — перезапуск", err)
+	}
 }
 
 func client(args []string) {

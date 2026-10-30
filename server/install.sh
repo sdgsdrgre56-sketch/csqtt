@@ -5,7 +5,7 @@
 # Удаление: bash install.sh --remove
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.0.1"
 REPO="sdgsdrgre56-sketch/csqtt"
 BIN=/usr/local/bin/pulsar
 CONF=/etc/pulsar

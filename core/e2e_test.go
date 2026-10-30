@@ -31,8 +31,20 @@ type fakeVK struct {
 	bwBps float64
 }
 
+var reqKinds sync.Map
+
 func (f *fakeVK) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.reqs.Add(1)
+	{
+		k := r.Method
+		if r.URL.RawQuery != "" {
+			k += " LIST " + r.URL.Query().Get("prefix")
+		} else if i := strings.LastIndex(r.URL.Path, "/"); i > 0 {
+			k += " " + r.URL.Path[:i]
+		}
+		v, _ := reqKinds.LoadOrStore(k, new(atomic.Int64))
+		v.(*atomic.Int64).Add(1)
+	}
 	p := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
 	key := ""
 	if len(p) == 2 {
