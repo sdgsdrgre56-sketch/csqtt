@@ -147,6 +147,11 @@ internal object MayakSyncAdmin {
             val sorted = entries.sortedBy { it.first }
             val current = sorted
                 .filter { (_, _, person) -> person.enabled && (person.expiresAt == 0L || person.expiresAt > now) }
+                // The same name twice on one server (made twice by mistake): one link per server,
+                // the one with the longest access (no end wins).
+                .groupBy { it.first }
+                .map { (_, onServer) -> onServer.maxBy { (_, _, p) -> if (p.expiresAt == 0L) Long.MAX_VALUE else p.expiresAt } }
+                .sortedBy { it.first }
                 .map { (number, host, person) ->
                     val port = if (person.dtlsPort in 1..65535) person.dtlsPort else CsqttConstants.Network.DEFAULT_SERVER_PEER_PORT
                     number to PanelApi.buildLink(
