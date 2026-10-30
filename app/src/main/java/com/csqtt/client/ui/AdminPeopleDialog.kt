@@ -69,6 +69,53 @@ private data class PersonOnServer(
 
 private val OnlineGreen = Color(0xFF43A047)
 
+/** A person who is missing on a server: created there by «Добавить всех на все серверы». */
+private data class MissingSeat(
+    val name: String,
+    val serverNumber: Int,
+    val server: PanelServer,
+    val peerPort: Int,
+    // 0 = no end date; otherwise whole days left, as on the person's other servers
+    val days: Int,
+)
+
+/**
+ * Who is missing where. People are matched by name, as everywhere in Mayak Admin. Only people
+ * who are switched on and not expired somewhere are copied, with the latest end date they have;
+ * a server whose panel did not answer is left out, so nobody is created twice there.
+ */
+private fun missingSeats(
+    servers: List<ServerPeople>,
+    profiles: List<com.csqtt.client.AdminPanelProfile>,
+    nowSeconds: Long = System.currentTimeMillis() / 1000L,
+): List<MissingSeat> {
+    val answered = servers.filter { it.people != null && it.server != null }
+    val answeredNumbers = answered.map { it.serverNumber }.toSet()
+    val byName = answered
+        .flatMap { server -> server.people.orEmpty().filter { !it.isMain }.map { server.serverNumber to it } }
+        .groupBy({ it.second.name }, { it })
+    val out = mutableListOf<MissingSeat>()
+    for ((name, entries) in byName) {
+        if (name.isBlank()) continue
+        val active = entries.map { it.second }.filter { it.enabled && (it.expiresAt <= 0L || it.expiresAt > nowSeconds) }
+        if (active.isEmpty()) continue
+        val days = if (active.any { it.expiresAt <= 0L }) {
+            0
+        } else {
+            accessDaysLeft(active.maxOf { it.expiresAt }, nowSeconds * 1000L).coerceIn(1, 3650)
+        }
+        val present = entries.map { it.first }.toSet()
+        for (profile in profiles) {
+            if (!profile.isConfigured) continue
+            val number = profile.index + 1
+            if (number in present || number !in answeredNumbers) continue
+            val server = answered.first { it.serverNumber == number }.server ?: continue
+            out += MissingSeat(name, number, server, profile.peerPort, days)
+        }
+    }
+    return out.sortedWith(compareBy({ it.name }, { it.serverNumber }))
+}
+
 /**
  * Asks the panel of every configured server who it knows and how many connections each person
  * has right now. Nothing on the servers is changed.
@@ -169,6 +216,86 @@ internal fun AdminPeopleDialog(
                 }) { Text("Отвязать") }
             },
             dismissButton = { TextButton(onClick = { confirmUnbindAll = false }) { Text("Отмена") } },
+        )
+    }
+
+    // ---- «Добавить всех на все серверы»: people created before a server was added ----
+    var fillPlan by remember { mutableStateOf<List<MissingSeat>?>(null) }
+    var fillReport by remember { mutableStateOf<String?>(null) }
+
+    fun planFill() {
+        if (busy) return
+        scope.launch {
+            val profiles = settingsStore.adminPanelProfiles(MayakConfig.ADMIN_SERVERS)
+            fillPlan = missingSeats(servers, profiles)
+        }
+    }
+
+    fun fill(plan: List<MissingSeat>) {
+        if (busy || plan.isEmpty()) return
+        busy = true
+        fillReport = null
+        scope.launch {
+            var created = 0
+            val failed = mutableListOf<String>()
+            try {
+                for (seat in plan) {
+                    try {
+                        PanelApi(context, seat.server).createClient(seat.name, seat.days, seat.peerPort)
+                        created += 1
+                    } catch (failure: kotlinx.coroutines.CancellationException) {
+                        throw failure
+                    } catch (failure: Exception) {
+                        failed += "${seat.name} (сервер ${seat.serverNumber})"
+                    }
+                }
+                val sent = when {
+                    created == 0 -> ""
+                    !com.csqtt.client.MayakSyncAdmin.canPublish(context) ->
+                        " Списки не разосланы: нет токена GitHub/Яндекса (Инфо → «Связь с людьми»)."
+                    else -> runCatching { com.csqtt.client.MayakSyncAdmin.publishPeople(context, settingsStore) }
+                        .fold({ " Списки серверов разосланы людям." }, { " Разослать не удалось: ${it.message ?: "ошибка"}." })
+                }
+                fillReport = (if (failed.isEmpty()) "Добавлено: $created." else "Добавлено: $created. Не получилось: ${failed.joinToString(", ")}.") + sent
+            } finally {
+                busy = false
+            }
+            refresh()
+        }
+    }
+
+    fillPlan?.let { plan ->
+        val people = plan.map { it.name }.distinct()
+        AlertDialog(
+            onDismissRequest = { fillPlan = null },
+            title = { Text(if (plan.isEmpty()) "Все уже на всех серверах" else "Добавить людей на серверы?") },
+            text = {
+                Text(
+                    if (plan.isEmpty()) {
+                        "Каждый включённый человек уже есть на всех серверах, которые ответили. Если какой-то сервер не ответил — нажми «Обновить» и попробуй снова."
+                    } else {
+                        "Людей: ${people.size}, новых мест: ${plan.size}.\n\n" +
+                            plan.groupBy { it.name }.entries.take(12).joinToString("\n") { (name, seats) ->
+                                "$name → сервер " + seats.joinToString(", ") { it.serverNumber.toString() }
+                            } +
+                            (if (people.size > 12) "\n…и ещё ${people.size - 12}" else "") +
+                            "\n\nСрок — как на других серверах человека. После этого списки серверов сразу разошлются людям, новые серверы появятся у них сами."
+                    }
+                )
+            },
+            confirmButton = {
+                if (plan.isNotEmpty()) {
+                    TextButton(onClick = {
+                        fillPlan = null
+                        fill(plan)
+                    }) { Text("Добавить") }
+                } else {
+                    TextButton(onClick = { fillPlan = null }) { Text("Понятно") }
+                }
+            },
+            dismissButton = {
+                if (plan.isNotEmpty()) TextButton(onClick = { fillPlan = null }) { Text("Отмена") }
+            },
         )
     }
 
@@ -282,6 +409,16 @@ internal fun AdminPeopleDialog(
                         Text("Отвязать телефоны у всех")
                     }
                     unbindReport?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                    OutlinedButton(
+                        onClick = { planFill() },
+                        enabled = !busy && servers.any { it.people != null },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Добавить всех на все серверы")
+                    }
+                    fillReport?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     }
                     servers.forEach { server -> ServerSection(server, onPerson = { selectedName = it.name }) }
