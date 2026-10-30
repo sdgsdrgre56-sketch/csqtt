@@ -1,0 +1,62 @@
+plugins {
+    id "com.android.application"
+}
+
+def buildNo = (System.getenv("PULSAR_BUILD") ?: "0") as int
+
+android {
+    namespace "ru.mayak.pulsar"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "ru.mayak.pulsar"
+        minSdk 26
+        targetSdk 35
+        versionCode 100 + buildNo
+        versionName "1.0." + buildNo
+    }
+
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a", "armeabi-v7a"
+            universalApk true
+        }
+    }
+
+    signingConfigs {
+        release {
+            def ks = System.getenv("ANDROID_KEYSTORE_FILE")
+            if (ks != null && !ks.isBlank()) {
+                storeFile file(ks)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        // ядро libpulsar.so запускается как программа — его нужно распаковать на диск
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+}
+
+dependencies {
+    implementation "com.google.zxing:core:3.5.3"
+}

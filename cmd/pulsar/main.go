@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -126,7 +127,14 @@ func client(args []string) {
 	socks := fs.String("socks", "127.0.0.1:10808", "адрес локального SOCKS5")
 	resolve := fs.String("resolve", "", "host=ip,ip;host2=ip — адреса облака (для Android)")
 	jsonStat := fs.Bool("json", false, "печатать состояние строкой JSON раз в секунду (stdout)")
+	stdinWatch := fs.Bool("stdin-watch", false, "выйти, когда закроется stdin (приложение-родитель завершилось)")
 	fs.Parse(args)
+	if *stdinWatch {
+		go func() {
+			io.Copy(io.Discard, os.Stdin)
+			os.Exit(0)
+		}()
+	}
 	l, err := core.ParseLink(*lk)
 	if err != nil {
 		fail("%v", err)
