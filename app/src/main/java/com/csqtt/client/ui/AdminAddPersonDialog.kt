@@ -81,7 +81,7 @@ private fun encodeQr(text: String): BitMatrix? = runCatching {
 }.getOrNull()
 
 @Composable
-private fun QrImage(text: String, modifier: Modifier = Modifier) {
+internal fun QrImage(text: String, modifier: Modifier = Modifier) {
     val matrix = remember(text) { encodeQr(text) }
     Box(
         modifier = modifier

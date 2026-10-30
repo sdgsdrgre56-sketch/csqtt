@@ -577,6 +577,50 @@ private fun PersonActionsDialog(
     var confirmDelete by remember { mutableStateOf(false) }
     val days = daysText.toIntOrNull()
     val anyEnabled = entries.any { it.person.enabled }
+    var showLink by remember { mutableStateOf(false) }
+    // The person's links to every server where they are on and not expired, in server order:
+    // the same passwords the server lists are published under, so lists reach this phone after.
+    val nowSeconds = System.currentTimeMillis() / 1000L
+    val combinedLinks = entries
+        .filter { it.person.enabled && (it.person.expiresAt <= 0L || it.person.expiresAt > nowSeconds) }
+        .sortedBy { it.serverNumber }
+        .joinToString("\n") { entry ->
+            val port = entry.person.dtlsPort.takeIf { it in 1..65535 }
+                ?: com.csqtt.client.CsqttConstants.Network.DEFAULT_SERVER_PEER_PORT
+            PanelApi.buildLink(entry.server.host, port, entry.person.password, entry.person.expiresAt)
+        }
+
+    if (showLink) {
+        val linkCount = combinedLinks.lines().count { it.isNotBlank() }
+        AlertDialog(
+            onDismissRequest = { showLink = false },
+            title = { Text("Ссылка: $name", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        "Серверов в ссылке: $linkCount. В Маяке человека: «Ссылка» → «Заменить ссылкой из буфера» " +
+                            "или «Сканировать QR-код». После этого рассылки списков будут доходить до него.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (linkCount > 0) QrImage(combinedLinks, Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        context.getSystemService(android.content.ClipboardManager::class.java)
+                            ?.setPrimaryClip(android.content.ClipData.newPlainText("Маяк", combinedLinks))
+                        android.widget.Toast.makeText(context, "Ссылка скопирована", android.widget.Toast.LENGTH_SHORT).show()
+                    },
+                    enabled = linkCount > 0,
+                ) { Text("Скопировать") }
+            },
+            dismissButton = { TextButton(onClick = { showLink = false }) { Text("Закрыть") } },
+        )
+    }
 
     fun run(action: PersonAction) {
         if (busy || entries.isEmpty()) return
@@ -666,6 +710,13 @@ private fun PersonActionsDialog(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(if (days == 0) "Сделать без срока" else "Продлить на ${days ?: 0} дн.")
+                }
+                Button(
+                    onClick = { showLink = true },
+                    enabled = !busy && combinedLinks.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Ссылка на все серверы")
                 }
                 OutlinedButton(
                     onClick = { run(PersonAction.UNBIND) },
