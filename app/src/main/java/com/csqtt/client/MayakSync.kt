@@ -118,6 +118,21 @@ internal object MayakSync {
     /** The current announcement the person has not closed yet, or null. */
     val announcement: StateFlow<Announcement?> = announcementState
 
+    private val serverStatusState = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+
+    /** host -> did the server answer the admin at the last mailout (green/red number). */
+    val serverStatus: StateFlow<Map<String, Boolean>> = serverStatusState
+
+    /** Loads the remembered server status (set by [syncClient]); safe to call on screen open. */
+    fun loadServerStatus(context: Context) {
+        val raw = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("server_status", null) ?: return
+        runCatching {
+            val up = JSONObject(raw).optJSONObject("up") ?: return
+            serverStatusState.value = up.keys().asSequence().associateWith { up.optBoolean(it) }
+        }
+    }
+
     private val clientLock = Mutex()
 
     fun loadAnnouncement(context: Context) {
@@ -160,6 +175,15 @@ internal object MayakSync {
                     }
                 }
                 loadAnnouncement(appContext)
+
+                (fetchText("$RAW_BASE/status.json") ?: MayakYandex.fetchText("status.json"))?.let { text ->
+                    runCatching {
+                        // Keep only a well-formed {"up": {...}} so a bad file never wipes the colours.
+                        JSONObject(text).optJSONObject("up") ?: return@runCatching
+                        prefs.edit().putString("server_status", text).apply()
+                    }
+                }
+                loadServerStatus(appContext)
 
                 if (!store.csqttLinkMode.first()) return@withContext
                 val links = store.csqttLinks.first()

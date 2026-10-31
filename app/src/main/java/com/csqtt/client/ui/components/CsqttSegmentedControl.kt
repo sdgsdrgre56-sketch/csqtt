@@ -38,6 +38,8 @@ fun <T> CsqttSegmentedControl(
     showCheck: Boolean = true,
     // Mayak Admin: small second line under a label (the server's ping), by option value.
     subLabels: Map<T, String> = emptyMap(),
+    // Mayak: colour of a label (green = server answers, red = it does not), by option value.
+    labelColors: Map<T, androidx.compose.ui.graphics.Color> = emptyMap(),
 ) {
     Row(
         modifier = modifier
@@ -61,6 +63,10 @@ fun <T> CsqttSegmentedControl(
                         onClick = { onSelected(value) },
                     ),
             ) {
+                // Status colour (green/red) is shown on every server except the selected one, whose
+                // background already highlights it and can be low-contrast for coloured text.
+                val labelColor = if (isSelected) androidx.compose.ui.graphics.Color.Unspecified
+                    else labelColors[value] ?: androidx.compose.ui.graphics.Color.Unspecified
                 val subLabel = subLabels[value]
                 if (subLabels.isNotEmpty()) {
                     androidx.compose.foundation.layout.Column(
@@ -68,7 +74,7 @@ fun <T> CsqttSegmentedControl(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
-                        Text(text = label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                        Text(text = label, style = MaterialTheme.typography.labelMedium, maxLines = 1, color = labelColor)
                         Text(
                             text = subLabel ?: " ",
                             style = MaterialTheme.typography.labelSmall,
@@ -92,7 +98,7 @@ fun <T> CsqttSegmentedControl(
                         )
                         androidx.compose.foundation.layout.Spacer(Modifier.width(CsqttSpacing.Xxs))
                     }
-                    Text(text = label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    Text(text = label, style = MaterialTheme.typography.labelMedium, maxLines = 1, color = labelColor)
                 }
             }
         }

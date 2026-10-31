@@ -194,6 +194,9 @@ internal fun SettingsTabContent(
     val storedLinkIndex by settingsStore.csqttLinkIndex.collectAsStateWithLifecycle(initialValue = 0)
     // Client edition: several links (one per server) are shown as a summary, not as an editable field.
     val multiServerLinks = MayakConfig.SIMPLE_UI && storedLinks.size > 1
+    // Green/red server number: which servers answered the admin at the last mailout (by host).
+    val serverStatus by com.csqtt.client.MayakSync.serverStatus.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { com.csqtt.client.MayakSync.loadServerStatus(context) }
 
     /** Saves every csqtt:// link found in pasted or scanned text; false when there is none. */
     fun applyLinksText(text: String): Boolean {
@@ -591,6 +594,12 @@ internal fun SettingsTabContent(
                             onSelected = { index -> scope.launch { settingsStore.selectCsqttLink(index) } },
                             enabled = !tunnelRunning,
                             flags = linkFlags,
+                            numberColors = storedLinks.mapIndexedNotNull { index, link ->
+                                val host = parseCsqttLink(link)?.host ?: return@mapIndexedNotNull null
+                                serverStatus[host]?.let { up ->
+                                    index to (if (up) com.csqtt.client.ui.components.ServerAnswersGreen else com.csqtt.client.ui.components.ServerDownRed)
+                                }
+                            }.toMap(),
                             modifier = Modifier.padding(bottom = if (tunnelRunning) 4.dp else 12.dp),
                         )
                         if (tunnelRunning) {

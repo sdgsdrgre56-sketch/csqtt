@@ -378,6 +378,10 @@ internal fun ConnectionTab(
                 flags = adminServerFlags,
                 // Ping from this phone to each server, under its flag.
                 pings = com.csqtt.client.ui.components.ServerPings.pings.toMap(),
+                // Green number when the server answers, red when it does not.
+                numberColors = com.csqtt.client.ui.components.ServerPings.pings.toMap()
+                    .mapNotNull { (index, status) -> com.csqtt.client.ui.components.serverStatusColor(status)?.let { index to it } }
+                    .toMap(),
                 selected = tunnelAuthSettings.profile,
                 onSelected = { profile ->
                     scope.launch { settingsStore.saveActiveProfile(profile) }

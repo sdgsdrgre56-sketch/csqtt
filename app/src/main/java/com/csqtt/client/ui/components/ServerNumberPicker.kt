@@ -23,9 +23,24 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import com.csqtt.client.ServerFlags
 import kotlinx.coroutines.launch
 import com.csqtt.client.SettingsStore
+
+/** Green when a server answers, red when it does not. */
+val ServerAnswersGreen = Color(0xFF43A047)
+val ServerDownRed = Color(0xFFE53935)
+
+/**
+ * Colour for a server's number from its reachability text ("45 мс" = answers → green,
+ * "нет" = does not → red). While it is unknown or being measured ("…") there is no colour.
+ */
+fun serverStatusColor(status: String?): Color? = when {
+    status.isNullOrBlank() || status == "…" -> null
+    status == "нет" -> ServerDownRed
+    else -> ServerAnswersGreen
+}
 
 @Composable
 fun ServerNumberPicker(
@@ -38,6 +53,8 @@ fun ServerNumberPicker(
     perRow: Int = 5,
     // Mayak Admin: "45 мс" under each server's flag; empty map shows none.
     pings: Map<Int, String> = emptyMap(),
+    // Mayak: colour of a server's number (green = answers, red = does not), by index.
+    numberColors: Map<Int, androidx.compose.ui.graphics.Color> = emptyMap(),
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -56,6 +73,7 @@ fun ServerNumberPicker(
                 // The colour already shows the chosen server; the check mark would not leave room for the flag.
                 showCheck = flags.isEmpty(),
                 subLabels = if (pings.isEmpty()) emptyMap() else row.associateWith { pings[it].orEmpty() },
+                labelColors = if (numberColors.isEmpty()) emptyMap() else row.mapNotNull { idx -> numberColors[idx]?.let { idx to it } }.toMap(),
             )
         }
     }

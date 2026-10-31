@@ -109,32 +109,89 @@ internal object MayakSyncAdmin {
         val token = token(context)
         val yandex = yandex(context)
         if (token == null && yandex == null) throw SyncException("Сначала вставь токен GitHub или токен Яндекс Диска")
-        val problems = mutableListOf<String>()
-        // name -> list of (server number, host, person)
-        val byName = linkedMapOf<String, MutableList<Triple<Int, String, PanelPerson>>>()
-        // host -> server number of servers whose panel did not answer this time
-        val silent = linkedMapOf<String, Int>()
+        val configured = store.adminPanelProfiles(MayakConfig.ADMIN_SERVERS).filter { it.isConfigured }
         // server number -> the admin's note about it, carried inside each link
         val notes = (0 until MayakConfig.ADMIN_SERVERS).associate { it + 1 to runCatching { store.serverNote(it) }.getOrDefault("") }
-        for (profile in store.adminPanelProfiles(MayakConfig.ADMIN_SERVERS)) {
-            if (!profile.isConfigured) continue
-            val number = profile.index + 1
-            val people = try {
-                PanelApi(context, PanelServer(profile.host, profile.webPort, profile.webLogin, profile.webPassword))
-                    .listPeople()
-            } catch (failure: kotlinx.coroutines.CancellationException) {
-                throw failure
-            } catch (failure: Exception) {
-                // One server that is down or answers nonsense must not stop the lists for everyone else.
-                problems += "сервер $number: ${failure.message ?: "не отвечает"} — у людей он остаётся как был"
-                silent[profile.host] = number
-                continue
+
+        // One server that answered its panel: its number, address and current people.
+        data class Answered(val number: Int, val host: String, val peerPort: Int, val server: PanelServer, val people: List<PanelPerson>)
+        // Everything one round of asking the panels gives us.
+        data class Collected(
+            val byName: LinkedHashMap<String, MutableList<Triple<Int, String, PanelPerson>>>,
+            val silent: LinkedHashMap<String, Int>,
+            val answered: List<Answered>,
+            val problems: List<String>,
+        )
+
+        // Asks every configured server who it knows (people are matched by name). A server that does
+        // not answer is remembered as "silent" so its links are carried over and nobody is created on it.
+        suspend fun collect(): Collected {
+            val byName = linkedMapOf<String, MutableList<Triple<Int, String, PanelPerson>>>()
+            val silent = linkedMapOf<String, Int>()
+            val answered = mutableListOf<Answered>()
+            val problems = mutableListOf<String>()
+            for (profile in configured) {
+                val number = profile.index + 1
+                val server = PanelServer(profile.host, profile.webPort, profile.webLogin, profile.webPassword)
+                val people = try {
+                    PanelApi(context, server).listPeople()
+                } catch (failure: kotlinx.coroutines.CancellationException) {
+                    throw failure
+                } catch (failure: Exception) {
+                    // One server that is down or answers nonsense must not stop the lists for everyone else.
+                    problems += "сервер $number: ${failure.message ?: "не отвечает"} — у людей он остаётся как был"
+                    silent[profile.host] = number
+                    continue
+                }
+                answered += Answered(number, profile.host, profile.peerPort, server, people)
+                for (person in people) {
+                    if (person.isMain || person.password.isBlank()) continue
+                    byName.getOrPut(person.name) { mutableListOf() } += Triple(number, profile.host, person)
+                }
             }
-            for (person in people) {
-                if (person.isMain || person.password.isBlank()) continue
-                byName.getOrPut(person.name) { mutableListOf() } += Triple(number, profile.host, person)
-            }
+            return Collected(byName, silent, answered, problems)
         }
+
+        var collected = collect()
+
+        // Convenience: before sending the lists, put every active person on every server that answered,
+        // so a server just added in the panel reaches all phones after one "Разослать" — without new links.
+        // Only people switched on and not expired are copied, each with the latest end date they have;
+        // silent servers are never created on, so nobody is made twice.
+        val fillProblems = mutableListOf<String>()
+        run {
+            val nowSeconds = System.currentTimeMillis() / 1000L
+            // (server, person name, days left) for every seat that is missing right now.
+            val seats = mutableListOf<Triple<Answered, String, Int>>()
+            for ((name, entries) in collected.byName) {
+                if (name.isBlank()) continue
+                val active = entries.map { it.third }.filter { it.enabled && (it.expiresAt <= 0L || it.expiresAt > nowSeconds) }
+                if (active.isEmpty()) continue
+                val days = if (active.any { it.expiresAt <= 0L }) 0
+                    else (((active.maxOf { it.expiresAt } - nowSeconds) + 86_399L) / 86_400L).toInt().coerceIn(1, 3650)
+                val present = entries.map { it.first }.toSet()
+                for (srv in collected.answered) {
+                    if (srv.number !in present) seats += Triple(srv, name, days)
+                }
+            }
+            var created = 0
+            for ((srv, name, days) in seats) {
+                try {
+                    PanelApi(context, srv.server).createClient(name, days, srv.peerPort)
+                    created += 1
+                } catch (failure: kotlinx.coroutines.CancellationException) {
+                    throw failure
+                } catch (failure: Exception) {
+                    fillProblems += "сервер ${srv.number}: не добавить $name (${failure.message ?: "ошибка"})"
+                }
+            }
+            // Re-ask the panels only if we actually added someone, so the new seats get into the lists.
+            if (created > 0) collected = collect()
+        }
+
+        val problems = (collected.problems + fillProblems).toMutableList()
+        val byName = collected.byName
+        val silent = collected.silent
         if (byName.isEmpty() && problems.isNotEmpty()) {
             throw SyncException("Серверы не ответили: " + problems.joinToString("; "))
         }
@@ -213,6 +270,18 @@ internal object MayakSyncAdmin {
         }
         if (githubProblems.isNotEmpty()) problems += "GitHub: " + githubProblems.joinToString("; ")
         if (yandexProblems.isNotEmpty()) problems += "Яндекс Диск: " + yandexProblems.joinToString("; ")
+
+        // Which servers answered their panel, for the green/red number in people's Mayak. Public (not
+        // secret): just host -> true/false. A snapshot as of this "Разослать".
+        runCatching {
+            val up = JSONObject()
+            for (srv in collected.answered) up.put(srv.host, true)
+            for ((host, _) in collected.silent) up.put(host, false)
+            val statusBody = JSONObject().put("updated", now).put("up", up).toString()
+            if (token != null) runCatching { putFile(token, "status.json", statusBody, "Статус серверов") }
+            if (yandex != null) runCatching { MayakYandex.putText(yandex, "status.json", statusBody) }
+        }
+
         PublishResult(people = byName.size, changedFiles = changed, problems = problems)
     }
 
