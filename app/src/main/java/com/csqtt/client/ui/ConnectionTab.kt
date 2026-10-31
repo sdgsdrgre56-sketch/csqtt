@@ -314,6 +314,100 @@ internal fun ConnectionTab(
         )
     }
 
+    // Mayak: «Первый рабочий». Tries the person's servers one by one — those that answered the admin
+    // at the last mailout first, then unknown ones, the silent ones last — through the same start as a
+    // tap on the lighthouse, until one really passes traffic. Nobody has to guess which server works.
+    val serverStatus by com.csqtt.client.MayakSync.serverStatus.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { com.csqtt.client.MayakSync.loadServerStatus(context) }
+    var firstWorkingJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var firstWorkingText by remember { mutableStateOf("") }
+    LaunchedEffect(tunnelRunning) {
+        if (tunnelRunning && firstWorkingJob == null) firstWorkingText = ""
+    }
+
+    fun stopTunnelNow() {
+        context.startService(Intent(context, TunnelService::class.java).apply { action = "STOP" })
+    }
+
+    fun cancelFirstWorking() {
+        firstWorkingJob?.cancel()
+        firstWorkingJob = null
+        firstWorkingText = ""
+        if (TunnelManager.running.value || TunnelManager.starting.value) stopTunnelNow()
+    }
+
+    fun startFirstWorking() {
+        if (firstWorkingJob != null) {
+            cancelFirstWorking()
+            return
+        }
+        if (tunnelRunning || tunnelStarting || tunnelStopping || autoPausedForWifi) return
+        // A broken setup or a missing VPN permission goes the usual way of a tap on the lighthouse
+        // (the person sees the same message or the system dialog).
+        if (!isValid || VpnService.prepare(context) != null) {
+            toggleTunnel()
+            return
+        }
+        val links = storedLinks
+        if (links.isEmpty()) return
+        val hosts = links.map { parseCsqttLink(it)?.host.orEmpty() }
+        val order = links.indices.sortedBy { index ->
+            when (serverStatus[hosts[index]]) {
+                true -> 0
+                null -> 1
+                false -> 2
+            }
+        }
+        firstWorkingJob = scope.launch {
+            try {
+                for ((tried, index) in order.withIndex()) {
+                    firstWorkingText = "Пробую сервер ${index + 1} · ${tried + 1} из ${order.size}"
+                    // The previous try must be fully off (and past its cooldown) before the next start.
+                    kotlinx.coroutines.withTimeoutOrNull(15_000) {
+                        kotlinx.coroutines.flow.combine(
+                            TunnelManager.running,
+                            TunnelManager.starting,
+                            TunnelManager.stopping,
+                            TunnelManager.cooldownActive,
+                        ) { running, starting, stopping, cooldown -> !running && !starting && !stopping && !cooldown }
+                            .first { it }
+                    }
+                    settingsStore.selectCsqttLink(index)
+                    startTunnelService()
+                    // Wait for the start to register…
+                    val began = kotlinx.coroutines.withTimeoutOrNull(8_000) {
+                        kotlinx.coroutines.flow.combine(TunnelManager.running, TunnelManager.starting) { running, starting ->
+                            running || starting
+                        }.first { it }
+                    } != null
+                    if (!began) continue
+                    // …then for traffic, or for the tunnel to give up on this server by itself.
+                    val works = kotlinx.coroutines.withTimeoutOrNull(FIRST_WORKING_WAIT_MS) {
+                        kotlinx.coroutines.flow.combine(
+                            TunnelManager.activeWorkers,
+                            TunnelManager.running,
+                            TunnelManager.starting,
+                        ) { workers, running, starting ->
+                            when {
+                                workers > 0 -> true
+                                !running && !starting -> false
+                                else -> null
+                            }
+                        }.first { it != null }
+                    } == true
+                    if (works) {
+                        firstWorkingText = ""
+                        return@launch
+                    }
+                    if (TunnelManager.running.value || TunnelManager.starting.value) stopTunnelNow()
+                }
+                firstWorkingText = "Ни один сервер не ответил. Проверьте интернет и попробуйте ещё раз"
+            } finally {
+                firstWorkingJob = null
+            }
+        }
+    }
+
     if (MayakConfig.SIMPLE_UI) {
         CsqttScreen {
             Box(
@@ -333,7 +427,8 @@ internal fun ConnectionTab(
                     maxWorkers = WorkerCountPolicy.maximumForHashes(
                         if (linkHashes.isNotEmpty()) linkHashes.size else manualHashes.size,
                     ).coerceAtMost(MayakConfig.MAX_WORKERS),
-                    onToggleTunnel = { toggleTunnel() },
+                    // A tap on the lighthouse during «Первый рабочий» stops the search.
+                    onToggleTunnel = { if (firstWorkingJob != null) cancelFirstWorking() else toggleTunnel() },
                     onWorkersChange = { value ->
                         scope.launch { settingsStore.saveWorkersPerHash(value) }
                     },
@@ -348,6 +443,9 @@ internal fun ConnectionTab(
                     serverNote = loadedCsqttLink?.let { parseCsqttLink(it)?.note }.orEmpty(),
                     serverHost = loadedCsqttLink?.let { parseCsqttLink(it)?.host }.orEmpty(),
                     serverCountry = loadedCsqttLink?.let { parseCsqttLink(it)?.country }.orEmpty(),
+                    onFirstWorking = { startFirstWorking() },
+                    firstWorkingActive = firstWorkingJob != null,
+                    firstWorkingText = firstWorkingText,
                 )
             }
         }
@@ -682,3 +780,6 @@ private fun formatRate(value: Double): String = when {
     value < 10.0 -> String.format(Locale.US, "%.1f/с", value)
     else -> String.format(Locale.US, "%.0f/с", value)
 }
+
+/** «Первый рабочий»: how long one server may take to pass traffic before the next one is tried. */
+private const val FIRST_WORKING_WAIT_MS = 20_000L

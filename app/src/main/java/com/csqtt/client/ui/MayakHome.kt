@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -612,6 +614,11 @@ internal fun MayakHome(
     // Mayak: host of the current server, for its country flag under the lighthouse.
     serverHost: String = "",
     serverCountry: String = "",
+    // Mayak: «Первый рабочий» under «Проверка связи» — tries the servers until one works; null hides it.
+    onFirstWorking: (() -> Unit)? = null,
+    firstWorkingActive: Boolean = false,
+    // Progress or result of that search ("Пробую сервер 3 · 2 из 7"), "" when there is nothing to say.
+    firstWorkingText: String = "",
 ) {
     if (linkReady == null) {
         Box(modifier = Modifier.fillMaxSize())
@@ -706,6 +713,38 @@ internal fun MayakHome(
                         settingsStore = null,
                         hashNotice = hashNotice,
                         hashesKnown = hashesKnown,
+                    )
+                }
+                // Shown while switched off with more than one server, and during its own search
+                // (then it stops the search). Same yellow as the selected speed chip.
+                val showFirstWorking = onFirstWorking != null && (
+                    firstWorkingActive ||
+                        (!tunnelRunning && !isStarting && !tunnelStopping && !autoPausedForWifi && serverCount > 1)
+                    )
+                if (showFirstWorking && onFirstWorking != null) {
+                    Button(
+                        onClick = onFirstWorking,
+                        shape = RoundedCornerShape(50),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 22.dp, vertical = 8.dp),
+                    ) {
+                        androidx.compose.material3.Icon(
+                            imageVector = Icons.Rounded.FlashOn,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        androidx.compose.foundation.layout.Spacer(Modifier.size(6.dp))
+                        Text(
+                            text = if (firstWorkingActive) "Остановить поиск" else "Первый рабочий",
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+                if (firstWorkingText.isNotEmpty()) {
+                    Text(
+                        text = firstWorkingText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
                     )
                 }
                 if (serverCount > 1 && serverPosition > 0) {
