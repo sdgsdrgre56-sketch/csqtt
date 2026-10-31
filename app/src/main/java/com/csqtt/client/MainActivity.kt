@@ -318,6 +318,22 @@ fun MainScreen(
     val updateAvailable by MayakUpdateState.available.collectAsStateWithLifecycle()
     var installingRelease by remember { mutableStateOf<AppReleaseInfo?>(null) }
     val currentVersion = remember { "v${BuildConfig.VERSION_NAME.removePrefix("v")}" }
+
+    // Mayak: the admin made a newer build obligatory ("force.json"). While this phone is older and a
+    // newer people's APK exists, a window without «Позже» is shown. If the install is cancelled, it
+    // comes back when the download window closes. It never loops: with nothing newer it stays hidden.
+    val requiredBuild by MayakSync.requiredBuild.collectAsStateWithLifecycle()
+    var forcedRelease by remember { mutableStateOf<AppReleaseInfo?>(null) }
+    LaunchedEffect(Unit) { MayakSync.loadRequiredBuild(context) }
+    LaunchedEffect(requiredBuild, installingRelease == null) {
+        if (!MayakConfig.SIMPLE_UI || installingRelease != null) return@LaunchedEffect
+        if (requiredBuild <= localBuildNumber()) {
+            forcedRelease = null
+            return@LaunchedEffect
+        }
+        val release = runCatching { fetchMayakRelease() }.getOrNull()
+        forcedRelease = release?.takeIf { it.source == RemoteVersionSource.Release && isMayakUpdate(it) }
+    }
     val safeBottomInset = with(density) { WindowInsets.safeDrawing.getBottom(density).toDp() }
     val navToolbarHeight = 66.dp
     val navToolbarBottomMargin = 10.dp
@@ -586,6 +602,21 @@ fun MainScreen(
         com.csqtt.client.ui.MayakUpdateProgressDialog(release = release, onClose = { installingRelease = null })
     }
     com.csqtt.client.ui.MayakUpdatedNotice()
+
+    if (installingRelease == null) {
+        forcedRelease?.let { release ->
+            AppUpdateDialog(
+                release = release,
+                forced = true,
+                onPostpone = {},
+                onUpdate = {
+                    forcedRelease = null
+                    // The "Обновляюсь…" window downloads and installs, with a progress bar.
+                    installingRelease = release
+                },
+            )
+        }
+    }
 
     pendingRelease?.let { release ->
         AppUpdateDialog(

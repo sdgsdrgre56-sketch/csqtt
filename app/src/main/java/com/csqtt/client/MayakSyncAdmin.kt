@@ -98,6 +98,44 @@ internal object MayakSyncAdmin {
         }
     }
 
+    /**
+     * Makes every people's Mayak older than [build] show a "Нужно обновить Маяк" window without
+     * «Позже» until the newer build is installed; 0 turns it off. Written like the announcement.
+     */
+    suspend fun publishRequiredBuild(context: Context, build: Int): String = withContext(Dispatchers.IO) {
+        val token = token(context)
+        val yandex = yandex(context)
+        if (token == null && yandex == null) throw SyncException("Сначала вставь токен GitHub или токен Яндекс Диска")
+        val body = JSONObject()
+            .put("min_build", build.coerceAtLeast(0))
+            .put("set", System.currentTimeMillis() / 1000L)
+            .toString()
+        val done = mutableListOf<String>()
+        val failed = mutableListOf<String>()
+        if (token != null) {
+            try {
+                putFile(token, "force.json", body, if (build > 0) "Обязательное обновление до $build" else "Снять обязательное обновление")
+                done += "GitHub"
+            } catch (failure: SyncException) {
+                failed += "GitHub: ${failure.message}"
+            }
+        }
+        if (yandex != null) {
+            try {
+                MayakYandex.putText(yandex, "force.json", body)
+                done += "Яндекс Диск"
+            } catch (failure: MayakYandex.WriteException) {
+                failed += "Яндекс Диск: ${failure.message}"
+            }
+        }
+        if (done.isEmpty()) throw SyncException(failed.joinToString("; "))
+        buildString {
+            append(if (build > 0) "Всем с Маяком старее сборки $build придётся обновиться" else "Обязательное обновление снято")
+            append(" (${done.joinToString(", ")}).")
+            if (failed.isNotEmpty()) append(" Не получилось: ${failed.joinToString("; ")}")
+        }
+    }
+
     data class PublishResult(val people: Int, val changedFiles: Int, val problems: List<String>)
 
     /**

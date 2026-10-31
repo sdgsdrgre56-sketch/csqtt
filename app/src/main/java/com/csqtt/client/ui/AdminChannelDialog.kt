@@ -242,6 +242,34 @@ internal fun AdminChannelDialog(
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
+                    // --- obligatory update for people ---
+                    val ownBuild = remember { com.csqtt.client.localBuildNumber() }
+                    Text("Обновление у людей", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = "У тебя сборка $ownBuild. Кнопка заставит всех, у кого Маяк старее, обновиться: " +
+                            "у них откроется окно без «Позже», пока не поставят новую версию.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(
+                            onClick = {
+                                launchTask { MayakSyncAdmin.publishRequiredBuild(context, ownBuild) }
+                            },
+                            enabled = !busy && canPublish && ownBuild > 0,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Обязать до $ownBuild") }
+                        OutlinedButton(
+                            onClick = {
+                                launchTask { MayakSyncAdmin.publishRequiredBuild(context, 0) }
+                            },
+                            enabled = !busy && canPublish,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Снять") }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
                     // --- server lists ---
                     Text("Списки серверов", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(

@@ -133,6 +133,17 @@ internal object MayakSync {
         }
     }
 
+    private val requiredBuildState = MutableStateFlow(0)
+
+    /** Build the admin made obligatory for people's Mayak ("force.json"); 0 when there is none. */
+    val requiredBuild: StateFlow<Int> = requiredBuildState
+
+    /** Loads the remembered obligatory build (set by [syncClient]). */
+    fun loadRequiredBuild(context: Context) {
+        requiredBuildState.value = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt("required_build", 0)
+    }
+
     private val clientLock = Mutex()
 
     fun loadAnnouncement(context: Context) {
@@ -185,19 +196,41 @@ internal object MayakSync {
                 }
                 loadServerStatus(appContext)
 
+                // Obligatory update set by the admin. A missing file keeps what was known before.
+                (fetchText("$RAW_BASE/force.json") ?: MayakYandex.fetchText("force.json"))?.let { text ->
+                    runCatching {
+                        val build = JSONObject(text).optInt("min_build", -1)
+                        if (build >= 0) prefs.edit().putInt("required_build", build).apply()
+                    }
+                }
+                loadRequiredBuild(appContext)
+
                 if (!store.csqttLinkMode.first()) return@withContext
                 val links = store.csqttLinks.first()
                 val lastApplied = prefs.getLong("list_updated", 0L)
+                // Several links may be looked at now (old files are skipped), so the walk is bounded,
+                // and GitHub is not asked again in this round once it failed on the network.
+                val deadline = System.currentTimeMillis() + 30_000L
+                var githubDown = false
                 for (link in links) {
+                    if (System.currentTimeMillis() > deadline) break
                     val password = parseCsqttLink(link)?.password ?: continue
                     // GitHub first, then the same file on the owner's Yandex Disk (mobile whitelists).
-                    val text = fetchText("$RAW_BASE/${filePath(password)}")
+                    var fromGithub: String? = null
+                    if (!githubDown) {
+                        fromGithub = fetchText("$RAW_BASE/${filePath(password)}")
+                        if (fromGithub == null && lastFetchNetworkError) githubDown = true
+                    }
+                    val text = fromGithub
                         ?: MayakYandex.fetchText(yandexPersonFile(password))
                         ?: continue
                     val list = decrypt(text, password)?.let(::decodeList) ?: continue
-                    if (list.updated <= lastApplied) break
+                    // An old file must not stop the search: when a person was deleted and created again on
+                    // one server, the file of that old password is never rewritten, while the files of the
+                    // other links already hold the new list. So skip it and look at the next link.
+                    if (list.updated <= lastApplied) continue
                     val fresh = withCarriedHashes(list.links.filter { parseCsqttLink(it) != null }, links)
-                    if (fresh.isEmpty()) break
+                    if (fresh.isEmpty()) continue
                     if (fresh != links) {
                         store.replaceCsqttLinksKeepingServer(fresh)
                         Log.i(LOG_TAG, "Sync: server list updated (${links.size} -> ${fresh.size})")
@@ -219,6 +252,10 @@ internal object MayakSync {
         }
     }
 
+    /** True when the last [fetchText] failed on the network (not a mere "no such file"). */
+    @Volatile
+    private var lastFetchNetworkError = false
+
     private fun fetchText(url: String): String? {
         var connection: HttpURLConnection? = null
         return try {
@@ -228,12 +265,15 @@ internal object MayakSync {
                 setRequestProperty("User-Agent", "Mayak/${BuildConfig.VERSION_NAME}")
                 setRequestProperty("Cache-Control", "no-cache")
             }
-            if (connection.responseCode == 200) {
+            val code = connection.responseCode
+            lastFetchNetworkError = false
+            if (code == 200) {
                 connection.inputStream.bufferedReader().use { it.readText() }.take(64 * 1024)
             } else {
                 null
             }
         } catch (e: Exception) {
+            lastFetchNetworkError = true
             null
         } finally {
             connection?.disconnect()

@@ -37,11 +37,19 @@ import com.csqtt.client.ui.design.CsqttShapes
 fun AppUpdateDialog(
     release: AppReleaseInfo,
     onPostpone: () -> Unit,
-    onUpdate: () -> Unit
+    onUpdate: () -> Unit,
+    // Mayak: the admin made this update obligatory — no «Позже», the window stays until it is installed.
+    forced: Boolean = false,
 ) {
     val isTagOnly = release.source == RemoteVersionSource.Tag
-    val title = if (isTagOnly) "Найден новый tag" else "Доступно обновление"
-    val description = if (isTagOnly) {
+    val title = when {
+        forced -> "Нужно обновить Маяк"
+        isTagOnly -> "Найден новый tag"
+        else -> "Доступно обновление"
+    }
+    val description = if (forced) {
+        "Без новой версии ${release.versionTag} Маяк может перестать работать. Нажми «Обновить» — скачается и поставится сама, останется только подтвердить установку."
+    } else if (isTagOnly) {
         "Антоха опять что-то придумал или сломал 🤣 Появился новый билд ${release.versionTag}, но APK ещё собирается — попробуй чуть позже."
     } else {
         "Антоха опять что-то придумал или сломал 🤣 Вышла новая версия ${release.versionTag}. Нажми «Обновить» — скачается и поставится сама."
@@ -125,14 +133,16 @@ fun AppUpdateDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    OutlinedButton(
-                        onClick = onPostpone,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(50.dp),
-                        shape = CsqttShapes.Pill
-                    ) {
-                        Text("Позже", fontWeight = FontWeight.SemiBold)
+                    if (!forced) {
+                        OutlinedButton(
+                            onClick = onPostpone,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp),
+                            shape = CsqttShapes.Pill
+                        ) {
+                            Text("Позже", fontWeight = FontWeight.SemiBold)
+                        }
                     }
 
                     Button(
