@@ -455,15 +455,18 @@ object TunnelManager {
                     failoverStreak = 0
                     failoverJob?.cancel()
                     failoverJob = null
-                    // Mayak: the tunnel works, so GitHub is reachable; check for a newer server
-                    // list and announcement each time Mayak connects (see MayakSync).
+                    // Mayak: the tunnel is up, so GitHub and Yandex are reachable through it even
+                    // when the phone could not reach them directly (mobile whitelists, no Wi-Fi).
+                    // Pull the server list with force=true so the 2-minute throttle, which a failed
+                    // direct check at app open may have just armed, does not skip this through-tunnel
+                    // fetch. So connecting to any working server pulls new servers by itself.
                     if (MayakConfig.SIMPLE_UI && !syncedThisConnection && syncJob?.isActive != true) {
                         syncedThisConnection = true
                         val ctx = activeContext()?.applicationContext
                         val store = activeSettingsStore
                         if (ctx != null && store != null) {
                             syncJob = activeScope.launch {
-                                runCatching { MayakSync.syncClient(ctx, store) }
+                                runCatching { MayakSync.syncClient(ctx, store, force = true) }
                                 MayakNotices.remindAccessEnding(ctx, store)
                             }
                         }
