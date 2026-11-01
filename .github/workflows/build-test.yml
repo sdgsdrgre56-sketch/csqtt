@@ -1,0 +1,415 @@
+name: Build TEST APK
+
+# TEST channel: the same build as "Build APK", but only for the owner.
+# - runs on pushes to the "test" branch only;
+# - publishes a release tagged "test-N-R": people's Mayak only takes "build-N" releases, so it never
+#   sees these, and nothing is copied to Yandex Disk;
+# - versionCode = the newest production build, so the test APK installs over the working Mayak,
+#   and the next production build updates it as usual.
+
+on:
+  push:
+    branches: [test]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Native client (${{ matrix.abi }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: arm64-v8a
+            triple: aarch64-linux-android
+          - abi: armeabi-v7a
+            triple: armv7-linux-androideabi
+          - abi: x86_64
+            triple: x86_64-linux-android
+    steps:
+      - uses: actions/checkout@v7
+
+      # The native client only changes when rust-client/ changes, so reuse the
+      # previously built library instead of compiling it again on every push.
+      - id: libcache
+        uses: actions/cache@v5
+        with:
+          path: out
+          key: libclient-${{ matrix.abi }}-${{ hashFiles('rust-client/**') }}
+
+      - uses: dtolnay/rust-toolchain@master
+        if: steps.libcache.outputs.cache-hit != 'true'
+        with:
+          toolchain: 1.97.1
+          targets: ${{ matrix.triple }}
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.libcache.outputs.cache-hit != 'true'
+        with:
+          workspaces: rust-client -> ../build/native
+          key: ${{ matrix.abi }}
+
+      - name: Install build tools
+        if: steps.libcache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake
+          cargo install cargo-ndk --locked
+
+      - name: Locate Android NDK
+        if: steps.libcache.outputs.cache-hit != 'true'
+        run: |
+          ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
+          if [ -z "$ndk" ] || [ ! -d "$ndk" ]; then
+            ndk=$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          fi
+          test -d "$ndk"
+          echo "Using NDK: $ndk"
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ndk" >> "$GITHUB_ENV"
+
+      - name: Build libclient.so
+        if: steps.libcache.outputs.cache-hit != 'true'
+        working-directory: rust-client
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/build/native
+        run: |
+          set -o pipefail
+          if ! cargo +1.97.1 ndk -t ${{ matrix.abi }} -P 26 build --release --locked 2>&1 | tee "$RUNNER_TEMP/native-build.log"; then
+            # Job logs are not readable from the outside, so surface the compiler errors as an annotation.
+            body=$(grep -v '^ *Compiling \|^ *Downloaded \|^ *Downloading ' "$RUNNER_TEMP/native-build.log" | grep -A16 '^error' | head -n 90 | cut -c1-220 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=Native build failed (${{ matrix.abi }})::$body"
+            exit 1
+          fi
+
+      - name: Collect library
+        if: steps.libcache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "out/${{ matrix.abi }}"
+          cp "build/native/${{ matrix.triple }}/release/client" "out/${{ matrix.abi }}/libclient.so"
+
+      - name: Check library
+        run: |
+          ls -l "out/${{ matrix.abi }}"
+          test -s "out/${{ matrix.abi }}/libclient.so"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: libclient-${{ matrix.abi }}
+          path: out
+          if-no-files-found: error
+          retention-days: 3
+
+  server:
+    name: Server binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+
+      # The admin edition installs this server on a VPS, so the APK must carry it.
+      # It only changes when rust-server/ or shared/ change.
+      - id: servercache
+        uses: actions/cache@v5
+        with:
+          path: rust-server/dist
+          key: csqtt-server-${{ hashFiles('rust-server/**', 'shared/**') }}
+
+      - uses: dtolnay/rust-toolchain@master
+        if: steps.servercache.outputs.cache-hit != 'true'
+        with:
+          toolchain: 1.97.1
+
+      - uses: mlugg/setup-zig@v2
+        if: steps.servercache.outputs.cache-hit != 'true'
+        with:
+          version: 0.15.2
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.servercache.outputs.cache-hit != 'true'
+        with:
+          workspaces: rust-server -> build/linux-musl
+
+      - name: Build server for amd64, arm64 and armv7
+        if: steps.servercache.outputs.cache-hit != 'true'
+        env:
+          # rust-server/.cargo/config.toml disables Rust's bundled musl CRT only for
+          # x86_64; with zig as the linker the ARM targets need the same setting.
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "-C link-self-contained=no"
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_RUSTFLAGS: "-C link-self-contained=no"
+        run: |
+          cargo install cargo-zigbuild --locked
+          # The script ends with a Windows-oriented provenance step that is not
+          # needed here; the binaries are already in rust-server/dist by then.
+          set -o pipefail
+          bash rust-server/build_linux.sh --no-tests 2>&1 | tee "$RUNNER_TEMP/server-build.log" \
+            || echo "build script exited non-zero, checking outputs"
+
+      - name: Check server binaries
+        run: |
+          ls -l rust-server/dist || true
+          missing=0
+          for arch in amd64 arm64 armv7; do
+            if [ -s "rust-server/dist/csqtt-linux-$arch" ]; then
+              file "rust-server/dist/csqtt-linux-$arch"
+            elif [ "$arch" = amd64 ]; then
+              missing=1
+            else
+              # ARM servers are optional: the admin app only needs the binary for the VPS it installs on.
+              echo "::warning title=Server binary missing::csqtt-linux-$arch was not built; installing on such a VPS will not work"
+              if [ -f "$RUNNER_TEMP/server-build.log" ]; then
+                body=$(grep -v '^ *Compiling \|^ *Downloaded \|^ *Downloading \|Compiling' "$RUNNER_TEMP/server-build.log" | tail -n 30 | cut -c1-240 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+                echo "::warning title=Server build log tail ($arch)::$body"
+              fi
+            fi
+          done
+          if [ "$missing" = 1 ]; then
+            # Job logs are not readable from the outside, so surface the tail as an annotation.
+            if [ -f "$RUNNER_TEMP/server-build.log" ]; then
+              body=$(grep -v '^ *Compiling \|^ *Downloaded \|^ *Downloading ' "$RUNNER_TEMP/server-build.log" | tail -n 40 | cut -c1-240 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+              echo "::error title=Server build log tail::$body"
+            fi
+            echo "::error title=Server binaries missing::$(ls rust-server/dist 2>&1 | tr '\n' ' ')"
+            exit 1
+          fi
+          file rust-server/dist/csqtt-linux-amd64 | grep -q "x86-64"
+          if [ -s rust-server/dist/csqtt-linux-arm64 ]; then
+            file rust-server/dist/csqtt-linux-arm64 | grep -q "aarch64"
+          fi
+          if [ -s rust-server/dist/csqtt-linux-armv7 ]; then
+            file rust-server/dist/csqtt-linux-armv7 | grep -q "ARM"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: csqtt-server
+          path: rust-server/dist/csqtt-linux-*
+          if-no-files-found: error
+          retention-days: 3
+
+  # WB Stream test transport for Mayak Admin only (whitelist-bypass, MIT, pinned commit).
+  # Phone side: librelay (WB joiner, run as a process) + mobile.aar (tun2socks).
+  # Server side: headless WB Stream creator for amd64/arm64.
+  wbstream:
+    name: WB Stream (admin only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      WB_REPO: kulikov0/whitelist-bypass
+      WB_COMMIT: 820a6310af5fc1e4f77ef7327bb2594664542a09
+    steps:
+      - id: wbcache
+        uses: actions/cache@v5
+        with:
+          path: wbout
+          key: wbstream-${{ env.WB_COMMIT }}-v2
+
+      - uses: actions/checkout@v7
+        if: steps.wbcache.outputs.cache-hit != 'true'
+        with:
+          repository: ${{ env.WB_REPO }}
+          ref: ${{ env.WB_COMMIT }}
+          path: wbsrc
+
+      - uses: actions/setup-go@v6
+        if: steps.wbcache.outputs.cache-hit != 'true'
+        with:
+          go-version-file: wbsrc/go.mod
+          cache-dependency-path: wbsrc/go.sum
+
+      - name: Build WB Stream binaries
+        if: steps.wbcache.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          out="$GITHUB_WORKSPACE/wbout"
+          mkdir -p "$out/jni/arm64-v8a" "$out/jni/armeabi-v7a" "$out/jni/x86_64" "$out/server"
+          cd wbsrc/relay
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$out/jni/arm64-v8a/libwbrelay.so" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="-s -w" -o "$out/jni/armeabi-v7a/libwbrelay.so" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o "$out/jni/x86_64/libwbrelay.so" .
+          cd ../headless/wbstream
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o "$out/server/wbstream-linux-amd64" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$out/server/wbstream-linux-arm64" .
+          cd ../dion
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o "$out/server/dion-linux-amd64" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o "$out/server/dion-linux-arm64" .
+          cd ../../relay
+          go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260508232728-bebd421c7fa8
+          go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260508232728-bebd421c7fa8
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          export ANDROID_NDK_HOME="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          export CGO_LDFLAGS="-Wl,-z,max-page-size=16384"
+          gomobile init
+          gomobile bind -trimpath -ldflags="-s -w" -target=android/arm64,android/arm,android/amd64 -androidapi 23 -o "$out/wbmobile.aar" ./androidbind/
+          cp ../LICENSE "$out/whitelist-bypass-LICENSE"
+          ls -lR "$out"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wbstream
+          path: wbout
+          if-no-files-found: error
+          retention-days: 3
+
+  apk:
+    name: Android APK
+    needs: [native, server, wbstream]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Use the newest production build number
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' \
+            | sed -n 's/^build-\([0-9][0-9]*\)$/\1/p' | sort -n | tail -1)
+          if [ -z "$n" ]; then echo "::error::no build-N release found"; exit 1; fi
+          echo "MAYAK_BUILD_NUMBER=$n" >> "$GITHUB_ENV"
+          echo "Test build on top of production build $n"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: libclient-*
+          path: app/src/main/jniLibs
+          merge-multiple: true
+
+      - name: Check native libraries
+        run: |
+          ls -lR app/src/main/jniLibs
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            test -s "app/src/main/jniLibs/$abi/libclient.so"
+          done
+
+      # Server binaries go only into the admin edition, which can install them over SSH.
+      - uses: actions/download-artifact@v8
+        with:
+          name: csqtt-server
+          path: app/src/admin/assets
+
+      - name: Check server binaries
+        run: |
+          ls -l app/src/admin/assets
+          test -s app/src/admin/assets/csqtt-linux-amd64
+
+      # WB Stream test transport: admin edition only, the people's Mayak does not get it.
+      - uses: actions/download-artifact@v8
+        with:
+          name: wbstream
+          path: ${{ runner.temp }}/wb
+
+      - name: Place WB Stream files (admin only)
+        run: |
+          wb="$RUNNER_TEMP/wb"
+          mkdir -p app/src/admin/jniLibs app/src/admin/assets/wb app/src/admin/assets/licenses app/libs
+          cp -r "$wb/jni/." app/src/admin/jniLibs/
+          cp "$wb/server/wbstream-linux-amd64" "$wb/server/wbstream-linux-arm64" \
+             "$wb/server/dion-linux-amd64" "$wb/server/dion-linux-arm64" app/src/admin/assets/wb/
+          cp "$wb/whitelist-bypass-LICENSE" app/src/admin/assets/licenses/
+          cp "$wb/wbmobile.aar" app/libs/wbmobile.aar
+          ls -lR app/src/admin/jniLibs app/src/admin/assets/wb app/libs
+          for abi in arm64-v8a armeabi-v7a x86_64; do test -s "app/src/admin/jniLibs/$abi/libwbrelay.so"; done
+          test -s app/libs/wbmobile.aar
+
+      - name: Prepare Android SDK
+        run: |
+          # The committed local.properties holds a placeholder Windows path.
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -n 1)
+          echo "Using sdkmanager: $sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" --channel=3 "platforms;android-37.0" \
+            || "$sdkmanager" --channel=3 "platforms;android-37" \
+            || echo "Platform 37 not installed by sdkmanager; Gradle will try to fetch it."
+
+      - name: Select signing key
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_B64" ]; then
+            echo "$SIGNING_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "::add-mask::$SIGNING_KEYSTORE_PASSWORD"
+            {
+              echo "KEYSTORE_FILE=$RUNNER_TEMP/release.keystore"
+              echo "KEYSTORE_PASSWORD=$SIGNING_KEYSTORE_PASSWORD"
+              echo "KEY_ALIAS=$SIGNING_KEY_ALIAS"
+              echo "KEY_PASSWORD=$SIGNING_KEYSTORE_PASSWORD"
+              echo "SIGNING_KIND=private"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the private key from repository secrets."
+          elif [ -n "$SIGNING_KEYSTORE_PASSWORD" ] && [ -f ci/release-signing.p12 ]; then
+            # Mayak's own key: the keystore in the repo is encrypted (PKCS12, AES-256) with a long
+            # random password that only lives in the SIGNING_KEYSTORE_PASSWORD secret.
+            echo "::add-mask::$SIGNING_KEYSTORE_PASSWORD"
+            {
+              echo "KEYSTORE_FILE=$GITHUB_WORKSPACE/ci/release-signing.p12"
+              echo "KEYSTORE_PASSWORD=$SIGNING_KEYSTORE_PASSWORD"
+              echo "KEY_ALIAS=${SIGNING_KEY_ALIAS:-mayak}"
+              echo "KEY_PASSWORD=$SIGNING_KEYSTORE_PASSWORD"
+              echo "SIGNING_KIND=private"
+            } >> "$GITHUB_ENV"
+            echo "Signing with Mayak's own key (ci/release-signing.p12)."
+          else
+            {
+              echo "KEYSTORE_FILE=$GITHUB_WORKSPACE/ci/test-signing.p12"
+              echo "KEYSTORE_PASSWORD=mayak-test"
+              echo "KEY_ALIAS=mayak-test"
+              echo "KEY_PASSWORD=mayak-test"
+              echo "SIGNING_KIND=test"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the public TEST key (ci/test-signing.p12)."
+          fi
+
+      - name: Build release APKs (client and admin editions)
+        run: bash gradlew assembleClientRelease assembleAdminRelease --no-daemon --console=plain --stacktrace
+
+      - name: Collect APKs
+        run: |
+          mkdir -p dist
+          ls -lR app/build/outputs/apk
+          client=app/build/outputs/apk/client/release
+          admin=app/build/outputs/apk/admin/release
+          cp "$client/app-client-universal-release.apk" "dist/Mayak-$MAYAK_BUILD_NUMBER-universal.apk"
+          cp "$client/app-client-arm64-v8a-release.apk" "dist/Mayak-$MAYAK_BUILD_NUMBER-arm64.apk"
+          cp "$admin/app-admin-arm64-v8a-release.apk" "dist/MayakAdmin-$MAYAK_BUILD_NUMBER-arm64.apk"
+          ls -l dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: apk
+          path: dist/*.apk
+          if-no-files-found: error
+
+      - name: Publish test release (owner only, never offered to people)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="test-$MAYAK_BUILD_NUMBER-$GITHUB_RUN_NUMBER"
+          notes="$RUNNER_TEMP/release-notes.md"
+          {
+            echo "ТЕСТ — только для проверки владельцем. Людям не предлагается."
+            echo
+            echo "Поверх рабочей сборки $MAYAK_BUILD_NUMBER, коммит $GITHUB_SHA (ветка test)."
+          } > "$notes"
+          gh release create "$tag" dist/*.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "ТЕСТ Маяк $MAYAK_BUILD_NUMBER.$GITHUB_RUN_NUMBER" \
+            --notes-file "$notes"
