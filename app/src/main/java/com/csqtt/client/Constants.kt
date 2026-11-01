@@ -17,7 +17,13 @@ object CsqttConstants {
 
     object Profiles {
         const val MIN_INDEX = 0
-        const val MAX_INDEX = 14 // Mayak: fifteen servers in the admin edition (was 3, then 4, then 9); keep = MayakConfig.ADMIN_SERVERS - 1
+        /**
+         * Mayak: how many servers the admin edition holds. The ONE number to change: the admin's
+         * server grid (MayakConfig.ADMIN_SERVERS) and the most links a person's Mayak keeps
+         * (MayakLinks.MAX_LINKS) both follow it, so people always get every server the admin has.
+         */
+        const val SERVER_SLOTS = 15
+        const val MAX_INDEX = SERVER_SLOTS - 1
     }
 
     object Network {

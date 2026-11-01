@@ -207,6 +207,16 @@ internal object MayakSync {
 
                 if (!store.csqttLinkMode.first()) return@withContext
                 val links = store.csqttLinks.first()
+                // Builds up to 81 kept at most 10 links and marked the admin's (longer) list as applied,
+                // so servers 11+ never arrived. Once after the update, take the last list again: one second
+                // back lets that same file in, while older files (of deleted passwords) stay skipped.
+                if (!prefs.getBoolean("relist_after_cap_fix", false)) {
+                    val applied = prefs.getLong("list_updated", 0L)
+                    prefs.edit()
+                        .putLong("list_updated", if (applied > 0L) applied - 1L else 0L)
+                        .putBoolean("relist_after_cap_fix", true)
+                        .apply()
+                }
                 val lastApplied = prefs.getLong("list_updated", 0L)
                 // Several links may be looked at now (old files are skipped), so the walk is bounded,
                 // and GitHub is not asked again in this round once it failed on the network.
