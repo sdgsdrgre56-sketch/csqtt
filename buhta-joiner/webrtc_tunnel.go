@@ -22,7 +22,7 @@ import (
 //   - the Jingle session-accept XML to send back over XMPP
 //   - the *webrtc.PeerConnection, already wired to log ICE/DTLS state transitions, so the
 //     caller can wait and see whether it actually reaches "connected".
-func AcceptAndConnect(offer *JingleOffer, responderJID string) (acceptXML string, pc *webrtc.PeerConnection, err error) {
+func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []ICEServerInfo) (acceptXML string, pc *webrtc.PeerConnection, err error) {
 	offerSDP, err := offer.ToSDPOffer()
 	if err != nil {
 		return "", nil, fmt.Errorf("offer->SDP: %w", err)
@@ -35,7 +35,13 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string) (acceptXML string
 	}
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(&m))
 
-	pc, err = api.NewPeerConnection(webrtc.Configuration{})
+	iceServers := buildICEServers(iceServerInfos)
+	for _, s := range iceServers {
+		log.Printf("[webrtc] configured ICE server: %v", s.URLs)
+	}
+	pc, err = api.NewPeerConnection(webrtc.Configuration{
+		ICEServers: iceServers,
+	})
 	if err != nil {
 		return "", nil, fmt.Errorf("new peer connection: %w", err)
 	}
@@ -109,6 +115,41 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string) (acceptXML string
 		return "", nil, fmt.Errorf("build session-accept: %w", err)
 	}
 	return acceptXML, pc, nil
+}
+
+// buildICEServers turns the server's extdisco offerings into pion ICEServer entries, so
+// pion actually gathers srflx/relay candidates instead of only local host candidates (which
+// is what was happening before this: an empty webrtc.Configuration{} gathers host-only
+// candidates, which a bridge sitting behind NAT on the public internet can never reach —
+// that's why the first live Phase 2 run's ICE connection failed after only host candidates
+// were offered in the answer).
+func buildICEServers(infos []ICEServerInfo) []webrtc.ICEServer {
+	var out []webrtc.ICEServer
+	for _, info := range infos {
+		scheme := "stun"
+		switch info.Type {
+		case "stun":
+			scheme = "stun"
+		case "turn":
+			scheme = "turn"
+		case "turns":
+			scheme = "turns"
+		default:
+			continue
+		}
+		url := fmt.Sprintf("%s:%s:%s", scheme, info.Host, info.Port)
+		if info.Transport != "" && scheme != "stun" {
+			url += "?transport=" + info.Transport
+		}
+		s := webrtc.ICEServer{URLs: []string{url}}
+		if info.Username != "" {
+			s.Username = info.Username
+			s.Credential = info.Password
+			s.CredentialType = webrtc.ICECredentialTypePassword
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 func randSSRC() uint32 {
