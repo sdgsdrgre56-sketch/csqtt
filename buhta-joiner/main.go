@@ -197,17 +197,50 @@ func main() {
 	log.Printf("joined %s as %s — waiting up to %s for a Jingle session-initiate from the bridge", mucRoom, nick, timeout)
 	log.Printf("(this only arrives once there is real media to negotiate — a lone muted guest with no camera/mic may never get one; join from a second device if nothing shows up)")
 
-	offer := waitFor("Jingle session-initiate", "session-initiate")
+	offerRaw := waitFor("Jingle session-initiate", "session-initiate")
 	fmt.Println()
 	fmt.Println("=== FULL Jingle session-initiate ===")
-	fmt.Println(offer)
+	fmt.Println(offerRaw)
 	fmt.Println()
-	for _, c := range extractAllTags(offer, "candidate") {
+	for _, c := range extractAllTags(offerRaw, "candidate") {
 		fmt.Println("candidate:", c)
 	}
-	for _, ws := range extractAllAttrValues(offer, "web-socket", "url") {
+	for _, ws := range extractAllAttrValues(offerRaw, "web-socket", "url") {
 		fmt.Println("colibri websocket:", ws)
 	}
+
+	// ---- Phase 2: build a real WebRTC answer and try to actually connect -------------
+	log.Println()
+	log.Println("=== Phase 2: translating offer -> SDP -> pion/webrtc answer ===")
+	jingleOffer, perr := ParseOffer(offerRaw)
+	if perr != nil {
+		log.Fatalf("Phase 2: could not parse session-initiate: %v", perr)
+	}
+	log.Printf("parsed offer: sid=%s initiator=%s contents=%d bundle=%v",
+		jingleOffer.SID, jingleOffer.Initiator, len(jingleOffer.Contents), jingleOffer.BundleMids)
+
+	acceptXML, pc, aerr := AcceptAndConnect(jingleOffer, jid)
+	if aerr != nil {
+		log.Fatalf("Phase 2: AcceptAndConnect failed: %v", aerr)
+	}
+	defer pc.Close()
+
+	log.Println("=== sending Jingle session-accept ===")
+	send(acceptXML)
+
+	connectCtx, connectCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer connectCancel()
+	if cerr := WaitForConnected(connectCtx, pc); cerr != nil {
+		log.Printf("=== Phase 2 FAILED: peer connection did not reach 'connected': %v ===", cerr)
+	} else {
+		log.Println("=== Phase 2 SUCCESS: ICE connected and DTLS handshake completed ===")
+	}
+
+	// Keep the process (and the XMPP read loop, which still needs draining) alive for a
+	// bit so we can observe whatever the bridge sends next (source-add, etc.) and so the
+	// data channel has a chance to actually open.
+	time.Sleep(20 * time.Second)
+	log.Println("=== done, exiting ===")
 }
 
 func must(err error) {
