@@ -169,8 +169,12 @@ func main() {
 	discoID := "buhta-" + randHex(4) + ":sendIQ"
 	send(fmt.Sprintf(`<iq id="%s" to="%s" type="get" xmlns="jabber:client"><services xmlns="urn:xmpp:extdisco:2"/></iq>`, discoID, domainAttr))
 	services := waitFor("extdisco services", "id='"+discoID+"'")
+	var iceServers []ICEServerInfo
 	for _, svc := range extractAllTags(services, "service") {
 		log.Printf("ICE service offered: %s", svc)
+		if info, ok := parseICEServiceTag(svc); ok {
+			iceServers = append(iceServers, info)
+		}
 	}
 
 	// 8) Ask Jicofo (the conference focus) to create/join the conference for this room.
@@ -219,7 +223,8 @@ func main() {
 	log.Printf("parsed offer: sid=%s initiator=%s contents=%d bundle=%v",
 		jingleOffer.SID, jingleOffer.Initiator, len(jingleOffer.Contents), jingleOffer.BundleMids)
 
-	acceptXML, pc, aerr := AcceptAndConnect(jingleOffer, jid)
+	log.Printf("Phase 2: using %d ICE server(s) discovered via extdisco", len(iceServers))
+	acceptXML, pc, aerr := AcceptAndConnect(jingleOffer, jid, iceServers)
 	if aerr != nil {
 		log.Fatalf("Phase 2: AcceptAndConnect failed: %v", aerr)
 	}
@@ -295,6 +300,55 @@ func extractAllTags(s, tag string) []string {
 		s = s[end:]
 	}
 	return out
+}
+
+// ICEServerInfo is one STUN/TURN service as offered by the server's extdisco response.
+type ICEServerInfo struct {
+	Host      string
+	Port      string
+	Transport string // "udp", "tcp"
+	Type      string // "stun", "turn", "turns"
+	Username  string
+	Password  string
+}
+
+// parseICEServiceTag extracts one <service .../> tag's attributes into an ICEServerInfo.
+// Returns ok=false for anything we don't recognize (missing host/type).
+func parseICEServiceTag(tag string) (ICEServerInfo, bool) {
+	info := ICEServerInfo{
+		Host:      attrFromSingleTag(tag, "host"),
+		Port:      attrFromSingleTag(tag, "port"),
+		Transport: attrFromSingleTag(tag, "transport"),
+		Type:      attrFromSingleTag(tag, "type"),
+		Username:  attrFromSingleTag(tag, "username"),
+		Password:  attrFromSingleTag(tag, "password"),
+	}
+	if info.Host == "" || info.Type == "" {
+		return info, false
+	}
+	return info, true
+}
+
+// attrFromSingleTag extracts one attribute's value from a single raw "<tag .../>" string
+// (as opposed to extractAllAttrValues, which re-scans for occurrences of a named tag).
+func attrFromSingleTag(tag, attr string) string {
+	needle := attr + "='"
+	i := strings.Index(tag, needle)
+	quote := byte('\'')
+	if i < 0 {
+		needle = attr + `="`
+		i = strings.Index(tag, needle)
+		quote = '"'
+	}
+	if i < 0 {
+		return ""
+	}
+	i += len(needle)
+	j := strings.IndexByte(tag[i:], quote)
+	if j < 0 {
+		return ""
+	}
+	return tag[i : i+j]
 }
 
 func extractAllAttrValues(s, tag, attr string) []string {
