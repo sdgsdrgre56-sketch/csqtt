@@ -30,7 +30,7 @@ internal object MayakLinks {
         }
     }
 
-    const val MAX_LINKS = 10 // Mayak: matches the ten servers of the admin edition (was 6)
+    const val MAX_LINKS = 15 // Mayak: matches the fifteen servers of the admin edition (was 10, before that 6)
 
     private val LinkRegex = Regex("csqtt://[^\\s\"'<>]+", RegexOption.IGNORE_CASE)
 
