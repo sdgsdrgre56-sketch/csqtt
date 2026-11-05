@@ -243,6 +243,19 @@ func (o *JingleOffer) ToSDPOffer() (string, error) {
 	fmt.Fprintf(&b, "o=- 0 0 IN IP4 0.0.0.0\r\n")
 	fmt.Fprintf(&b, "s=-\r\n")
 	fmt.Fprintf(&b, "t=0 0\r\n")
+	// The live trace from our first real TURN-enabled run proved the bridge behaves like an
+	// ICE-lite agent: our side's connectivity checks against it succeed (we see "state:
+	// succeeded" candidate pairs, including the TURN relay one), but it never sends a single
+	// connectivity check back to us and never nominates a pair — so ICE sits at
+	// "succeeded but not nominated" until pion's internal failure timeout fires. Per RFC 8445
+	// §6.1.1, when the remote is lite, the full agent (us) must take the controlling role so
+	// *we* perform the nomination. Pion decides this from whether the remote SDP carries
+	// "a=ice-lite" (see pion/webrtc's isIceLiteSet + the offerer/lite role table in
+	// peerconnection.go) — the real session-initiate never says so explicitly, but since we
+	// now know empirically that's exactly how the bridge behaves, we assert it ourselves here
+	// so pion flips itself into the controlling role and actually nominates once it has a
+	// succeeded pair.
+	fmt.Fprintf(&b, "a=ice-lite\r\n")
 	if len(o.BundleMids) > 0 {
 		fmt.Fprintf(&b, "a=group:BUNDLE %s\r\n", strings.Join(o.BundleMids, " "))
 	}
@@ -366,7 +379,7 @@ func parseSDPAnswer(sdp string) parsedAnswer {
 		case strings.HasPrefix(line, "a=ice-ufrag:") && pa.ufrag == "":
 			pa.ufrag = strings.TrimPrefix(line, "a=ice-ufrag:")
 		case strings.HasPrefix(line, "a=ice-pwd:") && pa.pwd == "":
-		pa.pwd = strings.TrimPrefix(line, "a=ice-pwd:")
+			pa.pwd = strings.TrimPrefix(line, "a=ice-pwd:")
 		case strings.HasPrefix(line, "a=fingerprint:") && pa.fpHash == "":
 			f := strings.TrimPrefix(line, "a=fingerprint:")
 			parts := strings.SplitN(f, " ", 2)
@@ -431,17 +444,60 @@ func sdpCandidateToJingleXML(raw string, idSeed int) string {
 		component, foundation, gen, id, ip, port, priority, protocol, typ, extra)
 }
 
+// BuildTransportInfo renders a minimal Jingle transport-info <iq> carrying just our ICE
+// ufrag/pwd/DTLS fingerprint for each content — no payload-types, no SSRCs, no candidates.
+// Why this exists: the live trace from run #7 proved a race in the normal session-accept flow:
+// pion starts sending real ICE connectivity checks (authenticated with our local ufrag/pwd)
+// the instant SetLocalDescription() returns, but we only build+send the session-accept XML
+// (the only place the bridge actually learns our ufrag/pwd) *after* waiting for ICE gathering
+// to finish — and ICE gathering, now that it only has to gather the TURN relay, finishes in
+// well under 2 seconds. The bridge, not yet knowing our credentials, correctly rejected our
+// early checks with a STUN error response, and pion's ICE agent only retries a candidate pair
+// 7 times (~1.6s) before permanently marking it failed — well before our session-accept (sent
+// 4+ seconds later, once gathering actually completed) ever reached it. So: send this the
+// moment local ufrag/pwd/fingerprint are fixed (right after SetLocalDescription, before
+// waiting on ICE gathering) so the bridge can authenticate our checks from the very first one,
+// then send the real session-accept (with candidates) afterwards as before.
+func (o *JingleOffer) BuildTransportInfo(answerSDP, toJID, responderJID string) (string, error) {
+	pa := parseSDPAnswer(answerSDP)
+	if pa.ufrag == "" || pa.pwd == "" {
+		return "", fmt.Errorf("could not find local ice-ufrag/ice-pwd in generated answer SDP")
+	}
+	pa.setup = "passive" // see BuildSessionAccept for why
+
+	var b strings.Builder
+	fmt.Fprintf(&b, `<iq to="%s" type="set" xmlns="jabber:client"><jingle action="transport-info" initiator="%s" responder="%s" sid="%s" xmlns="urn:xmpp:jingle:1">`,
+		xmlEscape(toJID), xmlEscape(o.Initiator), xmlEscape(responderJID), xmlEscape(o.SID))
+	for _, c := range o.Contents {
+		fmt.Fprintf(&b, `<content creator="responder" name="%s">`, xmlEscape(c.Name))
+		fmt.Fprintf(&b, `<transport pwd="%s" ufrag="%s" xmlns="urn:xmpp:jingle:transports:ice-udp:1">`,
+			xmlEscape(pa.pwd), xmlEscape(pa.ufrag))
+		if pa.fpHash != "" {
+			fmt.Fprintf(&b, `<fingerprint hash="%s" setup="%s" xmlns="urn:xmpp:jingle:apps:dtls:0">%s</fingerprint>`,
+				xmlEscape(pa.fpHash), xmlEscape(pa.setup), pa.fpVal)
+		}
+		fmt.Fprintf(&b, `</transport></content>`)
+	}
+	fmt.Fprintf(&b, `</jingle></iq>`)
+	return b.String(), nil
+}
+
 // BuildSessionAccept renders a Jingle session-accept <iq> that mirrors the shape Jicofo
-// expects (the same per-content structure as the offer: audio/video get an SSRC + <source>, data
+// expects (same per-content structure as the offer: audio/video get an SSRC + <source>, data
 // gets an <sctpmap>), using the ICE/DTLS parameters pion actually negotiated in answerSDP.
 func (o *JingleOffer) BuildSessionAccept(answerSDP, toJID, responderJID string, audioSSRC, videoSSRC uint32) (string, error) {
 	pa := parseSDPAnswer(answerSDP)
 	if pa.ufrag == "" || pa.pwd == "" {
 		return "", fmt.Errorf("could not find local ice-ufrag/ice-pwd in generated answer SDP")
 	}
-	if pa.setup == "" {
-		pa.setup = "active"
-	}
+	// Run #9 proved that declaring "passive" here (so the bridge would be told to go active and
+	// send the ClientHello) does NOT work — ICE itself connected cleanly over the relay, but
+	// DTLS still sat forever at "[handshake:server] Flight 0: Sending/Waiting", because the
+	// real bridge apparently always acts as the DTLS server itself regardless of what our
+	// Jingle fingerprint's "setup" attribute says. AcceptAndConnect now forces pion itself to
+	// be the DTLS client (SetAnsweringDTLSRole(DTLSRoleClient)), so we assert "active" here to
+	// match what pion is actually doing internally.
+	pa.setup = "active"
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `<iq to="%s" type="set" xmlns="jabber:client"><jingle action="session-accept" initiator="%s" responder="%s" sid="%s" xmlns="urn:xmpp:jingle:1">`,

@@ -31,6 +31,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -49,12 +50,18 @@ func main() {
 	domain := flag.String("domain", "meet.jitsi", "XMPP virtual host Prosody answers as")
 	name := flag.String("name", "Бухта", "guest display name")
 	timeout := flag.Duration("timeout", 45*time.Second, "how long to wait for a Jingle session-initiate after joining")
+	turnTest := flag.Bool("turntest", false, "only fetch Saby TURN credentials and test whether the TURN relay reaches external hosts, then exit")
+	udpTest := flag.Bool("udptest", false, "probe for a UDP TURN endpoint and for direct UDP reachability of the bridge media port, then exit")
+	bridgeAddr := flag.String("bridge", "91.232.93.237:10000", "bridge media address used by -udptest part B")
+	relayOnly := flag.Bool("relayonly", false, "force all media through Saby's TCP TURN relay instead of letting ICE try a direct UDP path")
 	flag.Parse()
 
 	if *room == "" {
 		fmt.Fprintln(os.Stderr, "error: -room is required (the UUID from the guest link)")
 		os.Exit(2)
 	}
+
+	keepRelayOnly = *relayOnly
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout+20*time.Second)
 	defer cancel()
@@ -87,7 +94,21 @@ func main() {
 		}
 	}()
 
+	iqSeq := 0
 	send := func(frag string) {
+		// Run #14: Jicofo rejected our transport-info AND session-accept with
+		// "bad-request: Missing required 'id' attribute" — every IQ must carry an id. Add one
+		// to any outgoing <iq ...> that lacks it.
+		if strings.HasPrefix(frag, "<iq ") {
+			head := frag
+			if i := strings.Index(frag, ">"); i > 0 {
+				head = frag[:i]
+			}
+			if !strings.Contains(head, " id=") {
+				iqSeq++
+				frag = fmt.Sprintf(`<iq id="buhta-out-%d"%s`, iqSeq, frag[len("<iq"):])
+			}
+		}
 		log.Printf("--> %s", frag)
 		if err := conn.WriteMessage(websocket.TextMessage, []byte(frag)); err != nil {
 			log.Fatalf("write failed: %v", err)
@@ -176,6 +197,14 @@ func main() {
 			iceServers = append(iceServers, info)
 		}
 	}
+	if *turnTest {
+		runTurnTest(iceServers)
+		return
+	}
+	if *udpTest {
+		runUDPTest(iceServers, *bridgeAddr)
+		return
+	}
 
 	// 8) Ask Jicofo (the conference focus) to create/join the conference for this room.
 	machineUID := randHex(16)
@@ -202,6 +231,48 @@ func main() {
 	log.Printf("(this only arrives once there is real media to negotiate — a lone muted guest with no camera/mic may never get one; join from a second device if nothing shows up)")
 
 	offerRaw := waitFor("Jingle session-initiate", "session-initiate")
+	// Jicofo sends session-initiate as an IQ "set" and expects an IQ "result" ack — every real
+	// client (lib-jitsi-meet) sends it immediately. We never did, in any run so far, which is a
+	// strong candidate for why the bridge ignores everything afterwards.
+	{
+		ackTo, ackID := "", ""
+		if m := regexp.MustCompile(`<iq[^>]*>`).FindString(offerRaw); m != "" {
+			if mm := regexp.MustCompile(`\sid=['"]([^'"]+)['"]`).FindStringSubmatch(m); mm != nil {
+				ackID = mm[1]
+			}
+			if mm := regexp.MustCompile(`\sfrom=['"]([^'"]+)['"]`).FindStringSubmatch(m); mm != nil {
+				ackTo = mm[1]
+			}
+		}
+		if ackID != "" && ackTo != "" {
+			log.Printf("acking session-initiate (id=%s from=%s)", ackID, ackTo)
+			send(fmt.Sprintf(`<iq to="%s" id="%s" type="result" xmlns="jabber:client"/>`, ackTo, ackID))
+		} else {
+			log.Printf("WARNING: could not extract id/from of session-initiate IQ to ack it")
+		}
+	}
+	// From here on nothing else reads the XMPP stream, so frames from Jicofo (XMPP pings,
+	// source-add, errors replying to our accept...) were never logged nor answered — log10-13
+	// show an unanswered IQ "get" from focus even before the offer. Drain, log in full, and
+	// answer every IQ get/set with an empty result like a real client would.
+	go func() {
+		iqHead := regexp.MustCompile(`^<iq[^>]*>`)
+		for frame := range in {
+			log.Printf("<-- (post-offer) %s", truncate(frame, 2500))
+			if h := iqHead.FindString(frame); h != "" && (strings.Contains(h, "type='get'") || strings.Contains(h, "type='set'") || strings.Contains(h, `type="get"`) || strings.Contains(h, `type="set"`)) {
+				id, from := "", ""
+				if mm := regexp.MustCompile(`\sid=['"]([^'"]+)['"]`).FindStringSubmatch(h); mm != nil {
+					id = mm[1]
+				}
+				if mm := regexp.MustCompile(`\sfrom=['"]([^'"]+)['"]`).FindStringSubmatch(h); mm != nil {
+					from = mm[1]
+				}
+				if id != "" && from != "" {
+					send(fmt.Sprintf(`<iq to="%s" id="%s" type="result" xmlns="jabber:client"/>`, from, id))
+				}
+			}
+		}
+	}()
 	fmt.Println()
 	fmt.Println("=== FULL Jingle session-initiate ===")
 	fmt.Println(offerRaw)
@@ -224,14 +295,16 @@ func main() {
 		jingleOffer.SID, jingleOffer.Initiator, len(jingleOffer.Contents), jingleOffer.BundleMids)
 
 	log.Printf("Phase 2: using %d ICE server(s) discovered via extdisco", len(iceServers))
-	acceptXML, pc, aerr := AcceptAndConnect(jingleOffer, jid, iceServers)
+	acceptXML, pc, aerr := AcceptAndConnect(jingleOffer, jid, iceServers, send)
 	if aerr != nil {
 		log.Fatalf("Phase 2: AcceptAndConnect failed: %v", aerr)
 	}
 	defer pc.Close()
 
-	log.Println("=== sending Jingle session-accept ===")
-	send(acceptXML)
+	if acceptXML != "" {
+		log.Println("=== sending Jingle session-accept ===")
+		send(acceptXML)
+	}
 
 	connectCtx, connectCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer connectCancel()
