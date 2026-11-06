@@ -174,6 +174,7 @@ func main() {
 		endpointID = endpointID[:8]
 	}
 	log.Printf("bound as %s (muc endpoint id %s)", jid, endpointID)
+	ourEndpointID = endpointID
 
 	// 5) Legacy session establishment — Jitsi's Prosody still expects this even though
 	// XEP-0078 marks it obsolete.
