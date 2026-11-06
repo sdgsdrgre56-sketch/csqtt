@@ -465,6 +465,7 @@ func WaitForConnected(ctx context.Context, pc *webrtc.PeerConnection) error {
 	done := make(chan webrtc.PeerConnectionState, 1)
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		log.Printf("[webrtc] peer connection state -> %s", s)
+		tunnelOnState(pc, s)
 		if s == webrtc.PeerConnectionStateConnected || s == webrtc.PeerConnectionStateFailed {
 			select {
 			case done <- s:
