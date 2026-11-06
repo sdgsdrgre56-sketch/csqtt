@@ -50,6 +50,7 @@ func main() {
 	domain := flag.String("domain", "meet.jitsi", "XMPP virtual host Prosody answers as")
 	name := flag.String("name", "Бухта", "guest display name")
 	timeout := flag.Duration("timeout", 45*time.Second, "how long to wait for a Jingle session-initiate after joining")
+	hold := flag.Duration("hold", 20*time.Second, "how long to stay in the room after the connection is up")
 	turnTest := flag.Bool("turntest", false, "only fetch Saby TURN credentials and test whether the TURN relay reaches external hosts, then exit")
 	udpTest := flag.Bool("udptest", false, "probe for a UDP TURN endpoint and for direct UDP reachability of the bridge media port, then exit")
 	bridgeAddr := flag.String("bridge", "91.232.93.237:10000", "bridge media address used by -udptest part B")
@@ -345,7 +346,7 @@ func main() {
 	// Keep the process (and the XMPP read loop, which still needs draining) alive for a
 	// bit so we can observe whatever the bridge sends next (source-add, etc.) and so the
 	// data channel has a chance to actually open.
-	time.Sleep(20 * time.Second)
+	time.Sleep(*hold)
 	log.Println("=== done, exiting ===")
 }
 
