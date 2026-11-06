@@ -16,6 +16,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"regexp"
 	"strings"
 	"time"
 
@@ -304,8 +305,17 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 	// bridge is ice-lite and learns our address from our checks) — wait for the signaling
 	// chain to digest it, and only THEN call SetLocalDescription, which starts gathering and
 	// ICE checks.
+	// Announce the SSRC pion will actually use for our outgoing track, otherwise the bridge
+	// drops our RTP as coming from an unknown source.
+	ourAudioSSRC := answerAudioSSRC(answer.SDP)
+	if ourAudioSSRC == 0 {
+		ourAudioSSRC = randSSRC()
+		log.Printf("[rtp] WARNING: no a=ssrc in answer SDP, announcing random %d", ourAudioSSRC)
+	} else {
+		log.Printf("[rtp] announcing our audio ssrc %d in session-accept", ourAudioSSRC)
+	}
 	earlyAccept, aerr := offer.BuildSessionAccept(answer.SDP, offer.ConferenceID, responderJID,
-		randSSRC(), randSSRC())
+		ourAudioSSRC, randSSRC())
 	if aerr != nil {
 		return "", nil, fmt.Errorf("build early session-accept: %w", aerr)
 	}
@@ -354,6 +364,27 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 		return "", nil, fmt.Errorf("build session-accept: %w", err)
 	}
 	return acceptXML, pc, nil
+}
+
+var ssrcLineRe = regexp.MustCompile(`(?m)^a=ssrc:(\d+) `)
+
+// answerAudioSSRC returns the first a=ssrc found in the audio m-section of an SDP, or 0.
+func answerAudioSSRC(sdp string) uint32 {
+	i := strings.Index(sdp, "m=audio")
+	if i < 0 {
+		return 0
+	}
+	sec := sdp[i:]
+	if j := strings.Index(sec[1:], "\nm="); j >= 0 {
+		sec = sec[:j+1]
+	}
+	m := ssrcLineRe.FindStringSubmatch(sec)
+	if m == nil {
+		return 0
+	}
+	var v uint64
+	fmt.Sscanf(m[1], "%d", &v)
+	return uint32(v)
 }
 
 const iceStringAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
