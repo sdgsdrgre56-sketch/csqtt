@@ -91,7 +91,7 @@ func main() {
 				close(in)
 				return
 			}
-			in <- string(data)
+			in <- smTrack(string(data))
 		}
 	}()
 
@@ -262,6 +262,9 @@ func main() {
 		for frame := range in {
 			log.Printf("<-- (post-offer) %s", truncate(frame, 2500))
 			queueSourceUpdate(frame)
+			if ack := smAnswer(frame); ack != "" {
+				send(ack)
+			}
 			if h := iqHead.FindString(frame); h != "" && (strings.Contains(h, "type='get'") || strings.Contains(h, "type='set'") || strings.Contains(h, `type="get"`) || strings.Contains(h, `type="set"`)) {
 				id, from := "", ""
 				if mm := regexp.MustCompile(`\sid=['"]([^'"]+)['"]`).FindStringSubmatch(h); mm != nil {
