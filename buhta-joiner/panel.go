@@ -187,6 +187,9 @@ func (p *panel) auth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// panelUser — логин входа в панель; задаётся при установке через BUHTA_PANEL_USER.
+var panelUser = "admin"
+
 func (p *panel) login(w http.ResponseWriter, r *http.Request) {
 	ip := clientAddr(r)
 	p.mu.Lock()
@@ -205,7 +208,7 @@ func (p *panel) login(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct{ Login, Password string }
 	if json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in) != nil ||
-		in.Login != "admin" || !p.st.CheckPassword(in.Password) {
+		in.Login != panelUser || !p.st.CheckPassword(in.Password) {
 		p.mu.Lock()
 		p.fails[ip] = append(p.fails[ip], time.Now())
 		p.mu.Unlock()

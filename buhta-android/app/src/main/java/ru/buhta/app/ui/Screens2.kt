@@ -70,6 +70,8 @@ fun DeployTab() {
     var port by remember { mutableStateOf(Settings.deployPort) }
     var user by remember { mutableStateOf(Settings.deployUser) }
     var pass by remember { mutableStateOf("") }
+    var pUser by remember { mutableStateOf(Settings.panelUser) }
+    var pPass by remember { mutableStateOf(Settings.panelPass) }
     var room by remember { mutableStateOf(Settings.deployRoom.ifEmpty { Settings.currentServer().room }) }
     fun toast(s: String) = Toast.makeText(ctx, s, Toast.LENGTH_SHORT).show()
 
@@ -79,13 +81,19 @@ fun DeployTab() {
         if (h.isEmpty() || pass.isEmpty()) { toast("Укажи адрес VPS и пароль"); return }
         val roomId = Settings.UUID_RE.find(room)?.value ?: ""
         if ((action == "install") && roomId.isEmpty()) { toast("Вставь ссылку на комнату Saby Meet или UUID"); return }
+        val okChars = Regex("[A-Za-z0-9]+")
+        if ((action == "install" || action == "resetpass") &&
+            (!okChars.matches(pUser) || !okChars.matches(pPass) || pPass.length < 8)) {
+            toast("Логин и пароль панели: латиница и цифры, пароль от 8 символов"); return
+        }
+        Settings.panelUser = pUser; Settings.panelPass = pPass
         Settings.deployHost = h; Settings.deployPort = port; Settings.deployUser = user; Settings.deployRoom = room
         DeployUi.busy = true
         DeployUi.failed = false
         DeployUi.stage = "Соединение с сервером…"
         DeployUi.lines.clear()
         scope.launch(Dispatchers.IO) {
-            val r = Deploy.run(h, port.toIntOrNull() ?: 22, user.trim().ifEmpty { "root" }, pass, action, roomId) { l ->
+            val r = Deploy.run(h, port.toIntOrNull() ?: 22, user.trim().ifEmpty { "root" }, pass, action, roomId, pUser, pPass) { l ->
                 DeployUi.lines.add(l)
                 stageOf(l)?.let { DeployUi.stage = it }
             }
@@ -93,7 +101,7 @@ fun DeployTab() {
             if (r.ok && r.panelPass.isNotEmpty() && roomId.isNotEmpty()) {
                 DeployUi.stage = "Создание ключа для телефона"
                 DeployUi.lines.add("[LOG] Создаю ключ для этого телефона в панели")
-                autoLink = Deploy.autoKey(h, r.panelPass, "Телефон") { DeployUi.lines.add(it) }
+                autoLink = Deploy.autoKey(h, pUser, pPass, "Телефон") { DeployUi.lines.add(it) }
                 if (autoLink != null) {
                     val parsed = Settings.parseKey(autoLink)
                     Settings.saveServer(parsed?.first?.ifEmpty { null } ?: h, roomId, autoLink)
@@ -140,6 +148,11 @@ fun DeployTab() {
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 label = { Text("Пароль SSH") }, modifier = Modifier.fillMaxWidth())
+            Text("Веб-панель", style = MaterialTheme.typography.titleSmall, color = colors.primary)
+            OutlinedTextField(value = pUser, onValueChange = { pUser = it.filter { c -> c.isLetterOrDigit() } }, singleLine = true, shape = CsqttShapes.Small,
+                label = { Text("Логин панели (латиница, цифры)") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = pPass, onValueChange = { pPass = it.filter { c -> c.isLetterOrDigit() } }, singleLine = true, shape = CsqttShapes.Small,
+                label = { Text("Пароль панели (от 8 символов)") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = room, onValueChange = { room = it }, maxLines = 2, shape = CsqttShapes.Small,
                 label = { Text("Ссылка на комнату Saby Meet или UUID") }, modifier = Modifier.fillMaxWidth())
             Button(
@@ -169,7 +182,7 @@ fun DeployTab() {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 SmallBtn("Логи сервера", Modifier.weight(1f)) { run("logs") }
-                SmallBtn("Новый пароль панели", Modifier.weight(1f)) { run("resetpass") }
+                SmallBtn("Сменить пароль панели", Modifier.weight(1f)) { run("resetpass") }
             }
             SmallBtn("Удалить сервер с VPS", Modifier.fillMaxWidth()) { run("uninstall") }
         }

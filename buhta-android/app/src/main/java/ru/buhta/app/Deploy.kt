@@ -25,7 +25,7 @@ object Deploy {
 
     private val SCRIPT = """
 #!/bin/sh
-ACTION="${'$'}1"; ROOM="${'$'}2"
+ACTION="${'$'}1"; ROOM="${'$'}2"; PUSER="${'$'}3"; PPASS="${'$'}4"
 REPO="$REPO"
 BIN=/usr/local/bin/buhta-joiner
 need() { command -v "${'$'}1" >/dev/null 2>&1; }
@@ -66,6 +66,8 @@ iptables -C FORWARD -o buhta0 -j ACCEPT 2>/dev/null || iptables -I FORWARD -o bu
 EOF
   chmod +x /usr/local/bin/buhta-net.sh
   mkdir -p /etc/buhta
+  ( umask 077; printf 'BUHTA_PANEL_USER=%s\nBUHTA_PANEL_PASS=%s\n' "${'$'}PUSER" "${'$'}PPASS" > /etc/buhta/panel.env )
+  chmod 600 /etc/buhta/panel.env
   echo "[LOG] Создаю службу buhta"
   cat > /etc/systemd/system/buhta.service <<EOF
 [Unit]
@@ -73,6 +75,7 @@ Description=Buhta tunnel server
 After=network-online.target
 Wants=network-online.target
 [Service]
+EnvironmentFile=-/etc/buhta/panel.env
 ExecStartPre=/usr/local/bin/buhta-net.sh
 ExecStart=${'$'}BIN -room ${'$'}ROOM -tunnel server -hold 8760h -timeout 60s -data /etc/buhta -panel :8787
 Restart=always
@@ -86,7 +89,7 @@ EOF
   need ufw && ufw status 2>/dev/null | grep -q "Status: active" && ufw allow 8787/tcp >/dev/null 2>&1
   sleep 2
   if systemctl is-active --quiet buhta; then echo "[OK] Служба buhta запущена"; else echo "[ERR] служба не запустилась"; journalctl -u buhta --no-pager -n 20; exit 1; fi
-  panelpass
+  echo "BUHTA_PANEL|${'$'}PUSER|${'$'}PPASS"
   echo "BUHTA_DEPLOY_OK"
   ;;
 update)
@@ -104,9 +107,11 @@ logs)
   echo "BUHTA_DEPLOY_OK"
   ;;
 resetpass)
-  rm -f /etc/buhta/panel.json
+  ( umask 077; printf 'BUHTA_PANEL_USER=%s\nBUHTA_PANEL_PASS=%s\n' "${'$'}PUSER" "${'$'}PPASS" > /etc/buhta/panel.env )
+  chmod 600 /etc/buhta/panel.env
   systemctl restart buhta
-  panelpass
+  echo "[OK] Логин и пароль панели обновлены"
+  echo "BUHTA_PANEL|${'$'}PUSER|${'$'}PPASS"
   echo "BUHTA_DEPLOY_OK"
   ;;
 uninstall)
@@ -128,7 +133,7 @@ esac
      * После установки заходит в веб-панель сервера (самоподписанный сертификат), создаёт клиента
      * и возвращает ключ buhta://… — чтобы пользователю не надо было ничего копировать вручную.
      */
-    fun autoKey(host: String, panelPass: String, clientName: String, onLine: (String) -> Unit): String? {
+    fun autoKey(host: String, panelUser: String, panelPass: String, clientName: String, onLine: (String) -> Unit): String? {
         val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
             override fun checkClientTrusted(c: Array<X509Certificate>?, a: String?) {}
             override fun checkServerTrusted(c: Array<X509Certificate>?, a: String?) {}
@@ -157,7 +162,7 @@ esac
         var lastErr = ""
         for (i in 1..8) {
             try {
-                val r = call("POST", "/api/login", JSONObject().put("login", "admin").put("password", panelPass).toString(), null)
+                val r = call("POST", "/api/login", JSONObject().put("login", panelUser).put("password", panelPass).toString(), null)
                 if (r.first == 200 && r.third != null) { cookie = r.third; break }
                 lastErr = "вход в панель: код ${r.first}"
             } catch (e: Exception) {
@@ -187,7 +192,7 @@ esac
     /** Выполняет действие на VPS. onLine вызывается для каждой строки вывода. */
     fun run(
         host: String, port: Int, user: String, password: String,
-        action: String, room: String, onLine: (String) -> Unit,
+        action: String, room: String, panelUser: String, panelPass: String, onLine: (String) -> Unit,
     ): Result {
         Security.removeProvider("BC")
         Security.insertProviderAt(BouncyCastleProvider(), 1)
@@ -201,7 +206,7 @@ esac
             ssh.authPassword(user, password.replace("\r", "").replace("\n", ""))
             onLine("[OK] SSH: вход выполнен")
             val b64 = Base64.encodeToString(SCRIPT.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-            val args = "$action ${shq(room)}"
+            val args = "$action ${shq(room)} ${shq(panelUser)} ${shq(panelPass)}"
             val sudo = user != "root"
             val cmd = "echo $b64 | base64 -d > /tmp/buhta-deploy.sh && " +
                 (if (sudo) "sudo -S -p '' sh /tmp/buhta-deploy.sh $args" else "sh /tmp/buhta-deploy.sh $args")

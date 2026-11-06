@@ -134,4 +134,22 @@ object Settings {
     var whitelist: Boolean
         get() = sp.getBoolean("whitelist", false)
         set(v) { sp.edit().putBoolean("whitelist", v).apply() }
+
+    // ---- логин и пароль веб-панели (придумываются здесь, до установки, как в Маяке) ----
+    var panelUser: String
+        get() = sp.getString(pk("p_user"), "admin") ?: "admin"
+        set(v) { sp.edit().putString(pk("p_user"), v).apply() }
+    var panelPass: String
+        get() {
+            val k = pk("p_pass")
+            var v = sp.getString(k, null)
+            if (v.isNullOrEmpty()) {
+                val abc = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+                val r = java.security.SecureRandom()
+                v = (1..12).map { abc[r.nextInt(abc.length)] }.joinToString("")
+                sp.edit().putString(k, v).apply()
+            }
+            return v
+        }
+        set(v) { sp.edit().putString(pk("p_pass"), v).apply() }
 }

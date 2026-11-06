@@ -183,6 +183,16 @@ func runServer(t *Tunnel) {
 	}
 	sec := newSecServer(st, t, tunWrite)
 	t.OnDatagram = sec.onDatagram
+	// Логин и пароль панели можно задать при установке (переменные окружения из /etc/buhta/panel.env):
+	// так пароль придумывает владелец, а не ищется в логах.
+	if u := os.Getenv("BUHTA_PANEL_USER"); u != "" {
+		panelUser = u
+	}
+	if pw := os.Getenv("BUHTA_PANEL_PASS"); pw != "" {
+		st.SetPassword(pw)
+		firstPass = ""
+		log.Printf("[panel] логин %s, пароль задан при установке", panelUser)
+	}
 	if firstPass != "" {
 		log.Printf("[panel] ПЕРВЫЙ ЗАПУСК: логин admin, пароль %s (смени в Настройках)", firstPass)
 	}
