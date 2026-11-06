@@ -14,3 +14,5 @@ extdisco (TURN) -> focus conference -> MUC presence -> ждёт Jingle session-i
     go run . -room <UUID из гостевой ссылки> -name "Бухта"
 
 Ничего в main/app/dion не трогает — отдельная ветка, отдельная папка.
+
+Сборка Windows .exe: workflow buhta-joiner.yml (пре-релизы buhta-build-N, к обновлятору Маяка отношения не имеют).
