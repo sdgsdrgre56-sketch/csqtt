@@ -165,6 +165,18 @@ fun ConnectionTab(onToggle: () -> Unit) {
                     )
                 }
                 Text(statusText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = statusColor, textAlign = TextAlign.Center)
+                if (connected) {
+                    LinearProgressIndicator(
+                        progress = { 1f }, color = BuhtaColors.connected,
+                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                        strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                    )
+                } else if (active) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                        strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                    )
+                }
                 Text(
                     "%02d:%02d:%02d".format(uptime / 3600, (uptime / 60) % 60, uptime % 60),
                     style = MaterialTheme.typography.labelLarge,
@@ -198,15 +210,6 @@ fun ConnectionTab(onToggle: () -> Unit) {
                     }
                 }
             }
-        }
-        AppSectionCard {
-            Text("Как это работает", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Трафик телефона идёт через звонок Saby Meet на твой сервер. " +
-                    "Серверы и ключи добавляются на вкладке «Серверы».",
-                style = MaterialTheme.typography.bodyMedium,
-                color = colors.onSurfaceVariant,
-            )
         }
         Spacer(Modifier.height(8.dp))
     }
