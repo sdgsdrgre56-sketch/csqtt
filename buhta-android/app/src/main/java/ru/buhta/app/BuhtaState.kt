@@ -9,7 +9,7 @@ object BuhtaState {
 
     private val lines = ArrayDeque<String>()
 
-    fun setStatus(s: String) {
+    fun update(s: String) {
         status = s
         log("▶ $s")
     }
