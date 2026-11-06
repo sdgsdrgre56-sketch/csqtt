@@ -33,6 +33,7 @@ class BuhtaVpnService : VpnService() {
             stopSelf()
             return START_NOT_STICKY
         }
+        Settings.init(applicationContext)
         val r = intent?.getStringExtra("room") ?: return START_NOT_STICKY
         if (running) return START_STICKY
         room = r
@@ -105,8 +106,7 @@ class BuhtaVpnService : VpnService() {
                 .setMtu(1200)
                 .addAddress("10.77.0.2", 32)
                 .addRoute("0.0.0.0", 0)
-                .addDnsServer("1.1.1.1")
-                .addDnsServer("8.8.8.8")
+            for (d in Settings.dnsList()) b.addDnsServer(d)
             if (v6) {
                 // IPv6 заворачиваем в TUN и там отбрасываем, чтобы не утекал
                 b.addAddress("fd00:77::2", 128).addRoute("::", 0)

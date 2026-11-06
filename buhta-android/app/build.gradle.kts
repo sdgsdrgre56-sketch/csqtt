@@ -7,6 +7,16 @@ android {
     namespace = "ru.buhta.app"
     compileSdk = 34
 
+    // Постоянный ключ подписи: обновления APK ставятся поверх старой версии без удаления.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("buhta-release.jks")
+            storePassword = "buhta-sign"
+            keyAlias = "buhta"
+            keyPassword = "buhta-sign"
+        }
+    }
+
     defaultConfig {
         applicationId = "ru.buhta.app"
         minSdk = 26

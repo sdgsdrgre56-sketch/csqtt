@@ -22,5 +22,10 @@ object BuhtaState {
         onChange?.invoke()
     }
 
+    fun clear() {
+        synchronized(lines) { lines.clear() }
+        onChange?.invoke()
+    }
+
     fun text(): String = synchronized(lines) { lines.takeLast(80).joinToString("\n") }
 }
