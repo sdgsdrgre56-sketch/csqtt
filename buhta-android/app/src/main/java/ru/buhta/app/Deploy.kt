@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
 /** Установка сервера Бухты на VPS по SSH (как вкладка «Деплой» в Маяке). */
 object Deploy {
 
-    class Result(val ok: Boolean, val panelUser: String = "", val panelPass: String = "", val message: String = "")
+    class Result(val ok: Boolean, val panelUser: String = "", val panelPass: String = "", val message: String = "", val needRoom: Boolean = false)
 
     const val REPO = "sdgsdrgre56-sketch/csqtt"
 
@@ -66,7 +66,7 @@ iptables -C FORWARD -o buhta0 -j ACCEPT 2>/dev/null || iptables -I FORWARD -o bu
 EOF
   chmod +x /usr/local/bin/buhta-net.sh
   mkdir -p /etc/buhta
-  ( umask 077; printf 'BUHTA_PANEL_USER=%s\nBUHTA_PANEL_PASS=%s\n' "${'$'}PUSER" "${'$'}PPASS" > /etc/buhta/panel.env )
+  ( umask 077; printf 'BUHTA_PANEL_USER=%s\nBUHTA_PANEL_PASS=%s\nBUHTA_ROOM=%s\n' "${'$'}PUSER" "${'$'}PPASS" "${'$'}ROOM" > /etc/buhta/panel.env )
   chmod 600 /etc/buhta/panel.env
   echo "[LOG] Создаю службу buhta"
   cat > /etc/systemd/system/buhta.service <<EOF
@@ -77,7 +77,7 @@ Wants=network-online.target
 [Service]
 EnvironmentFile=-/etc/buhta/panel.env
 ExecStartPre=/usr/local/bin/buhta-net.sh
-ExecStart=${'$'}BIN -room ${'$'}ROOM -tunnel server -hold 8760h -timeout 60s -data /etc/buhta -panel :8787
+ExecStart=${'$'}BIN -room \${'$'}{BUHTA_ROOM} -tunnel server -hold 8760h -timeout 60s -data /etc/buhta -panel :8787
 Restart=always
 RestartSec=3
 [Install]
@@ -85,8 +85,16 @@ WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
   systemctl enable buhta >/dev/null 2>&1
-  systemctl restart buhta
   need ufw && ufw status 2>/dev/null | grep -q "Status: active" && ufw allow 8787/tcp >/dev/null 2>&1
+  if [ -z "${'$'}ROOM" ]; then
+    systemctl stop buhta >/dev/null 2>&1
+    echo "[OK] Сервер и панель установлены. Нужна ссылка на комнату Saby Meet"
+    echo "BUHTA_NEED_ROOM"
+    echo "BUHTA_PANEL|${'$'}PUSER|${'$'}PPASS"
+    echo "BUHTA_DEPLOY_OK"
+    exit 0
+  fi
+  systemctl restart buhta
   sleep 2
   if systemctl is-active --quiet buhta; then echo "[OK] Служба buhta запущена"; else echo "[ERR] служба не запустилась"; journalctl -u buhta --no-pager -n 20; exit 1; fi
   echo "BUHTA_PANEL|${'$'}PUSER|${'$'}PPASS"
@@ -107,11 +115,23 @@ logs)
   echo "BUHTA_DEPLOY_OK"
   ;;
 resetpass)
-  ( umask 077; printf 'BUHTA_PANEL_USER=%s\nBUHTA_PANEL_PASS=%s\n' "${'$'}PUSER" "${'$'}PPASS" > /etc/buhta/panel.env )
+  [ -f /etc/buhta/panel.env ] && . /etc/buhta/panel.env
+  ( umask 077; printf 'BUHTA_PANEL_USER=%s\nBUHTA_PANEL_PASS=%s\nBUHTA_ROOM=%s\n' "${'$'}PUSER" "${'$'}PPASS" "${'$'}BUHTA_ROOM" > /etc/buhta/panel.env )
   chmod 600 /etc/buhta/panel.env
-  systemctl restart buhta
+  [ -n "${'$'}BUHTA_ROOM" ] && systemctl restart buhta
   echo "[OK] Логин и пароль панели обновлены"
   echo "BUHTA_PANEL|${'$'}PUSER|${'$'}PPASS"
+  echo "BUHTA_DEPLOY_OK"
+  ;;
+setroom)
+  [ -f /etc/buhta/panel.env ] || { echo "[ERR] сервер не установлен"; exit 1; }
+  . /etc/buhta/panel.env
+  ( umask 077; printf 'BUHTA_PANEL_USER=%s\nBUHTA_PANEL_PASS=%s\nBUHTA_ROOM=%s\n' "${'$'}BUHTA_PANEL_USER" "${'$'}BUHTA_PANEL_PASS" "${'$'}ROOM" > /etc/buhta/panel.env )
+  chmod 600 /etc/buhta/panel.env
+  systemctl restart buhta
+  sleep 2
+  if systemctl is-active --quiet buhta; then echo "[OK] Комната задана, сервер запущен"; else echo "[ERR] служба не запустилась"; journalctl -u buhta --no-pager -n 20; exit 1; fi
+  echo "BUHTA_PANEL|${'$'}BUHTA_PANEL_USER|${'$'}BUHTA_PANEL_PASS"
   echo "BUHTA_DEPLOY_OK"
   ;;
 uninstall)
@@ -218,7 +238,7 @@ esac
                     c.outputStream.write((password + "\n").toByteArray())
                     c.outputStream.flush()
                 }
-                var panelUser = ""; var panelPass = ""; var ok = false
+                var panelUser = ""; var panelPass = ""; var ok = false; var needRoom = false
                 c.inputStream.bufferedReader().useLines { seq ->
                     for (raw in seq) {
                         val line = raw.trim()
@@ -229,6 +249,7 @@ esac
                                 if (p.size >= 3) { panelUser = p[1]; panelPass = p[2] }
                                 onLine("[OK] Пароль панели получен")
                             }
+                            line == "BUHTA_NEED_ROOM" -> needRoom = true
                             line == "BUHTA_DEPLOY_OK" -> ok = true
                             else -> onLine(line)
                         }
@@ -237,7 +258,7 @@ esac
                 c.join(10, TimeUnit.SECONDS)
                 val code = c.exitStatus ?: -1
                 if (!ok || code != 0) return Result(false, message = "Скрипт завершился с кодом $code")
-                return Result(true, panelUser, panelPass)
+                return Result(true, panelUser, panelPass, needRoom = needRoom)
             } finally {
                 try { session.close() } catch (_: Exception) {}
             }

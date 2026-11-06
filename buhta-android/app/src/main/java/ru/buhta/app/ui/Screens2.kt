@@ -56,6 +56,7 @@ private object DeployUi {
     var busy by mutableStateOf(false)
     var stage by mutableStateOf("")
     var failed by mutableStateOf(false)
+    var askRoom by mutableStateOf(false)
     var panelUrl by mutableStateOf("")
     var panelUser by mutableStateOf("")
     var panelPass by mutableStateOf("")
@@ -80,7 +81,7 @@ fun DeployTab() {
         val h = host.trim()
         if (h.isEmpty() || pass.isEmpty()) { toast("Укажи адрес VPS и пароль"); return }
         val roomId = Settings.UUID_RE.find(room)?.value ?: ""
-        if ((action == "install") && roomId.isEmpty()) { toast("Вставь ссылку на комнату Saby Meet или UUID"); return }
+        if (action == "setroom" && roomId.isEmpty()) { toast("Не нашёл UUID комнаты в ссылке"); return }
         val okChars = Regex("[A-Za-z0-9]+")
         if ((action == "install" || action == "resetpass") &&
             (!okChars.matches(pUser) || !okChars.matches(pPass) || pPass.length < 8)) {
@@ -98,7 +99,7 @@ fun DeployTab() {
                 stageOf(l)?.let { DeployUi.stage = it }
             }
             var autoLink: String? = null
-            if (r.ok && r.panelPass.isNotEmpty() && roomId.isNotEmpty()) {
+            if (r.ok && !r.needRoom && r.panelPass.isNotEmpty() && roomId.isNotEmpty() && action != "resetpass") {
                 DeployUi.stage = "Создание ключа для телефона"
                 DeployUi.lines.add("[LOG] Создаю ключ для этого телефона в панели")
                 autoLink = Deploy.autoKey(h, pUser, pPass, "Телефон") { DeployUi.lines.add(it) }
@@ -110,6 +111,7 @@ fun DeployTab() {
             }
             withContext(Dispatchers.Main) {
                 DeployUi.busy = false
+                if (r.ok && r.needRoom) DeployUi.askRoom = true
                 if (r.ok) {
                     DeployUi.lines.add("[OK] Готово")
                     DeployUi.stage = if (autoLink != null) "Готово: сервер установлен, ключ сохранён" else "Готово: операция завершена"
@@ -127,12 +129,34 @@ fun DeployTab() {
         }
     }
 
+    if (DeployUi.askRoom) {
+        AlertDialog(
+            onDismissRequest = { DeployUi.askRoom = false },
+            title = { Text("Ссылка на комнату") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Сервер и панель установлены. Вставь ссылку на гостевую комнату Saby Meet, и я запущу сервер и создам ключ для этого телефона.",
+                        style = MaterialTheme.typography.bodyMedium)
+                    OutlinedTextField(value = room, onValueChange = { room = it }, maxLines = 3, shape = CsqttShapes.Small,
+                        label = { Text("Ссылка или UUID комнаты") }, modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (Settings.UUID_RE.find(room) == null) { toast("Не нашёл UUID комнаты в ссылке") }
+                    else { DeployUi.askRoom = false; run("setroom") }
+                }) { Text("Продолжить") }
+            },
+            dismissButton = { TextButton(onClick = { DeployUi.askRoom = false }) { Text("Позже") } },
+        )
+    }
+
     BuhtaScreen {
         AppSectionCard {
             Text("Сервер (VPS)", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Приложение зайдёт на VPS по SSH, скачает сервер Бухты, создаст службу и выдаст пароль веб-панели. " +
-                    "Пароль SSH нигде не сохраняется.",
+                "Приложение зайдёт на VPS по SSH, скачает сервер Бухты и веб-панель с логином и паролем, которые ты задашь ниже. " +
+                    "Потом попросит ссылку на комнату Saby Meet. Пароль SSH нигде не сохраняется.",
                 style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
             )
             OutlinedTextField(value = host, onValueChange = { host = it }, singleLine = true, shape = CsqttShapes.Small,
@@ -153,8 +177,6 @@ fun DeployTab() {
                 label = { Text("Логин панели (латиница, цифры)") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = pPass, onValueChange = { pPass = it.filter { c -> c.isLetterOrDigit() } }, singleLine = true, shape = CsqttShapes.Small,
                 label = { Text("Пароль панели (от 8 символов)") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = room, onValueChange = { room = it }, maxLines = 2, shape = CsqttShapes.Small,
-                label = { Text("Ссылка на комнату Saby Meet или UUID") }, modifier = Modifier.fillMaxWidth())
             Button(
                 onClick = { run("install") }, enabled = !DeployUi.busy, shape = CsqttShapes.Control,
                 modifier = Modifier.fillMaxWidth().height(CsqttSizes.ControlHeight),
