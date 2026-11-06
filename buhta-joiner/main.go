@@ -259,6 +259,7 @@ func main() {
 		iqHead := regexp.MustCompile(`^<iq[^>]*>`)
 		for frame := range in {
 			log.Printf("<-- (post-offer) %s", truncate(frame, 2500))
+			queueSourceUpdate(frame)
 			if h := iqHead.FindString(frame); h != "" && (strings.Contains(h, "type='get'") || strings.Contains(h, "type='set'") || strings.Contains(h, `type="get"`) || strings.Contains(h, `type="set"`)) {
 				id, from := "", ""
 				if mm := regexp.MustCompile(`\sid=['"]([^'"]+)['"]`).FindStringSubmatch(h); mm != nil {
@@ -300,6 +301,7 @@ func main() {
 		log.Fatalf("Phase 2: AcceptAndConnect failed: %v", aerr)
 	}
 	defer pc.Close()
+	go runSourceUpdates(pc)
 
 	if acceptXML != "" {
 		log.Println("=== sending Jingle session-accept ===")
