@@ -31,6 +31,7 @@ main{max-width:1300px;width:100%;margin:0 auto;padding:32px 24px 80px;display:fl
 .stat-label{font-size:13px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em}
 .stat-value{font-size:28px;font-weight:700;line-height:1.1}
 .stat-sub{font-size:13px;color:var(--text-muted)}
+.stat-head{display:flex;align-items:center;justify-content:space-between}.stat-icon{width:40px;height:40px;border-radius:12px;background:var(--icon-bg);color:var(--primary);display:grid;place-items:center}.stat-icon svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.progress-bar{width:100%;height:6px;background:var(--surface-hover);border-radius:3px;overflow:hidden}.progress-fill{height:100%;background:var(--primary);border-radius:3px;transition:width .5s ease-out}
 .tabs-container{display:flex;justify-content:center}
 .tabs{display:inline-flex;background:var(--surface);border:1px solid var(--border);padding:4px;border-radius:14px;gap:4px}
 .tab-btn{background:transparent;border:none;color:var(--text-muted);padding:8px 22px;font-size:14px;font-weight:600;border-radius:10px;cursor:pointer;white-space:nowrap}
@@ -79,9 +80,12 @@ dialog h2{margin-bottom:20px;font-size:22px}
 .toast.err{border-left-color:var(--error)}
 @keyframes tin{from{opacity:0;transform:translateX(50px)}to{opacity:1;transform:none}}
 #login{min-height:100vh;display:grid;place-items:center;padding:20px}
-.login-box{width:min(380px,100%);padding:32px}
-.login-box h1{color:var(--primary);font-size:30px;margin-bottom:6px}
-.login-box p{color:var(--text-muted);margin-bottom:24px;font-size:14px}
+.login-box{width:min(420px,100%);padding:48px 40px;border-radius:24px;backdrop-filter:blur(20px);box-shadow:0 20px 40px rgba(0,0,0,.05);animation:slideUp .6s cubic-bezier(.16,1,.3,1)}
+@keyframes slideUp{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}
+.login-box h1{text-align:center;color:var(--text-main);font-size:28px;font-weight:700;margin-bottom:6px}
+.login-box p{text-align:center;color:var(--text-muted);margin-bottom:32px;font-size:14px}
+.login-box .ig input{height:52px;border-radius:14px;background:var(--bg-color)}
+.login-box .btn-primary{height:52px;border-radius:14px;font-size:16px;margin-top:8px;box-shadow:0 8px 16px rgba(0,119,255,.25)}
 #lerr{color:var(--error);font-size:13px;min-height:18px;margin-bottom:8px}
 .hidden{display:none!important}
 @media(max-width:768px){header{height:64px}.hc{padding:0 14px}main{padding:20px 12px 80px;gap:20px}.dashboard{grid-template-columns:repeat(2,1fr);gap:12px}.stat-card{padding:14px}.stat-value{font-size:22px}.tabs{display:flex;width:100%}.tab-btn{flex:1;padding:10px 0;font-size:13px}.ha .btn{padding:8px 12px;font-size:13px}}
@@ -102,7 +106,7 @@ dialog h2{margin-bottom:20px;font-size:22px}
 <header><div class="hc">
   <div class="brand">Бухта<small id="ver"></small></div>
   <div class="ha">
-    <button class="btn btn-ghost" id="theme">Тема</button>
+    <button class="btn btn-ghost" id="theme" title="Тема">◐</button>
     <button class="btn btn-ghost" id="logout">Выйти</button>
   </div>
 </div></header>
@@ -116,10 +120,10 @@ dialog h2{margin-bottom:20px;font-size:22px}
 
   <section id="tab-monitoring">
   <div class="dashboard">
-    <div class="glass-panel stat-card"><div class="stat-label">Клиенты</div><div class="stat-value" id="s_clients">–</div><div class="stat-sub" id="s_online">онлайн: –</div></div>
-    <div class="glass-panel stat-card"><div class="stat-label">От клиентов</div><div class="stat-value" id="s_in">–</div><div class="stat-sub">всего с запуска</div></div>
-    <div class="glass-panel stat-card"><div class="stat-label">К клиентам</div><div class="stat-value" id="s_out">–</div><div class="stat-sub">всего с запуска</div></div>
-    <div class="glass-panel stat-card"><div class="stat-label">Работает</div><div class="stat-value" id="s_up">–</div><div class="stat-sub">аптайм сервера</div></div>
+    <div class="glass-panel stat-card"><div class="stat-head"><div class="stat-label">Клиенты</div><div class="stat-icon"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div></div><div class="stat-value" id="s_clients">–</div><div class="stat-sub" id="s_online">онлайн: –</div><div class="progress-bar"><div class="progress-fill" id="s_onbar" style="width:0%"></div></div></div>
+    <div class="glass-panel stat-card"><div class="stat-head"><div class="stat-label">От клиентов</div><div class="stat-icon"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></div></div><div class="stat-value" id="s_in">–</div><div class="stat-sub">всего с запуска</div></div>
+    <div class="glass-panel stat-card"><div class="stat-head"><div class="stat-label">К клиентам</div><div class="stat-icon"><svg viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></svg></div></div><div class="stat-value" id="s_out">–</div><div class="stat-sub">всего с запуска</div></div>
+    <div class="glass-panel stat-card"><div class="stat-head"><div class="stat-label">Работает</div><div class="stat-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div></div><div class="stat-value" id="s_up">–</div><div class="stat-sub">аптайм сервера</div></div>
   </div>
     <div class="dashboard">
       <div class="glass-panel stat-card"><div class="stat-label">Скорость ↓ (к клиентам)</div><div class="stat-value" id="v_out">0</div><div class="stat-sub">Мбит/с сейчас</div></div>
@@ -206,7 +210,7 @@ $('logout').onclick=function(){api('POST','/api/logout',{}).catch(function(){}).
 function start(){show(true);refresh();clearInterval(timer);timer=setInterval(refresh,3000)}
 function refresh(){
   api('GET','/api/stats').then(function(s){
-    $('s_clients').textContent=s.clients;$('s_online').textContent='онлайн: '+s.online;
+    $('s_clients').textContent=s.clients;$('s_online').textContent='онлайн: '+s.online;$('s_onbar').style.width=(s.clients?Math.round(100*s.online/s.clients):0)+'%';
     $('s_in').textContent=fmtB(s.bytes_in);$('s_out').textContent=fmtB(s.bytes_out);$('s_up').textContent=fmtUp(s.uptime_sec);
     $('k_room').textContent=s.room||'–';$('k_key').textContent=s.server_key||'–';
     var now=Date.now();
