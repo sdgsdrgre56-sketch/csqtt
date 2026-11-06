@@ -56,6 +56,7 @@ func main() {
 	bridgeAddr := flag.String("bridge", "91.232.93.237:10000", "bridge media address used by -udptest part B")
 	relayOnly := flag.Bool("relayonly", false, "force all media through Saby's TCP TURN relay instead of letting ICE try a direct UDP path")
 	flag.Parse()
+	roomID = *room
 
 	if *room == "" {
 		fmt.Fprintln(os.Stderr, "error: -room is required (the UUID from the guest link)")

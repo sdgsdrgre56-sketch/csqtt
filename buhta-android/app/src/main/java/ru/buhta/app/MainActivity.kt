@@ -241,7 +241,9 @@ class MainActivity : Activity() {
     }
 
     private fun launch(room: String) {
-        startService(Intent(this, BuhtaVpnService::class.java).putExtra("room", room))
+        startService(Intent(this, BuhtaVpnService::class.java)
+            .putExtra("room", room)
+            .putExtra("key", Settings.currentServer().key))
         renderLive()
     }
 
@@ -289,7 +291,7 @@ class MainActivity : Activity() {
 
         val add = card(col)
         label(add, "Добавить сервер", 15f, bold = true)
-        label(add, "Вставь ссылку на гостевую комнату Saby Meet целиком или UUID.", 12f, sub = true)
+        label(add, "Вставь ключ buhta:// из панели (с шифрованием) либо ссылку на гостевую комнату Saby Meet / UUID.", 12f, sub = true)
         val nameE = input(add, "Название (необязательно)")
         val linkE = input(add, "Ссылка или UUID комнаты")
         button(add, "Вставить из буфера", filled = false) {
@@ -299,12 +301,15 @@ class MainActivity : Activity() {
         }
         button(add, "Добавить") {
             val raw = linkE.text.toString().trim()
-            val m = Settings.UUID_RE.find(raw)
-            if (m == null) {
-                Toast.makeText(this, "Не нашёл UUID комнаты в ссылке", Toast.LENGTH_SHORT).show()
+            val parsed = Settings.parseKey(raw)
+            val m = if (parsed != null) null else Settings.UUID_RE.find(raw)
+            if (parsed == null && m == null) {
+                Toast.makeText(this, "Не нашёл ключ или UUID комнаты", Toast.LENGTH_SHORT).show()
             } else {
-                val name = nameE.text.toString().trim().ifEmpty { "Сервер ${list.size + 1}" }
-                list.add(Settings.Server(name, m.value))
+                val fallback = parsed?.first?.ifEmpty { null } ?: "Сервер ${list.size + 1}"
+                val name = nameE.text.toString().trim().ifEmpty { fallback }
+                if (parsed != null) list.add(Settings.Server(name, parsed.second, raw))
+                else list.add(Settings.Server(name, m!!.value))
                 Settings.saveServers(list)
                 showTab(1)
             }

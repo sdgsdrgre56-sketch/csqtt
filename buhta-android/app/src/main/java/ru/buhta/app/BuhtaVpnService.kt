@@ -26,6 +26,8 @@ class BuhtaVpnService : VpnService() {
     private var proc: Process? = null
     private var socket: DatagramSocket? = null
     private var room = ""
+    private var key = ""
+    @Volatile private var tunIp = "10.77.0.2"
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "stop") {
@@ -37,6 +39,7 @@ class BuhtaVpnService : VpnService() {
         val r = intent?.getStringExtra("room") ?: return START_NOT_STICKY
         if (running) return START_STICKY
         room = r
+        key = intent.getStringExtra("key") ?: ""
         running = true
         BuhtaState.active = true
         Thread { supervise() }.start()
@@ -61,10 +64,12 @@ class BuhtaVpnService : VpnService() {
             BuhtaState.connected = false
             BuhtaState.update(if (attempt == 1) "Подключаюсь к комнате…" else "Переподключаюсь (попытка $attempt)…")
             try {
-                val p = ProcessBuilder(
+                val cmd = mutableListOf(
                     bin, "-room", room, "-tunnel", "client",
                     "-udp", "127.0.0.1:$PORT", "-hold", "8760h", "-timeout", "60s"
-                ).redirectErrorStream(true).start()
+                )
+                if (key.isNotEmpty()) { cmd.add("-key"); cmd.add(key) }
+                val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
                 proc = p
                 p.inputStream.bufferedReader().useLines { seq ->
                     for (line in seq) onLine(line)
@@ -87,6 +92,7 @@ class BuhtaVpnService : VpnService() {
 
     private fun onLine(line: String) {
         if (line.contains("[status] connected")) {
+            Regex("ip=(\\d+\\.\\d+\\.\\d+\\.\\d+)").find(line)?.let { tunIp = it.groupValues[1] }
             BuhtaState.connected = true
             BuhtaState.update("Подключено")
             ensureTun()
@@ -104,7 +110,7 @@ class BuhtaVpnService : VpnService() {
             val b = Builder()
                 .setSession("Бухта")
                 .setMtu(1200)
-                .addAddress("10.77.0.2", 32)
+                .addAddress(tunIp, 32)
                 .addRoute("0.0.0.0", 0)
             for (d in Settings.dnsList()) b.addDnsServer(d)
             if (v6) {

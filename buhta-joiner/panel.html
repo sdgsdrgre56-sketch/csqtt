@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0c">
+<title>Бухта</title>
+<style>
+:root{--bg-color:#f8fafc;--surface:#fff;--surface-hover:#f1f5f9;--primary:#0077ff;--text-main:#0f172a;--text-muted:#64748b;--border:#e2e8f0;--header-glass:rgba(255,255,255,.8);--icon-bg:rgba(0,119,255,.1);--error:#ef4444}
+[data-theme="dark"]{--bg-color:#000;--surface:#0a0a0c;--surface-hover:#161619;--text-main:#f4f4f5;--text-muted:#9ca3af;--border:#1f1f23;--header-glass:rgba(0,0,0,.8);--icon-bg:rgba(0,119,255,.15)}
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif}
+html{-webkit-text-size-adjust:none}
+body{background:var(--bg-color);color:var(--text-main);min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden;transition:background .3s,color .3s}
+.glass-panel{background:var(--surface);border:1px solid var(--border);border-radius:20px;box-shadow:0 4px 6px -1px rgba(0,0,0,.05)}
+header{position:sticky;top:0;z-index:40;height:72px;background:var(--header-glass);backdrop-filter:blur(16px);border-bottom:1px solid var(--border)}
+.hc{max-width:1300px;margin:0 auto;padding:0 24px;height:100%;display:flex;align-items:center;justify-content:space-between}
+.brand{font-size:24px;font-weight:800;color:var(--primary);letter-spacing:-.02em}
+.brand small{font-size:12px;font-weight:600;color:var(--text-muted);margin-left:8px}
+.ha{display:flex;gap:10px;align-items:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 20px;font-size:14px;font-weight:600;border-radius:12px;border:none;cursor:pointer;transition:all .2s;outline:none;background:var(--surface-hover);color:var(--text-main)}
+.btn:active{transform:scale(.96)}
+.btn-primary{background:var(--primary);color:#fff;box-shadow:0 4px 12px rgba(0,119,255,.25)}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,119,255,.35)}
+.btn-ghost{background:transparent;color:var(--text-muted)}.btn-ghost:hover{background:var(--surface-hover);color:var(--text-main)}
+.btn-danger{background:transparent;color:var(--error)}.btn-danger:hover{background:rgba(239,68,68,.1)}
+.btn:disabled{opacity:.42;cursor:not-allowed}
+main{max-width:1300px;width:100%;margin:0 auto;padding:32px 24px 80px;display:flex;flex-direction:column;gap:28px}
+.dashboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px}
+.stat-card{padding:24px;display:flex;flex-direction:column;gap:10px;position:relative;overflow:hidden}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--primary);opacity:.8}
+.stat-label{font-size:13px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em}
+.stat-value{font-size:28px;font-weight:700;line-height:1.1}
+.stat-sub{font-size:13px;color:var(--text-muted)}
+.tabs-container{display:flex;justify-content:center}
+.tabs{display:inline-flex;background:var(--surface);border:1px solid var(--border);padding:4px;border-radius:14px;gap:4px}
+.tab-btn{background:transparent;border:none;color:var(--text-muted);padding:8px 22px;font-size:14px;font-weight:600;border-radius:10px;cursor:pointer;white-space:nowrap}
+.tab-btn:hover{color:var(--text-main)}
+.tab-btn.active{background:var(--primary);color:#fff;box-shadow:0 4px 12px rgba(0,119,255,.2)}
+.section-header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px}
+.section-title{font-size:22px;font-weight:700}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.client-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 4px 6px -1px rgba(0,0,0,.05);cursor:pointer;transition:all .2s}
+.client-card:hover{background:var(--surface-hover);transform:translateY(-2px);box-shadow:0 10px 15px -3px rgba(0,0,0,.1)}
+.cc-head{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);padding-bottom:8px}
+.cc-title{font-size:15px;font-weight:700}
+.cc-row{display:flex;justify-content:space-between;font-size:13px}
+.cc-label{color:var(--text-muted);font-weight:600}
+.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:20px;font-size:12px;font-weight:600}
+.badge::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--primary)}
+.badge.on{background:var(--icon-bg);color:var(--primary);border:1px solid var(--primary)}
+.badge.off{background:var(--surface-hover);color:var(--text-muted);border:1px solid var(--border)}.badge.off::before{background:var(--text-muted)}
+.badge.live{background:rgba(16,185,129,.1);color:#10b981;border:1px solid #10b981}.badge.live::before{background:#10b981;box-shadow:0 0 8px rgba(16,185,129,.5)}
+.empty{text-align:center;padding:64px 20px;color:var(--text-muted)}
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}
+.setting-card{padding:24px}
+.setting-card h3{font-size:16px;margin-bottom:14px}
+.ig{margin-bottom:16px}
+.ig label{display:block;font-size:13px;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase}
+.ig input{width:100%;height:48px;background:var(--bg-color);color:var(--text-main);border:1px solid var(--border);border-radius:12px;padding:0 16px;font-size:14px;outline:none}
+.ig input:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(0,119,255,.15)}
+.kv{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}
+.kv span{font-size:12px;color:var(--text-muted);font-weight:600;text-transform:uppercase}
+.kv code{font-size:12px;word-break:break-all;background:var(--bg-color);border:1px solid var(--border);border-radius:10px;padding:8px 10px}
+.switch{position:relative;display:inline-block;width:44px;height:24px}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;cursor:pointer;inset:0;background:var(--border);transition:.3s;border-radius:24px}
+.slider:before{position:absolute;content:"";height:18px;width:18px;left:3px;bottom:3px;background:#fff;transition:.3s;border-radius:50%}
+input:checked+.slider{background:var(--primary)}input:checked+.slider:before{transform:translateX(20px)}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding:12px;background:var(--bg-color);border-radius:12px;border:1px solid var(--border)}
+.toggle-row label{font-size:14px;font-weight:600}
+dialog{margin:auto;width:min(500px,calc(100% - 32px));background:var(--surface);color:var(--text-main);border:1px solid var(--border);border-radius:24px;padding:28px;box-shadow:0 25px 50px -12px rgba(0,0,0,.25)}
+dialog::backdrop{background:rgba(0,0,0,.4);backdrop-filter:blur(4px)}
+dialog h2{margin-bottom:20px;font-size:22px}
+.dlg-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:10px;margin-top:24px}
+.logbox{padding:16px;font-size:12px;line-height:1.55;max-height:60vh;overflow:auto;white-space:pre-wrap;word-break:break-all}
+.toast-container{position:fixed;bottom:24px;right:24px;z-index:100;display:flex;flex-direction:column;gap:10px}
+.toast{background:var(--surface);border:1px solid var(--border);border-left:3px solid #10b981;padding:14px 20px;border-radius:12px;font-size:14px;font-weight:500;box-shadow:0 10px 25px rgba(0,0,0,.1);animation:tin .3s}
+.toast.err{border-left-color:var(--error)}
+@keyframes tin{from{opacity:0;transform:translateX(50px)}to{opacity:1;transform:none}}
+#login{min-height:100vh;display:grid;place-items:center;padding:20px}
+.login-box{width:min(380px,100%);padding:32px}
+.login-box h1{color:var(--primary);font-size:30px;margin-bottom:6px}
+.login-box p{color:var(--text-muted);margin-bottom:24px;font-size:14px}
+#lerr{color:var(--error);font-size:13px;min-height:18px;margin-bottom:8px}
+.hidden{display:none!important}
+@media(max-width:768px){header{height:64px}.hc{padding:0 14px}main{padding:20px 12px 80px;gap:20px}.dashboard{grid-template-columns:repeat(2,1fr);gap:12px}.stat-card{padding:14px}.stat-value{font-size:22px}.tabs{display:flex;width:100%}.tab-btn{flex:1;padding:10px 0;font-size:13px}.ha .btn{padding:8px 12px;font-size:13px}}
+</style>
+</head>
+<body>
+<div id="login" class="hidden">
+  <div class="glass-panel login-box">
+    <h1>Бухта</h1><p>Панель управления</p>
+    <div class="ig"><label>Логин</label><input id="lg" value="admin" autocomplete="username"></div>
+    <div class="ig"><label>Пароль</label><input id="pw" type="password" autocomplete="current-password"></div>
+    <div id="lerr"></div>
+    <button class="btn btn-primary" style="width:100%" id="lbtn">Войти</button>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+<header><div class="hc">
+  <div class="brand">Бухта<small id="ver"></small></div>
+  <div class="ha">
+    <button class="btn btn-ghost" id="theme">Тема</button>
+    <button class="btn btn-ghost" id="logout">Выйти</button>
+  </div>
+</div></header>
+<main>
+  <div class="dashboard">
+    <div class="glass-panel stat-card"><div class="stat-label">Клиенты</div><div class="stat-value" id="s_clients">–</div><div class="stat-sub" id="s_online">онлайн: –</div></div>
+    <div class="glass-panel stat-card"><div class="stat-label">От клиентов</div><div class="stat-value" id="s_in">–</div><div class="stat-sub">всего с запуска</div></div>
+    <div class="glass-panel stat-card"><div class="stat-label">К клиентам</div><div class="stat-value" id="s_out">–</div><div class="stat-sub">всего с запуска</div></div>
+    <div class="glass-panel stat-card"><div class="stat-label">Работает</div><div class="stat-value" id="s_up">–</div><div class="stat-sub">аптайм сервера</div></div>
+  </div>
+  <div class="tabs-container"><div class="tabs">
+    <button class="tab-btn active" data-tab="clients">Клиенты</button>
+    <button class="tab-btn" data-tab="settings">Настройки</button>
+    <button class="tab-btn" data-tab="logs">Логи</button>
+  </div></div>
+
+  <section id="tab-clients">
+    <div class="section-header"><div class="section-title">Клиенты</div><button class="btn btn-primary" id="add">+ Добавить</button></div>
+    <div class="cards" id="cards"></div>
+    <div class="empty hidden" id="empty">Клиентов пока нет. Пока их нет, сервер работает в открытом режиме для одного устройства (10.77.0.2). Добавь первого клиента — включится шифрование.</div>
+  </section>
+  <section id="tab-settings" class="hidden">
+    <div class="section-header"><div class="section-title">Настройки</div></div>
+    <div class="settings-grid">
+      <div class="glass-panel setting-card"><h3>Сервер</h3>
+        <div class="kv"><span>Комната Saby Meet</span><code id="k_room">–</code></div>
+        <div class="kv"><span>Открытый ключ сервера</span><code id="k_key">–</code></div>
+      </div>
+      <div class="glass-panel setting-card"><h3>Сменить пароль панели</h3>
+        <div class="ig"><label>Старый пароль</label><input id="p_old" type="password"></div>
+        <div class="ig"><label>Новый пароль (от 8 символов)</label><input id="p_new" type="password"></div>
+        <button class="btn btn-primary" id="p_save">Сохранить</button>
+      </div>
+    </div>
+  </section>
+  <section id="tab-logs" class="hidden">
+    <div class="section-header"><div class="section-title">Логи</div><button class="btn" id="l_ref">Обновить</button></div>
+    <div class="glass-panel logbox mono" id="logbox"></div>
+  </section>
+</main>
+</div>
+
+<dialog id="dlg">
+  <h2 id="dlg_t">Клиент</h2>
+  <div class="ig"><label>Имя</label><input id="d_name" maxlength="40"></div>
+  <div class="ig"><label>Лимит скорости, Мбит/с (0 — без ограничения)</label><input id="d_lim" type="number" min="0" step="1" value="0"></div>
+  <div class="toggle-row" id="d_en_row"><label>Включён</label><label class="switch"><input type="checkbox" id="d_en" checked><span class="slider"></span></label></div>
+  <div class="kv hidden" id="d_linkbox"><span>Ключ подключения (вставь в приложение)</span><code id="d_link" class="mono"></code></div>
+  <div class="dlg-actions">
+    <button class="btn btn-danger hidden" id="d_del">Удалить</button>
+    <button class="btn hidden" id="d_copy">Копировать ключ</button>
+    <button class="btn btn-ghost" id="d_cancel">Закрыть</button>
+    <button class="btn btn-primary" id="d_save">Сохранить</button>
+  </div>
+</dialog>
+<div class="toast-container" id="toasts"></div>
+
+<script>
+var $=function(id){return document.getElementById(id)};
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function toast(m,err){var t=document.createElement('div');t.className='toast'+(err?' err':'');t.textContent=m;$('toasts').appendChild(t);setTimeout(function(){t.remove()},2600)}
+function api(method,url,body){
+  var o={method:method,headers:{'X-Buhta':'1'}};
+  if(body!==undefined){o.headers['Content-Type']='application/json';o.body=JSON.stringify(body)}
+  return fetch(url,o).then(function(r){return r.json().then(function(j){if(!r.ok){var e=new Error(j.error||'ошибка');e.status=r.status;throw e}return j})})
+}
+function fmtB(n){var u=['Б','КБ','МБ','ГБ','ТБ'],i=0;n=Number(n)||0;while(n>=1024&&i<4){n/=1024;i++}return (i?n.toFixed(n<10?2:1):n)+' '+u[i]}
+function fmtUp(s){var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?d+' д '+h+' ч':h?h+' ч '+m+' м':m+' м'}
+function ago(ts){if(!ts)return 'не был';var s=Math.floor(Date.now()/1000-ts);if(s<60)return 'только что';if(s<3600)return Math.floor(s/60)+' мин назад';if(s<86400)return Math.floor(s/3600)+' ч назад';return Math.floor(s/86400)+' д назад'}
+
+var theme=localStorage.getItem('buhta_theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+function applyTheme(){document.documentElement.setAttribute('data-theme',theme)}applyTheme();
+$('theme').onclick=function(){theme=theme==='dark'?'light':'dark';localStorage.setItem('buhta_theme',theme);applyTheme()};
+
+var clients=[],editing=null,timer=null,tab='clients';
+function show(app){$('login').classList.toggle('hidden',app);$('app').classList.toggle('hidden',!app)}
+
+function login(){
+  var b=$('lbtn');b.disabled=true;$('lerr').textContent='';
+  fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login:$('lg').value,password:$('pw').value})})
+  .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||'ошибка');return j})})
+  .then(function(){$('pw').value='';start()})
+  .catch(function(e){$('lerr').textContent=e.message})
+  .then(function(){b.disabled=false});
+}
+$('lbtn').onclick=login;$('pw').onkeydown=function(e){if(e.key==='Enter')login()};
+$('logout').onclick=function(){api('POST','/api/logout',{}).catch(function(){}).then(function(){clearInterval(timer);show(false)})};
+
+function start(){show(true);refresh();clearInterval(timer);timer=setInterval(refresh,4000)}
+function refresh(){
+  api('GET','/api/stats').then(function(s){
+    $('s_clients').textContent=s.clients;$('s_online').textContent='онлайн: '+s.online;
+    $('s_in').textContent=fmtB(s.bytes_in);$('s_out').textContent=fmtB(s.bytes_out);$('s_up').textContent=fmtUp(s.uptime_sec);
+    $('k_room').textContent=s.room||'–';$('k_key').textContent=s.server_key||'–';
+  }).catch(onErr);
+  api('GET','/api/clients').then(function(l){clients=l;renderClients()}).catch(onErr);
+  if(tab==='logs')loadLogs();
+}
+function onErr(e){if(e.status===401){clearInterval(timer);show(false)}}
+
+function renderClients(){
+  $('empty').classList.toggle('hidden',clients.length>0);
+  $('cards').innerHTML=clients.map(function(c){
+    var st=!c.enabled?'<span class="badge off">выключен</span>':c.online?'<span class="badge live">онлайн</span>':'<span class="badge on">включён</span>';
+    return '<div class="client-card" data-id="'+esc(c.id)+'"><div class="cc-head"><div class="cc-title">'+esc(c.name)+'</div>'+st+'</div>'+
+    '<div class="cc-row"><span class="cc-label">Адрес</span><span class="mono">'+esc(c.ip)+'</span></div>'+
+    '<div class="cc-row"><span class="cc-label">Скорость</span><span>'+(c.limit_mbps>0?c.limit_mbps+' Мбит/с':'без лимита')+'</span></div>'+
+    '<div class="cc-row"><span class="cc-label">Трафик</span><span class="mono">↑ '+fmtB(c.bytes_in)+' · ↓ '+fmtB(c.bytes_out)+'</span></div>'+
+    '<div class="cc-row"><span class="cc-label">Был</span><span>'+ago(c.last_seen)+'</span></div></div>';
+  }).join('');
+}
+$('cards').onclick=function(e){var el=e.target.closest('.client-card');if(!el)return;openDlg(el.getAttribute('data-id'))};
+$('add').onclick=function(){openDlg(null)};
+
+function openDlg(id){
+  editing=id;var c=id?clients.filter(function(x){return x.id===id})[0]:null;
+  $('dlg_t').textContent=c?'Клиент':'Новый клиент';
+  $('d_name').value=c?c.name:'';$('d_lim').value=c?c.limit_mbps:0;$('d_en').checked=c?c.enabled:true;
+  $('d_en_row').classList.toggle('hidden',!c);$('d_del').classList.toggle('hidden',!c);$('d_copy').classList.toggle('hidden',!c);
+  $('d_linkbox').classList.add('hidden');$('d_link').textContent='';
+  if(c){api('GET','/api/clients/'+id+'/link').then(function(j){$('d_link').textContent=j.link;$('d_linkbox').classList.remove('hidden')}).catch(function(e){toast(e.message,true)})}
+  $('dlg').showModal();
+}
+$('d_cancel').onclick=function(){$('dlg').close()};
+$('d_save').onclick=function(){
+  var body={name:$('d_name').value,limit_mbps:Number($('d_lim').value)||0};
+  var p;
+  if(editing){body.enabled=$('d_en').checked;p=api('PUT','/api/clients/'+editing,body)}
+  else p=api('POST','/api/clients',body);
+  p.then(function(c){
+    if(!editing){editing=c.id;toast('Клиент добавлен — скопируй ключ');refresh();openDlg(c.id);return}
+    toast('Сохранено');$('dlg').close();refresh()
+  }).catch(function(e){toast(e.message,true)});
+};
+$('d_del').onclick=function(){if(!confirm('Удалить клиента? Его ключ перестанет работать.'))return;api('DELETE','/api/clients/'+editing).then(function(){toast('Удалён');$('dlg').close();refresh()}).catch(function(e){toast(e.message,true)})};
+$('d_copy').onclick=function(){var t=$('d_link').textContent;if(!t)return;
+  (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){toast('Ключ скопирован')}).catch(function(){var r=document.createRange();r.selectNodeContents($('d_link'));var s=getSelection();s.removeAllRanges();s.addRange(r);toast('Выдели и скопируй вручную')})};
+
+document.querySelectorAll('.tab-btn').forEach(function(b){b.onclick=function(){
+  tab=b.getAttribute('data-tab');
+  document.querySelectorAll('.tab-btn').forEach(function(x){x.classList.toggle('active',x===b)});
+  ['clients','settings','logs'].forEach(function(n){$('tab-'+n).classList.toggle('hidden',n!==tab)});
+  if(tab==='logs')loadLogs();
+}});
+function loadLogs(){api('GET','/api/logs').then(function(l){var b=$('logbox');b.textContent=l.join('\n');b.scrollTop=b.scrollHeight}).catch(onErr)}
+$('l_ref').onclick=loadLogs;
+$('p_save').onclick=function(){api('POST','/api/password',{old:$('p_old').value,new:$('p_new').value}).then(function(){toast('Пароль изменён');$('p_old').value='';$('p_new').value=''}).catch(function(e){toast(e.message,true)})};
+
+api('GET','/api/me').then(start).catch(function(){show(false)});
+</script>
+</body>
+</html>

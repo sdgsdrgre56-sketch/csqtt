@@ -51,6 +51,10 @@ func runClient(t *Tunnel) {
 			conn.WriteToUDP(pkt, p)
 		}
 	}
+	if *clientKey != "" {
+		runClientSecure(t, conn, &peer)
+		return
+	}
 	log.Printf("[status] connected")
 	buf := make([]byte, 4096)
 	for {

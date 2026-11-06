@@ -24,6 +24,8 @@ var (
 	pingSize   = flag.Int("ping-size", 900, "размер данных в ping (больше ~990 проверяет фрагментацию)")
 	pingCount  = flag.Int("ping-count", 20, "сколько пингов отправить")
 	clientIP   = flag.String("client-ip", "10.77.0.2", "адрес клиента внутри туннеля")
+	dataDir    = flag.String("data", "/etc/buhta", "папка данных сервера: ключ, клиенты, пароль панели")
+	panelAddr  = flag.String("panel", ":8787", "адрес веб-панели (HTTPS); пусто = панель выключена")
 )
 
 const rtpPT = 111
@@ -31,13 +33,17 @@ const rtpPT = 111
 type Tunnel struct {
 	track *webrtc.TrackLocalStaticRTP
 	frag  Fragmenter
-	re    *Reassembler
+	reMu  sync.Mutex
+	res   map[uint32]*Reassembler // по одному сборщику на источник (SSRC)
 
 	mu  sync.Mutex
 	seq uint16
 	ts  uint32
 
 	OnPacket func(pkt []byte)
+	// OnDatagram получает собранную датаграмму как есть (защищённый режим).
+	// Если не задан, действует старый открытый режим: ждём голый IPv4-пакет в OnPacket.
+	OnDatagram func(dg []byte)
 
 	rxPackets, txPackets uint64
 }
@@ -66,21 +72,46 @@ func (t *Tunnel) SendPacket(pkt []byte) {
 	t.mu.Unlock()
 }
 
+// reassembler возвращает сборщик фрагментов для данного источника.
+func (t *Tunnel) reassembler(ssrc uint32) *Reassembler {
+	t.reMu.Lock()
+	defer t.reMu.Unlock()
+	if t.res == nil {
+		t.res = map[uint32]*Reassembler{}
+	}
+	r := t.res[ssrc]
+	if r == nil {
+		if len(t.res) >= 64 { // чужих источников не должно быть много
+			for k := range t.res {
+				delete(t.res, k)
+				break
+			}
+		}
+		r = NewReassembler()
+		t.res[ssrc] = r
+	}
+	return r
+}
+
 // rx принимает RTP-нагрузку, пришедшую от моста.
-func (t *Tunnel) rx(payload []byte) {
+func (t *Tunnel) rx(payload []byte, ssrc uint32) {
 	if len(payload) < headerLen || (payload[0] != frameData && payload[0] != framePing) {
 		return // обычный звук других участников
 	}
-	pkt, err := t.re.Push(payload, time.Now())
+	pkt, err := t.reassembler(ssrc).Push(payload, time.Now())
 	if err != nil || pkt == nil {
-		return
-	}
-	if len(pkt) < 20 || pkt[0]>>4 != 4 { // не IPv4 — случайное совпадение
 		return
 	}
 	t.mu.Lock()
 	t.rxPackets++
 	t.mu.Unlock()
+	if t.OnDatagram != nil {
+		t.OnDatagram(pkt)
+		return
+	}
+	if len(pkt) < 20 || pkt[0]>>4 != 4 { // не IPv4 — случайное совпадение
+		return
+	}
 	if t.OnPacket != nil {
 		t.OnPacket(pkt)
 	}
@@ -96,7 +127,7 @@ func tunnelRX(raw []byte) {
 	if err := p.Unmarshal(raw); err != nil {
 		return
 	}
-	t.rx(p.Payload)
+	t.rx(p.Payload, p.SSRC)
 }
 
 // tunnelAttach вызывается, когда PeerConnection поднялся. Возвращает true,
@@ -105,7 +136,7 @@ func tunnelAttach(track *webrtc.TrackLocalStaticRTP) bool {
 	if *tunnelMode == "" {
 		return false
 	}
-	t := &Tunnel{track: track, re: NewReassembler()}
+	t := &Tunnel{track: track}
 	activeTunnel = t
 	log.Printf("[tun] режим %q запущен", *tunnelMode)
 	switch *tunnelMode {
@@ -130,6 +161,7 @@ func tunnelAttach(track *webrtc.TrackLocalStaticRTP) bool {
 }
 
 func runServer(t *Tunnel) {
+	setupLogRing()
 	tun, err := OpenTUN("buhta0")
 	if err != nil {
 		log.Printf("[tun] ОШИБКА открытия TUN: %v (запусти server-setup.sh от root)", err)
@@ -137,13 +169,27 @@ func runServer(t *Tunnel) {
 	}
 	log.Printf("[tun] TUN buhta0 открыт")
 	var wmu sync.Mutex
-	t.OnPacket = func(pkt []byte) {
+	tunWrite := func(pkt []byte) {
 		wmu.Lock()
 		defer wmu.Unlock()
 		if _, err := tun.Write(pkt); err != nil {
 			log.Printf("[tun] запись в TUN: %v", err)
 		}
 	}
+	st, firstPass, err := openStore(*dataDir)
+	if err != nil {
+		log.Printf("[tun] хранилище %s: %v", *dataDir, err)
+		os.Exit(1)
+	}
+	sec := newSecServer(st, t, tunWrite)
+	t.OnDatagram = sec.onDatagram
+	if firstPass != "" {
+		log.Printf("[panel] ПЕРВЫЙ ЗАПУСК: логин admin, пароль %s (смени в Настройках)", firstPass)
+	}
+	if *panelAddr != "" {
+		startPanel(*panelAddr, st, sec, *dataDir)
+	}
+	log.Printf("[sec] ключ сервера: %s, клиентов: %d", st.PublicKeyHex(), st.Count())
 	go func() {
 		for {
 			time.Sleep(10 * time.Second)
@@ -159,7 +205,7 @@ func runServer(t *Tunnel) {
 			log.Printf("[tun] чтение TUN: %v", err)
 			return
 		}
-		t.SendPacket(append([]byte(nil), buf[:n]...))
+		sec.fromTun(append([]byte(nil), buf[:n]...))
 	}
 }
 

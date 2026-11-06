@@ -10,7 +10,7 @@ object Settings {
     const val DEFAULT_ROOM = "01a1a7f6-2bd2-7d7f-b921-15125aebf1c1"
     val UUID_RE = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
-    class Server(val name: String, val room: String)
+    class Server(val name: String, val room: String, val key: String = "")
 
     class Dns(val key: String, val title: String, val list: List<String>)
 
@@ -38,7 +38,7 @@ object Settings {
                 val a = JSONArray(raw)
                 for (i in 0 until a.length()) {
                     val o = a.getJSONObject(i)
-                    out.add(Server(o.getString("name"), o.getString("room")))
+                    out.add(Server(o.getString("name"), o.getString("room"), o.optString("key", "")))
                 }
             } catch (e: Exception) {
             }
@@ -53,8 +53,23 @@ object Settings {
 
     fun saveServers(l: List<Server>) {
         val a = JSONArray()
-        for (s in l) a.put(JSONObject().put("name", s.name).put("room", s.room))
+        for (s in l) a.put(JSONObject().put("name", s.name).put("room", s.room).put("key", s.key))
         sp.edit().putString("servers", a.toString()).apply()
+    }
+
+    /** Разбирает buhta://… ключ из веб-панели: возвращает (имя, UUID комнаты) или null. */
+    fun parseKey(raw: String): Pair<String, String>? {
+        val t = raw.trim()
+        if (!t.startsWith("buhta://")) return null
+        return try {
+            val b = android.util.Base64.decode(t.removePrefix("buhta://"),
+                android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+            val o = JSONObject(String(b, Charsets.UTF_8))
+            val room = o.getString("room")
+            if (!UUID_RE.matches(room)) null else Pair(o.optString("n", ""), room)
+        } catch (e: Exception) {
+            null
+        }
     }
 
     var selected: Int
