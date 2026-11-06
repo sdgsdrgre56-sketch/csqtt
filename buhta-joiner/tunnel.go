@@ -199,3 +199,25 @@ func runPing(t *Tunnel) {
 	log.Printf("[ping] ИТОГ: отправлено %d, ответов %d", *pingCount, got)
 	mu.Unlock()
 }
+
+// tunnelOnState вызывается из обработчика состояния PeerConnection. В туннельном
+// режиме при обрыве выходим с ошибкой: серверный скрипт buhta-run.sh сам
+// перезапустит процесс и заново зайдёт в комнату (то же и для ICE-сбоя при старте).
+func tunnelOnState(pc *webrtc.PeerConnection, s webrtc.PeerConnectionState) {
+	if *tunnelMode == "" {
+		return
+	}
+	switch s {
+	case webrtc.PeerConnectionStateFailed:
+		log.Printf("[tun] соединение упало (failed), выхожу для перезапуска")
+		os.Exit(3)
+	case webrtc.PeerConnectionStateDisconnected:
+		go func() {
+			time.Sleep(15 * time.Second)
+			if pc.ConnectionState() != webrtc.PeerConnectionStateConnected {
+				log.Printf("[tun] соединение не восстановилось за 15с, выхожу для перезапуска")
+				os.Exit(3)
+			}
+		}()
+	}
+}
