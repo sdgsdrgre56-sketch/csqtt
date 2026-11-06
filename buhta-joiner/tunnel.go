@@ -19,7 +19,7 @@ import (
 //	-tunnel server   сервер: TUN buhta0 <-> RTP (нужен server-setup.sh)
 //	-tunnel ping     клиент-проверка: шлёт ICMP echo через туннель и пишет ответы
 var (
-	tunnelMode = flag.String("tunnel", "", "режим туннеля: server | ping (пусто = старый тест из 150 пакетов)")
+	tunnelMode = flag.String("tunnel", "", "режим туннеля: server | ping | client (пусто = старый тест из 150 пакетов)")
 	pingTarget = flag.String("ping-target", "8.8.8.8", "куда пинговать через туннель (режим ping)")
 	pingSize   = flag.Int("ping-size", 900, "размер данных в ping (больше ~990 проверяет фрагментацию)")
 	pingCount  = flag.Int("ping-count", 20, "сколько пингов отправить")
@@ -113,6 +113,8 @@ func tunnelAttach(track *webrtc.TrackLocalStaticRTP) bool {
 		go runServer(t)
 	case "ping":
 		go runPing(t)
+	case "client":
+		go runClient(t)
 	default:
 		log.Printf("[tun] неизвестный режим %q", *tunnelMode)
 	}
