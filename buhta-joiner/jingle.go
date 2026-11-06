@@ -386,22 +386,21 @@ func (o *JingleOffer) ToSDPOffer() (string, error) {
 		}
 
 		// Remote SSRCs. The bridge sends RTP without a MID header extension, so pion can only
-		// route packets to a receiver if the SDP names the SSRCs (a=ssrc / a=ssrc-group).
-		// Without these lines pion logs "Incoming unhandled RTP ... OnTrack will not be fired".
+		// route packets to a receiver if the SDP names the SSRC (a=ssrc).
+		// Without it pion logs "Incoming unhandled RTP ... OnTrack will not be fired".
+		// pion's Unified Plan allows only ONE track per m-line (several a=ssrc/msid pairs make it
+		// classify the SDP as Plan B and CreateAnswer fails), so name just the first
+		// participant source (not the bridge's own mixed "jvb-*" source) per m-line.
 		if !c.IsSCTP {
-			for _, g := range c.SSRCGroups {
-				if len(g.SSRCs) > 0 {
-					fmt.Fprintf(&b, "a=ssrc-group:%s %s\r\n", g.Semantics, strings.Join(g.SSRCs, " "))
-				}
-			}
 			for _, src := range c.Sources {
-				if src.SSRC == "" {
+				if src.SSRC == "" || strings.HasPrefix(src.Name, "jvb-") {
 					continue
 				}
 				fmt.Fprintf(&b, "a=ssrc:%s cname:%s\r\n", src.SSRC, src.SSRC)
 				if src.MSID != "" {
 					fmt.Fprintf(&b, "a=ssrc:%s msid:%s\r\n", src.SSRC, src.MSID)
 				}
+				break
 			}
 		}
 
