@@ -61,7 +61,7 @@ class BuhtaVpnService : VpnService() {
         var attempt = 0
         while (running) {
             attempt++
-            BuhtaState.connected = false
+            BuhtaState.setConnected(false)
             BuhtaState.update(if (attempt == 1) "Подключаюсь к комнате…" else "Переподключаюсь (попытка $attempt)…")
             try {
                 val cmd = mutableListOf(
@@ -79,7 +79,7 @@ class BuhtaVpnService : VpnService() {
             } catch (e: Exception) {
                 BuhtaState.log("Ошибка запуска: ${e.message}")
             }
-            BuhtaState.connected = false
+            BuhtaState.setConnected(false)
             if (!running) break
             BuhtaState.update("Соединение потеряно, повтор через 3 с")
             try {
@@ -93,7 +93,7 @@ class BuhtaVpnService : VpnService() {
     private fun onLine(line: String) {
         if (line.contains("[status] connected")) {
             Regex("ip=(\\d+\\.\\d+\\.\\d+\\.\\d+)").find(line)?.let { tunIp = it.groupValues[1] }
-            BuhtaState.connected = true
+            BuhtaState.ip = tunIp; BuhtaState.setConnected(true)
             BuhtaState.update("Подключено")
             ensureTun()
             return
@@ -181,7 +181,7 @@ class BuhtaVpnService : VpnService() {
         socket = null
         tun = null
         BuhtaState.active = false
-        BuhtaState.connected = false
+        BuhtaState.setConnected(false)
         BuhtaState.update("Отключено")
     }
 }

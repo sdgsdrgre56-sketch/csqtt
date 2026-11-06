@@ -100,7 +100,7 @@ object Settings {
     }
 
     var palette: String
-        get() = sp.getString("palette", "indigo") ?: "indigo"
+        get() = sp.getString("palette", "brand") ?: "brand"
         set(v) { sp.edit().putString("palette", v).apply() }
 
     /** system | light | dark */
