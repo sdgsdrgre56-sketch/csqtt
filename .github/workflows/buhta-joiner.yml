@@ -8,6 +8,7 @@ on:
     branches: [buhta-app]
     paths:
       - 'buhta-joiner/**'
+      - '.github/workflows/buhta-joiner.yml'
   workflow_dispatch:
 
 permissions:
@@ -22,6 +23,9 @@ jobs:
         with:
           go-version-file: buhta-joiner/go.mod
           cache-dependency-path: buhta-joiner/go.sum
+      - name: Resolve dependencies (go.sum in the repo is incomplete)
+        working-directory: buhta-joiner
+        run: go mod tidy
       - name: Build Windows exe
         working-directory: buhta-joiner
         env:
