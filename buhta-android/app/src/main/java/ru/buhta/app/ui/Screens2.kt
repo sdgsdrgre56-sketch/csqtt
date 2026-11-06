@@ -89,11 +89,22 @@ fun DeployTab() {
                 DeployUi.lines.add(l)
                 stageOf(l)?.let { DeployUi.stage = it }
             }
+            var autoLink: String? = null
+            if (r.ok && r.panelPass.isNotEmpty() && roomId.isNotEmpty()) {
+                DeployUi.stage = "Создание ключа для телефона"
+                DeployUi.lines.add("[LOG] Создаю ключ для этого телефона в панели")
+                autoLink = Deploy.autoKey(h, r.panelPass, "Телефон") { DeployUi.lines.add(it) }
+                if (autoLink != null) {
+                    val parsed = Settings.parseKey(autoLink)
+                    Settings.saveServer(parsed?.first?.ifEmpty { null } ?: h, roomId, autoLink)
+                    DeployUi.lines.add("[OK] Ключ сохранён в профиле ${Settings.profile}, можно подключаться")
+                }
+            }
             withContext(Dispatchers.Main) {
                 DeployUi.busy = false
                 if (r.ok) {
                     DeployUi.lines.add("[OK] Готово")
-                    DeployUi.stage = "Готово: операция завершена"
+                    DeployUi.stage = if (autoLink != null) "Готово: сервер установлен, ключ сохранён" else "Готово: операция завершена"
                     if (r.panelPass.isNotEmpty()) {
                         DeployUi.panelUrl = "https://$h:8787"
                         DeployUi.panelUser = r.panelUser
