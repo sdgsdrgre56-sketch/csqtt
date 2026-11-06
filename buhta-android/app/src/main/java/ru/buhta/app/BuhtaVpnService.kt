@@ -68,7 +68,8 @@ class BuhtaVpnService : VpnService() {
                 p.inputStream.bufferedReader().useLines { seq ->
                     for (line in seq) onLine(line)
                 }
-                p.waitFor()
+                val code = p.waitFor()
+                BuhtaState.log("процесс завершился, код " + code)
             } catch (e: Exception) {
                 BuhtaState.log("Ошибка запуска: ${e.message}")
             }
@@ -90,10 +91,9 @@ class BuhtaVpnService : VpnService() {
             ensureTun()
             return
         }
-        val interesting = line.contains("[status]") || line.contains("peer connection state") ||
-            line.contains("[tun]") || line.contains("ERROR") || line.contains("WARNING") ||
-            line.contains("fatal") || line.contains("panic") || line.contains("read loop ended")
-        if (interesting) BuhtaState.log(line.substringAfter(' ', line).take(200))
+        // XMPP-кадры огромные — их пропускаем, всё остальное показываем
+        if (line.startsWith("<") || line.contains("<-- ") || line.contains("--> ") || line.length < 3) return
+        BuhtaState.log(line.substringAfter(' ', line).take(200))
     }
 
     @Synchronized
