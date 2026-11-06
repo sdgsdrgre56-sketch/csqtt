@@ -181,6 +181,7 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 				}
 				n++
 				total += k
+				tunnelRX(buf[:k])
 				if n == 1 || n%50 == 0 {
 					log.Printf("[rtp] ssrc=%d got %d pkts / %d bytes (last %d bytes)", tr.SSRC(), n, total, k)
 				}
@@ -235,6 +236,9 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 				time.Sleep(100 * time.Millisecond)
 			}
 			if pc.ConnectionState() != webrtc.PeerConnectionStateConnected {
+				return
+			}
+			if tunnelAttach(outTrack) {
 				return
 			}
 			log.Printf("[rtp] connected; sending 150 test packets on our track")
