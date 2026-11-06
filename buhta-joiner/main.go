@@ -302,6 +302,31 @@ func main() {
 	}
 	defer pc.Close()
 	go runSourceUpdates(pc)
+	// Sources already present in the session-initiate (other participants). Only the first
+	// one per content made it into the initial SDP; the rest are added via renegotiation.
+	{
+		initial := srcUpdate{Action: "source-add"}
+		for _, c := range jingleOffer.Contents {
+			rtx := map[string]bool{}
+			for _, g := range c.SSRCGroups {
+				if g.Semantics == "FID" && len(g.SSRCs) >= 2 {
+					rtx[g.SSRCs[1]] = true
+				}
+			}
+			for _, s := range c.Sources {
+				if rtx[s.SSRC] {
+					continue
+				}
+				initial.Items = append(initial.Items, srcItem{Content: c.Name, SSRC: s.SSRC, Name: s.Name, MSID: s.MSID})
+			}
+		}
+		if len(initial.Items) > 0 {
+			select {
+			case srcUpdates <- initial:
+			default:
+			}
+		}
+	}
 
 	if acceptXML != "" {
 		log.Println("=== sending Jingle session-accept ===")
