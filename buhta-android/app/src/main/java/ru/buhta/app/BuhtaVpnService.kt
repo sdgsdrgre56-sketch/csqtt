@@ -58,7 +58,7 @@ class BuhtaVpnService : VpnService() {
         while (running) {
             attempt++
             BuhtaState.connected = false
-            BuhtaState.setStatus(if (attempt == 1) "Подключаюсь к комнате…" else "Переподключаюсь (попытка $attempt)…")
+            BuhtaState.update(if (attempt == 1) "Подключаюсь к комнате…" else "Переподключаюсь (попытка $attempt)…")
             try {
                 val p = ProcessBuilder(
                     bin, "-room", room, "-tunnel", "client",
@@ -74,7 +74,7 @@ class BuhtaVpnService : VpnService() {
             }
             BuhtaState.connected = false
             if (!running) break
-            BuhtaState.setStatus("Соединение потеряно, повтор через 3 с")
+            BuhtaState.update("Соединение потеряно, повтор через 3 с")
             try {
                 Thread.sleep(3000)
             } catch (e: InterruptedException) {
@@ -86,7 +86,7 @@ class BuhtaVpnService : VpnService() {
     private fun onLine(line: String) {
         if (line.contains("[status] connected")) {
             BuhtaState.connected = true
-            BuhtaState.setStatus("Подключено")
+            BuhtaState.update("Подключено")
             ensureTun()
             return
         }
@@ -115,7 +115,7 @@ class BuhtaVpnService : VpnService() {
         }
         val fd = b.establish()
         if (fd == null) {
-            BuhtaState.setStatus("Не удалось поднять VPN (нет разрешения?)")
+            BuhtaState.update("Не удалось поднять VPN (нет разрешения?)")
             return
         }
         tun = fd
@@ -166,6 +166,6 @@ class BuhtaVpnService : VpnService() {
         tun = null
         BuhtaState.active = false
         BuhtaState.connected = false
-        BuhtaState.setStatus("Отключено")
+        BuhtaState.update("Отключено")
     }
 }
