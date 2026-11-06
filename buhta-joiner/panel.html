@@ -107,19 +107,31 @@ dialog h2{margin-bottom:20px;font-size:22px}
   </div>
 </div></header>
 <main>
+  <div class="tabs-container"><div class="tabs">
+    <button class="tab-btn active" data-tab="monitoring">Мониторинг</button>
+    <button class="tab-btn" data-tab="clients">Клиенты</button>
+    <button class="tab-btn" data-tab="settings">Настройки</button>
+    <button class="tab-btn" data-tab="logs">Логи</button>
+  </div></div>
+
+  <section id="tab-monitoring">
   <div class="dashboard">
     <div class="glass-panel stat-card"><div class="stat-label">Клиенты</div><div class="stat-value" id="s_clients">–</div><div class="stat-sub" id="s_online">онлайн: –</div></div>
     <div class="glass-panel stat-card"><div class="stat-label">От клиентов</div><div class="stat-value" id="s_in">–</div><div class="stat-sub">всего с запуска</div></div>
     <div class="glass-panel stat-card"><div class="stat-label">К клиентам</div><div class="stat-value" id="s_out">–</div><div class="stat-sub">всего с запуска</div></div>
     <div class="glass-panel stat-card"><div class="stat-label">Работает</div><div class="stat-value" id="s_up">–</div><div class="stat-sub">аптайм сервера</div></div>
   </div>
-  <div class="tabs-container"><div class="tabs">
-    <button class="tab-btn active" data-tab="clients">Клиенты</button>
-    <button class="tab-btn" data-tab="settings">Настройки</button>
-    <button class="tab-btn" data-tab="logs">Логи</button>
-  </div></div>
-
-  <section id="tab-clients">
+    <div class="dashboard">
+      <div class="glass-panel stat-card"><div class="stat-label">Скорость ↓ (к клиентам)</div><div class="stat-value" id="v_out">0</div><div class="stat-sub">Мбит/с сейчас</div></div>
+      <div class="glass-panel stat-card"><div class="stat-label">Скорость ↑ (от клиентов)</div><div class="stat-value" id="v_in">0</div><div class="stat-sub">Мбит/с сейчас</div></div>
+    </div>
+    <div class="glass-panel setting-card" style="margin-bottom:16px"><h3>Скорость за последние минуты</h3>
+      <canvas id="chart" height="150" style="width:100%"></canvas>
+      <div class="stat-sub"><span style="color:#0077ff">━</span> к клиентам &nbsp; <span style="color:#34c759">━</span> от клиентов</div>
+    </div>
+    <div class="glass-panel setting-card"><h3>Клиенты онлайн</h3><div id="mon_clients" class="stat-sub">нет подключённых</div></div>
+  </section>
+  <section id="tab-clients" class="hidden">
     <div class="section-header"><div class="section-title">Клиенты</div><button class="btn btn-primary" id="add">+ Добавить</button></div>
     <div class="cards" id="cards"></div>
     <div class="empty hidden" id="empty">Клиентов пока нет. Пока их нет, сервер работает в открытом режиме для одного устройства (10.77.0.2). Добавь первого клиента — включится шифрование.</div>
@@ -177,7 +189,7 @@ var theme=localStorage.getItem('buhta_theme')||(matchMedia('(prefers-color-schem
 function applyTheme(){document.documentElement.setAttribute('data-theme',theme)}applyTheme();
 $('theme').onclick=function(){theme=theme==='dark'?'light':'dark';localStorage.setItem('buhta_theme',theme);applyTheme()};
 
-var clients=[],editing=null,timer=null,tab='clients';
+var clients=[],editing=null,timer=null,tab='monitoring',prevT=0,prevIn=0,prevOut=0,serIn=[],serOut=[],prevCl={},speedCl={};
 function show(app){$('login').classList.toggle('hidden',app);$('app').classList.toggle('hidden',!app)}
 
 function login(){
@@ -191,15 +203,37 @@ function login(){
 $('lbtn').onclick=login;$('pw').onkeydown=function(e){if(e.key==='Enter')login()};
 $('logout').onclick=function(){api('POST','/api/logout',{}).catch(function(){}).then(function(){clearInterval(timer);show(false)})};
 
-function start(){show(true);refresh();clearInterval(timer);timer=setInterval(refresh,4000)}
+function start(){show(true);refresh();clearInterval(timer);timer=setInterval(refresh,3000)}
 function refresh(){
   api('GET','/api/stats').then(function(s){
     $('s_clients').textContent=s.clients;$('s_online').textContent='онлайн: '+s.online;
     $('s_in').textContent=fmtB(s.bytes_in);$('s_out').textContent=fmtB(s.bytes_out);$('s_up').textContent=fmtUp(s.uptime_sec);
     $('k_room').textContent=s.room||'–';$('k_key').textContent=s.server_key||'–';
+    var now=Date.now();
+    if(prevT){var dt=(now-prevT)/1000,vi=Math.max(0,(s.bytes_in-prevIn)*8/dt/1e6),vo=Math.max(0,(s.bytes_out-prevOut)*8/dt/1e6);
+      serIn.push(vi);serOut.push(vo);if(serIn.length>80){serIn.shift();serOut.shift()}
+      $('v_in').textContent=vi.toFixed(1);$('v_out').textContent=vo.toFixed(1);drawChart()}
+    prevT=now;prevIn=s.bytes_in;prevOut=s.bytes_out;
   }).catch(onErr);
-  api('GET','/api/clients').then(function(l){clients=l;renderClients()}).catch(onErr);
+  api('GET','/api/clients').then(function(l){clients=l;renderClients();renderMon()}).catch(onErr);
   if(tab==='logs')loadLogs();
+}
+function drawChart(){
+  var c=$('chart');if(!c||!c.offsetWidth)return;var w=c.width=c.offsetWidth*devicePixelRatio,h=c.height=150*devicePixelRatio,g=c.getContext('2d');
+  g.clearRect(0,0,w,h);var mx=Math.max(1,Math.max.apply(null,serIn.concat(serOut)))*1.15;
+  g.strokeStyle='rgba(128,128,128,.25)';g.lineWidth=1;for(var i=1;i<4;i++){g.beginPath();g.moveTo(0,h*i/4);g.lineTo(w,h*i/4);g.stroke()}
+  g.fillStyle='rgba(128,128,128,.8)';g.font=(11*devicePixelRatio)+'px sans-serif';g.fillText(mx.toFixed(0)+' Мбит/с',6,14*devicePixelRatio);
+  function line(a,col){if(a.length<2)return;g.strokeStyle=col;g.lineWidth=2*devicePixelRatio;g.beginPath();
+    a.forEach(function(v,i){var x=w*i/79,y=h-(v/mx)*h;i?g.lineTo(x,y):g.moveTo(x,y)});g.stroke()}
+  line(serOut,'#0077ff');line(serIn,'#34c759');
+}
+function renderMon(){
+  var now=Date.now(),on=clients.filter(function(c){return c.online});
+  $('mon_clients').innerHTML=on.length?on.map(function(c){
+    var p=prevCl[c.id],v=speedCl[c.id]||{i:0,o:0};
+    if(p){var dt=(now-p.t)/1000;if(dt>0.5)v=speedCl[c.id]={i:Math.max(0,(c.bytes_in-p.i)*8/dt/1e6),o:Math.max(0,(c.bytes_out-p.o)*8/dt/1e6)}}
+    prevCl[c.id]={t:now,i:c.bytes_in,o:c.bytes_out};
+    return '<div class="kv"><span>'+esc(c.name)+' <small class="mono">'+esc(c.ip)+'</small></span><code>↓ '+v.o.toFixed(1)+' · ↑ '+v.i.toFixed(1)+' Мбит/с</code></div>'}).join(''):'нет подключённых';
 }
 function onErr(e){if(e.status===401){clearInterval(timer);show(false)}}
 
@@ -244,7 +278,7 @@ $('d_copy').onclick=function(){var t=$('d_link').textContent;if(!t)return;
 document.querySelectorAll('.tab-btn').forEach(function(b){b.onclick=function(){
   tab=b.getAttribute('data-tab');
   document.querySelectorAll('.tab-btn').forEach(function(x){x.classList.toggle('active',x===b)});
-  ['clients','settings','logs'].forEach(function(n){$('tab-'+n).classList.toggle('hidden',n!==tab)});
+  ['monitoring','clients','settings','logs'].forEach(function(n){$('tab-'+n).classList.toggle('hidden',n!==tab)});
   if(tab==='logs')loadLogs();
 }});
 function loadLogs(){api('GET','/api/logs').then(function(l){var b=$('logbox');b.textContent=l.join('\n');b.scrollTop=b.scrollHeight}).catch(onErr)}
