@@ -315,7 +315,7 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 		log.Printf("[rtp] announcing our audio ssrc %d in session-accept", ourAudioSSRC)
 	}
 	earlyAccept, aerr := offer.BuildSessionAccept(answer.SDP, offer.ConferenceID, responderJID,
-		ourAudioSSRC, randSSRC())
+		ourAudioSSRC, 0)
 	if aerr != nil {
 		return "", nil, fmt.Errorf("build early session-accept: %w", aerr)
 	}
