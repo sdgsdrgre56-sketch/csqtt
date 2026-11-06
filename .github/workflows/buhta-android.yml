@@ -6,7 +6,7 @@ on:
   push:
     branches: [buhta-app]
     paths:
-      - 'buhta-android/**'
+      - 'buhta-mayak/**'
       - 'buhta-joiner/**'
       - '.github/workflows/buhta-android.yml'
   workflow_dispatch:
@@ -33,25 +33,23 @@ jobs:
           GOARCH: arm64
           CGO_ENABLED: '0'
         run: |
-          mkdir -p ../buhta-android/app/src/main/jniLibs/arm64-v8a
-          go build -trimpath -ldflags "-s -w -checklinkname=0" -o ../buhta-android/app/src/main/jniLibs/arm64-v8a/libbuhta.so .
+          mkdir -p ../buhta-mayak/app/src/main/jniLibs/arm64-v8a
+          go build -trimpath -ldflags "-s -w -checklinkname=0" -o ../buhta-mayak/app/src/main/jniLibs/arm64-v8a/libbuhta.so .
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
       - name: Build APK
-        working-directory: buhta-android
+        working-directory: buhta-mayak
         env:
           BUHTA_BUILD: ${{ github.run_number }}
-        run: gradle --no-daemon assembleDebug
+        run: ./gradlew --no-daemon :app:assembleDebug
       - name: Publish pre-release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp buhta-android/app/build/outputs/apk/debug/app-debug.apk Buhta.apk
+          cp buhta-mayak/app/build/outputs/apk/debug/app-debug.apk Buhta.apk
           gh release create "buhta-apk-${{ github.run_number }}" Buhta.apk \
             --title "buhta-apk-${{ github.run_number }}" \
             --notes "Buhta Android APK from ${{ github.sha }} (experiment)" \
