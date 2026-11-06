@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 )
 
@@ -165,6 +166,27 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 		log.Printf("[webrtc] remote opened data channel %q", dc.Label())
 	})
 
+	// Receive path: count every RTP packet the bridge forwards to us.
+	pc.OnTrack(func(tr *webrtc.TrackRemote, rcv *webrtc.RTPReceiver) {
+		log.Printf("[rtp] OnTrack ssrc=%d pt=%d codec=%s", tr.SSRC(), tr.PayloadType(), tr.Codec().MimeType)
+		go func() {
+			buf := make([]byte, 1500)
+			var n, total int
+			for {
+				k, _, rerr := tr.Read(buf)
+				if rerr != nil {
+					log.Printf("[rtp] ssrc=%d read ended after %d pkts / %d bytes: %v", tr.SSRC(), n, total, rerr)
+					return
+				}
+				n++
+				total += k
+				if n == 1 || n%50 == 0 {
+					log.Printf("[rtp] ssrc=%d got %d pkts / %d bytes (last %d bytes)", tr.SSRC(), n, total, k)
+				}
+			}
+		}()
+	})
+
 	// Open our own DataChannel now, before SetLocalDescription, so pion's SCTP negotiation
 	// (and the m=application line it writes into the answer) actually has a channel behind
 	// it — this is the anchor point Phase 3 will build the tunnel framing on top of.
@@ -187,6 +209,53 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 		SDP:  offerSDP,
 	}); err != nil {
 		return "", nil, fmt.Errorf("SetRemoteDescription: %w", err)
+	}
+
+	// Send path: our own outgoing audio track; once connected we push test packets so a
+	// second participant (e.g. the server copy) can prove it receives them via the bridge.
+	outTrack, terr := webrtc.NewTrackLocalStaticRTP(
+		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2},
+		"buhta-audio", "buhta")
+	if terr != nil {
+		log.Printf("[rtp] WARNING: NewTrackLocalStaticRTP: %v", terr)
+	} else if sender, aerr := pc.AddTrack(outTrack); aerr != nil {
+		log.Printf("[rtp] WARNING: AddTrack: %v", aerr)
+	} else {
+		go func() {
+			buf := make([]byte, 1500)
+			for {
+				if _, _, e := sender.Read(buf); e != nil {
+					return
+				}
+			}
+		}()
+		go func() {
+			for i := 0; i < 600 && pc.ConnectionState() != webrtc.PeerConnectionStateConnected; i++ {
+				time.Sleep(100 * time.Millisecond)
+			}
+			if pc.ConnectionState() != webrtc.PeerConnectionStateConnected {
+				return
+			}
+			log.Printf("[rtp] connected; sending 150 test packets on our track")
+			ssrc := uint32(0)
+			for _, p := range sender.GetParameters().Encodings {
+				ssrc = uint32(p.SSRC)
+			}
+			log.Printf("[rtp] our outgoing ssrc (pion) = %d", ssrc)
+			for i := 0; i < 150; i++ {
+				payload := []byte(fmt.Sprintf("BUHTA-TEST-%04d-----------------------------", i))
+				pkt := &rtp.Packet{
+					Header: rtp.Header{Version: 2, PayloadType: 111, SequenceNumber: uint16(i), Timestamp: uint32(i * 960)},
+					Payload: payload,
+				}
+				if werr := outTrack.WriteRTP(pkt); werr != nil {
+					log.Printf("[rtp] WriteRTP: %v", werr)
+					return
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			log.Printf("[rtp] finished sending 150 test packets")
+		}()
 	}
 
 	// Safety net: explicitly (re-)add each remote ICE candidate from the parsed Jingle offer
