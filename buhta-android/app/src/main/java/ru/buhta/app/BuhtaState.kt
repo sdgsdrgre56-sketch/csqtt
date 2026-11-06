@@ -28,7 +28,7 @@ object BuhtaState {
         log("▶ $s")
     }
 
-    fun setConnected(c: Boolean) {
+    fun markConnected(c: Boolean) {
         connected = c
         connectedAt = if (c) System.currentTimeMillis() else 0L
         bump()
