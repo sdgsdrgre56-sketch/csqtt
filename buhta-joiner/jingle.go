@@ -37,7 +37,26 @@ type JingleContent struct {
 	FpValue     string
 	Candidates  []ICECandidate
 	IsSCTP      bool
+	Sources     []JingleSource // <source> elements: remote SSRCs the bridge will send us
+	SSRCGroups  []JingleSSRCGroup
+	HdrExts     []JingleHdrExt // <rtp-hdrext> id/uri pairs
 	SCTPNumber  string // sctpmap "number" (the SCTP port in old notation), e.g. "5000"
+}
+
+type JingleSource struct {
+	SSRC string
+	Name string
+	MSID string
+}
+
+type JingleSSRCGroup struct {
+	Semantics string
+	SSRCs     []string
+}
+
+type JingleHdrExt struct {
+	ID  string
+	URI string
 }
 
 type PayloadType struct {
@@ -95,6 +114,27 @@ type xmlContent struct {
 type xmlDescription struct {
 	Media        string            `xml:"media,attr"`
 	PayloadTypes []xmlPayloadType  `xml:"payload-type"`
+	HdrExts      []xmlHdrExt       `xml:"rtp-hdrext"`
+	Sources      []xmlSource       `xml:"source"`
+	SSRCGroups   []xmlSSRCGroup    `xml:"ssrc-group"`
+}
+
+type xmlHdrExt struct {
+	ID  string `xml:"id,attr"`
+	URI string `xml:"uri,attr"`
+}
+
+type xmlSource struct {
+	SSRC      string         `xml:"ssrc,attr"`
+	Name      string         `xml:"name,attr"`
+	Parameter []xmlParameter `xml:"parameter"`
+}
+
+type xmlSSRCGroup struct {
+	Semantics string `xml:"semantics,attr"`
+	Sources   []struct {
+		SSRC string `xml:"ssrc,attr"`
+	} `xml:"source"`
 }
 
 type xmlPayloadType struct {
@@ -181,6 +221,25 @@ func ParseOffer(raw string) (*JingleOffer, error) {
 		if c.Transport.SCTPMap.Number != "" {
 			jc.IsSCTP = true
 			jc.SCTPNumber = c.Transport.SCTPMap.Number
+		}
+		for _, he := range c.Description.HdrExts {
+			jc.HdrExts = append(jc.HdrExts, JingleHdrExt{ID: he.ID, URI: he.URI})
+		}
+		for _, src := range c.Description.Sources {
+			js := JingleSource{SSRC: src.SSRC, Name: src.Name}
+			for _, prm := range src.Parameter {
+				if prm.Name == "msid" {
+					js.MSID = prm.Value
+				}
+			}
+			jc.Sources = append(jc.Sources, js)
+		}
+		for _, g := range c.Description.SSRCGroups {
+			jg := JingleSSRCGroup{Semantics: g.Semantics}
+			for _, gs := range g.Sources {
+				jg.SSRCs = append(jg.SSRCs, gs.SSRC)
+			}
+			jc.SSRCGroups = append(jc.SSRCGroups, jg)
 		}
 		for _, pt := range c.Description.PayloadTypes {
 			p := PayloadType{ID: pt.ID, Name: pt.Name, Clockrate: pt.Clockrate, Channels: pt.Channels}
@@ -300,6 +359,11 @@ func (o *JingleOffer) ToSDPOffer() (string, error) {
 				fmt.Fprintf(&b, "a=sendrecv\r\n")
 			}
 			fmt.Fprintf(&b, "a=rtcp-mux\r\n")
+			// Header extensions announced by the bridge (e.g. ssrc-audio-level). Skip ones pion
+			// would not understand anyway only by letting pion ignore them; emit all.
+			for _, he := range c.HdrExts {
+				fmt.Fprintf(&b, "a=extmap:%s %s\r\n", he.ID, he.URI)
+			}
 			for _, pt := range c.PayloadType {
 				if pt.Clockrate != "" {
 					if pt.Channels != "" && pt.Channels != "1" {
@@ -317,6 +381,26 @@ func (o *JingleOffer) ToSDPOffer() (string, error) {
 				}
 				for _, fb := range pt.FeedbackT {
 					fmt.Fprintf(&b, "a=rtcp-fb:%s %s\r\n", pt.ID, strings.ReplaceAll(fb, "/", " "))
+				}
+			}
+		}
+
+		// Remote SSRCs. The bridge sends RTP without a MID header extension, so pion can only
+		// route packets to a receiver if the SDP names the SSRCs (a=ssrc / a=ssrc-group).
+		// Without these lines pion logs "Incoming unhandled RTP ... OnTrack will not be fired".
+		if !c.IsSCTP {
+			for _, g := range c.SSRCGroups {
+				if len(g.SSRCs) > 0 {
+					fmt.Fprintf(&b, "a=ssrc-group:%s %s\r\n", g.Semantics, strings.Join(g.SSRCs, " "))
+				}
+			}
+			for _, src := range c.Sources {
+				if src.SSRC == "" {
+					continue
+				}
+				fmt.Fprintf(&b, "a=ssrc:%s cname:%s\r\n", src.SSRC, src.SSRC)
+				if src.MSID != "" {
+					fmt.Fprintf(&b, "a=ssrc:%s msid:%s\r\n", src.SSRC, src.MSID)
 				}
 			}
 		}
