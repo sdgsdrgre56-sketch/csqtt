@@ -11,6 +11,8 @@ object BuhtaState {
     @Volatile var status = "Отключено"
     @Volatile var ip = ""
     @Volatile var connectedAt = 0L
+    val rxBytes = java.util.concurrent.atomic.AtomicLong()
+    val txBytes = java.util.concurrent.atomic.AtomicLong()
     @Volatile var onChange: (() -> Unit)? = null
 
     /** Счётчик для Compose: растёт при любом изменении состояния или логов. */

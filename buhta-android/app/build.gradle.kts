@@ -32,6 +32,9 @@ android {
     // Его кладёт в jniLibs CI; legacy-упаковка нужна, чтобы файл распаковался
     // в nativeLibraryDir и его можно было запустить как процесс.
     packaging {
+        resources {
+            excludes += setOf("META-INF/versions/9/OSGI-INF/MANIFEST.MF", "META-INF/DEPENDENCIES")
+        }
         jniLibs {
             useLegacyPackaging = true
             keepDebugSymbols += "**/*.so"
@@ -59,4 +62,12 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.core:core-ktx:1.13.1")
+    implementation("com.hierynomus:sshj:0.38.0") {
+        exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
+        exclude(group = "org.bouncycastle", module = "bcpkix-jdk18on")
+        exclude(group = "org.bouncycastle", module = "bcutil-jdk18on")
+    }
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
+    implementation("org.bouncycastle:bcutil-jdk18on:1.78.1")
 }

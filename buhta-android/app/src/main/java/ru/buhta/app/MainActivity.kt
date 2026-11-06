@@ -11,15 +11,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.VpnKey
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.FilterList
+import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Terminal
-import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -87,10 +89,11 @@ class MainActivity : ComponentActivity() {
 
 private val navItems = listOf(
     NavItem(0, "Бухта", Icons.Filled.PowerSettingsNew, Icons.Filled.PowerSettingsNew),
-    NavItem(1, "Серверы", Icons.Filled.Dns, Icons.Outlined.Dns),
-    NavItem(2, "Настройки", Icons.Filled.Tune, Icons.Outlined.Tune),
-    NavItem(3, "Логи", Icons.Filled.Terminal, Icons.Outlined.Terminal),
-    NavItem(4, "Инфо", Icons.Filled.Info, Icons.Outlined.Info),
+    NavItem(1, "Туннель", Icons.Filled.VpnKey, Icons.Outlined.VpnKey),
+    NavItem(2, "Сервер", Icons.Filled.Cloud, Icons.Outlined.Cloud),
+    NavItem(3, "Исключения", Icons.Filled.FilterList, Icons.Outlined.FilterList),
+    NavItem(4, "Логи", Icons.Filled.Terminal, Icons.Outlined.Terminal),
+    NavItem(5, "Инфо", Icons.Filled.Info, Icons.Outlined.Info),
 )
 
 @Composable
@@ -155,9 +158,10 @@ fun MainScreen(
                         tabStateHolder.SaveableStateProvider(selectedTab) {
                             when (selectedTab) {
                                 0 -> ConnectionTab(onToggle)
-                                1 -> ServersTab()
-                                2 -> SettingsTab(mode, skin, onMode, onSkin)
-                                3 -> LogsTab()
+                                1 -> TunnelTab(mode, skin, onMode, onSkin)
+                                2 -> DeployTab()
+                                3 -> ExceptionsTab()
+                                4 -> LogsTab()
                                 else -> InfoTab()
                             }
                         }

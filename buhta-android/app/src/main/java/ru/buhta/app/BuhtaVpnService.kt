@@ -117,10 +117,17 @@ class BuhtaVpnService : VpnService() {
                 // IPv6 заворачиваем в TUN и там отбрасываем, чтобы не утекал
                 b.addAddress("fd00:77::2", 128).addRoute("::", 0)
             }
+            val apps = Settings.excluded.filter { it != packageName }
             try {
-                b.addDisallowedApplication(packageName)
+                if (Settings.whitelist && apps.isNotEmpty()) {
+                    // только выбранные приложения идут через VPN (само приложение не входит)
+                    for (a in apps) try { b.addAllowedApplication(a) } catch (_: Exception) {}
+                } else {
+                    b.addDisallowedApplication(packageName)
+                    for (a in apps) try { b.addDisallowedApplication(a) } catch (_: Exception) {}
+                }
             } catch (e: Exception) {
-                BuhtaState.log("addDisallowedApplication: ${e.message}")
+                BuhtaState.log("приложения VPN: ${e.message}")
             }
             return b.establish()
         }
@@ -149,6 +156,7 @@ class BuhtaVpnService : VpnService() {
                     if (n <= 0) continue
                     try {
                         sock.send(DatagramPacket(buf, 0, n, target))
+                        BuhtaState.txBytes.addAndGet(n.toLong())
                     } catch (e: Exception) {
                         // Go-процесс ещё не слушает порт — пакет теряется, TCP повторит
                     }
@@ -164,6 +172,7 @@ class BuhtaVpnService : VpnService() {
                     val p = DatagramPacket(buf, buf.size)
                     sock.receive(p)
                     output.write(buf, 0, p.length)
+                    BuhtaState.rxBytes.addAndGet(p.length.toLong())
                 }
             } catch (e: Exception) {
             }

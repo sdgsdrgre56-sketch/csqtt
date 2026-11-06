@@ -107,4 +107,26 @@ object Settings {
     var mode: String
         get() = sp.getString("mode", "system") ?: "system"
         set(v) { sp.edit().putString("mode", v).apply() }
+
+    // ---- установка на VPS (пароль SSH не сохраняется) ----
+    var deployHost: String
+        get() = sp.getString("d_host", "") ?: ""
+        set(v) { sp.edit().putString("d_host", v).apply() }
+    var deployPort: String
+        get() = sp.getString("d_port", "22") ?: "22"
+        set(v) { sp.edit().putString("d_port", v).apply() }
+    var deployUser: String
+        get() = sp.getString("d_user", "root") ?: "root"
+        set(v) { sp.edit().putString("d_user", v).apply() }
+    var deployRoom: String
+        get() = sp.getString("d_room", "") ?: ""
+        set(v) { sp.edit().putString("d_room", v).apply() }
+
+    // ---- исключения: приложения мимо VPN / только через VPN ----
+    var excluded: Set<String>
+        get() = sp.getStringSet("excluded", emptySet()) ?: emptySet()
+        set(v) { sp.edit().putStringSet("excluded", v).apply() }
+    var whitelist: Boolean
+        get() = sp.getBoolean("whitelist", false)
+        set(v) { sp.edit().putBoolean("whitelist", v).apply() }
 }

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -126,6 +127,7 @@ fun ConnectionTab(onToggle: () -> Unit) {
     val scale by animateFloatAsState(if (connected) 1f else if (active) 0.96f else 0.92f, label = "logo")
 
     BuhtaScreen {
+        SpeedBar()
         AppSectionCard(
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -233,7 +235,7 @@ private fun PillButton(text: String, filled: Boolean = true, modifier: Modifier 
 }
 
 @Composable
-fun ServersTab() {
+fun ColumnScope.ServersSection() {
     val ctx = LocalContext.current
     var servers by remember { mutableStateOf(Settings.servers().toList()) }
     var sel by remember { mutableIntStateOf(Settings.selected.coerceIn(0, servers.size - 1)) }
@@ -242,7 +244,7 @@ fun ServersTab() {
     fun toast(s: String) = Toast.makeText(ctx, s, Toast.LENGTH_SHORT).show()
     val colors = MaterialTheme.colorScheme
 
-    BuhtaScreen {
+    run {
         servers.forEachIndexed { i, s ->
             val chosen = i == sel
             Surface(
@@ -325,12 +327,12 @@ fun ServersTab() {
 // ───────────────────────── Настройки ─────────────────────────
 
 @Composable
-fun SettingsTab(mode: String, skin: String, onMode: (String) -> Unit, onSkin: (String) -> Unit) {
+fun ColumnScope.SettingsSection(mode: String, skin: String, onMode: (String) -> Unit, onSkin: (String) -> Unit) {
     var dns by remember { mutableStateOf(Settings.dnsKey) }
     var custom by remember { mutableStateOf(Settings.customDns) }
     val colors = MaterialTheme.colorScheme
 
-    BuhtaScreen {
+    run {
         AppSectionCard {
             Text("Тема", style = MaterialTheme.typography.titleMedium)
             CsqttSegmentedControl(
@@ -468,5 +470,44 @@ fun InfoTab() {
             )
         }
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+fun TunnelTab(mode: String, skin: String, onMode: (String) -> Unit, onSkin: (String) -> Unit) {
+    BuhtaScreen {
+        ServersSection()
+        SettingsSection(mode, skin, onMode, onSkin)
+    }
+}
+
+/** Скорости и потоки — полоса сверху, как верхняя панель в Маяке. */
+@Composable
+fun SpeedBar() {
+    val colors = MaterialTheme.colorScheme
+    var down by remember { mutableDoubleStateOf(0.0) }
+    var up by remember { mutableDoubleStateOf(0.0) }
+    LaunchedEffect(Unit) {
+        var lr = BuhtaState.rxBytes.get(); var lt = BuhtaState.txBytes.get()
+        while (true) {
+            delay(1000)
+            val r = BuhtaState.rxBytes.get(); val t = BuhtaState.txBytes.get()
+            down = (r - lr) * 8.0 / 1e6; up = (t - lt) * 8.0 / 1e6
+            lr = r; lt = t
+        }
+    }
+    Surface(
+        shape = CsqttShapes.Control,
+        color = colors.surface,
+        border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.28f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            StatusItem("Загрузка", "↓ %.1f Мбит/с".format(down), Modifier.weight(1f).padding(8.dp))
+            Box(Modifier.height(28.dp).width(1.dp).background(colors.onSurface.copy(alpha = 0.12f)))
+            StatusItem("Отдача", "↑ %.1f Мбит/с".format(up), Modifier.weight(1f).padding(8.dp))
+            Box(Modifier.height(28.dp).width(1.dp).background(colors.onSurface.copy(alpha = 0.12f)))
+            StatusItem("Потоки", if (BuhtaState.connected) "1" else "0", Modifier.weight(1f).padding(8.dp))
+        }
     }
 }
