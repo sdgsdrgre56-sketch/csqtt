@@ -1,0 +1,59 @@
+name: Buhta Android (APK)
+
+# Отдельная сборка APK «Бухта»: Go-клиент (buhta-joiner, android/arm64) кладётся в jniLibs
+# как libbuhta.so, Gradle собирает APK. Запускается только на push в buhta-app.
+on:
+  push:
+    branches: [buhta-app]
+    paths:
+      - 'buhta-android/**'
+      - 'buhta-joiner/**'
+      - '.github/workflows/buhta-android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: buhta-joiner/go.mod
+          cache-dependency-path: buhta-joiner/go.sum
+      - name: Resolve Go dependencies
+        working-directory: buhta-joiner
+        run: go mod tidy
+      - name: Build Go client for Android (arm64)
+        working-directory: buhta-joiner
+        env:
+          GOOS: android
+          GOARCH: arm64
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p ../buhta-android/app/src/main/jniLibs/arm64-v8a
+          go build -trimpath -ldflags "-s -w" -o ../buhta-android/app/src/main/jniLibs/arm64-v8a/libbuhta.so .
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Build APK
+        working-directory: buhta-android
+        env:
+          BUHTA_BUILD: ${{ github.run_number }}
+        run: gradle --no-daemon assembleDebug
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp buhta-android/app/build/outputs/apk/debug/app-debug.apk Buhta.apk
+          gh release create "buhta-apk-${{ github.run_number }}" Buhta.apk \
+            --title "buhta-apk-${{ github.run_number }}" \
+            --notes "Buhta Android APK from ${{ github.sha }} (experiment)" \
+            --target "${{ github.sha }}" \
+            --prerelease --latest=false
