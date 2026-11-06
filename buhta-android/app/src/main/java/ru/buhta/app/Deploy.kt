@@ -33,7 +33,7 @@ panelpass() {
   while [ ${'$'}i -lt 25 ]; do
     L=${'$'}(journalctl -u buhta --no-pager -n 300 2>/dev/null | grep 'ПЕРВЫЙ ЗАПУСК' | tail -1)
     if [ -n "${'$'}L" ]; then
-      P=${'$'}(echo "${'$'}L" | sed 's/.*пароль[: ]*//' | tr -d ' \r')
+      P=${'$'}(echo "${'$'}L" | sed 's/.*пароль[: ]*//; s/[ (].*//' | tr -d '\r')
       echo "BUHTA_PANEL|admin|${'$'}P"; return
     fi
     i=${'$'}((i+1)); sleep 1
