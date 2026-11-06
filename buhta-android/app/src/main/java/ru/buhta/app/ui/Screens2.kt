@@ -40,9 +40,22 @@ import ru.buhta.app.ui.design.CsqttTheme
 
 // ───────────────────────── Установка сервера на VPS ─────────────────────────
 
+private fun stageOf(line: String): String? = when {
+    line.contains("Подключаюсь к") -> "Соединение с сервером…"
+    line.contains("SSH: вход выполнен") -> "Соединение с сервером установлено"
+    line.contains("Проверяю систему") -> "Проверка системы"
+    line.contains("Скачиваю сервер") -> "Загрузка сервера"
+    line.contains("Создаю службу") -> "Установка службы"
+    line.contains("Служба buhta запущена") -> "Запуск панели"
+    line.contains("Пароль панели получен") -> "Получение пароля панели"
+    else -> null
+}
+
 private object DeployUi {
     val lines: SnapshotStateList<String> = mutableStateListOf()
     var busy by mutableStateOf(false)
+    var stage by mutableStateOf("")
+    var failed by mutableStateOf(false)
     var panelUrl by mutableStateOf("")
     var panelUser by mutableStateOf("")
     var panelPass by mutableStateOf("")
@@ -68,15 +81,19 @@ fun DeployTab() {
         if ((action == "install") && roomId.isEmpty()) { toast("Вставь ссылку на комнату Saby Meet или UUID"); return }
         Settings.deployHost = h; Settings.deployPort = port; Settings.deployUser = user; Settings.deployRoom = room
         DeployUi.busy = true
+        DeployUi.failed = false
+        DeployUi.stage = "Соединение с сервером…"
         DeployUi.lines.clear()
         scope.launch(Dispatchers.IO) {
             val r = Deploy.run(h, port.toIntOrNull() ?: 22, user.trim().ifEmpty { "root" }, pass, action, roomId) { l ->
                 DeployUi.lines.add(l)
+                stageOf(l)?.let { DeployUi.stage = it }
             }
             withContext(Dispatchers.Main) {
                 DeployUi.busy = false
                 if (r.ok) {
                     DeployUi.lines.add("[OK] Готово")
+                    DeployUi.stage = "Готово: операция завершена"
                     if (r.panelPass.isNotEmpty()) {
                         DeployUi.panelUrl = "https://$h:8787"
                         DeployUi.panelUser = r.panelUser
@@ -84,6 +101,8 @@ fun DeployTab() {
                     }
                 } else {
                     DeployUi.lines.add("[ERR] ${r.message}")
+                    DeployUi.failed = true
+                    DeployUi.stage = "Ошибка: ${r.message}"
                 }
             }
         }
@@ -116,6 +135,23 @@ fun DeployTab() {
                 onClick = { run("install") }, enabled = !DeployUi.busy, shape = CsqttShapes.Control,
                 modifier = Modifier.fillMaxWidth().height(CsqttSizes.ControlHeight),
             ) { Text(if (DeployUi.busy) "Выполняется…" else "Установить сервер") }
+            if (DeployUi.stage.isNotEmpty()) {
+                Text(
+                    DeployUi.stage,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    color = if (DeployUi.failed) colors.error else if (DeployUi.busy) colors.primary else BuhtaColors.connected,
+                )
+                if (DeployUi.busy) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(4.dp), strokeCap = androidx.compose.ui.graphics.StrokeCap.Round)
+                } else {
+                    LinearProgressIndicator(
+                        progress = { 1f }, modifier = Modifier.fillMaxWidth().height(4.dp),
+                        color = if (DeployUi.failed) colors.error else BuhtaColors.connected,
+                        strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                    )
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 SmallBtn("Обновить", Modifier.weight(1f)) { run("update") }
                 SmallBtn("Перезапуск", Modifier.weight(1f)) { run("restart") }
