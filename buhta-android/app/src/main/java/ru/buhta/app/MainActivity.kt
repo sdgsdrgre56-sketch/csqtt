@@ -40,7 +40,7 @@ class MainActivity : Activity() {
         }
         roomEdit = EditText(this).apply {
             setSingleLine()
-            hint = "UUID комнаты Saby Meet"
+            hint = "Ссылка или UUID комнаты Saby Meet"
             setText(getSharedPreferences("buhta", MODE_PRIVATE).getString("room", defaultRoom))
         }
         button = Button(this)
@@ -86,7 +86,11 @@ class MainActivity : Activity() {
     }
 
     private fun startVpn() {
-        val room = roomEdit.text.toString().trim()
+        // можно вставить целую ссылку на гостевую комнату — UUID вытащим сами
+        val raw = roomEdit.text.toString().trim()
+        val found = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}").find(raw)
+        val room = found?.value ?: raw
+        if (found != null && raw != room) roomEdit.setText(room)
         if (!Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}").matches(room)) {
             Toast.makeText(this, "Нужен UUID комнаты", Toast.LENGTH_SHORT).show()
             return
