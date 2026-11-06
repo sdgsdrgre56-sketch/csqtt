@@ -190,6 +190,23 @@ fun ConnectionTab(onToggle: () -> Unit) {
                 )
             }
         }
+        var waited by remember { mutableIntStateOf(0) }
+        LaunchedEffect(active, connected) {
+            waited = 0
+            while (active && !connected) { delay(1000); waited++ }
+        }
+        if (active && !connected && waited >= 15) {
+            Surface(shape = CsqttShapes.Card, color = colors.errorContainer, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Сервер не отвечает", style = MaterialTheme.typography.titleSmall, color = colors.onErrorContainer)
+                    Text(
+                        "Ты в комнате Saby, но сервера там нет. Проверь, что на VPS запущена служба: " +
+                            "вкладка «Сервер» → «Логи сервера» или «Перезапуск».",
+                        style = MaterialTheme.typography.bodySmall, color = colors.onErrorContainer,
+                    )
+                }
+            }
+        }
         val recent = BuhtaState.lines().takeLast(8)
         if (active || recent.isNotEmpty()) {
             val ext = CsqttTheme.extendedColors
@@ -328,7 +345,7 @@ fun ColumnScope.SettingsSection(mode: String, skin: String, onMode: (String) -> 
                 selected = mode, onSelected = onMode,
             )
             Text("Скин", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
-            CsqttSegmentedControl(options = skins, selected = skin, onSelected = onSkin)
+            CsqttSegmentedControl(options = skins, selected = skin, onSelected = onSkin, showCheck = false)
         }
         AppSectionCard(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("DNS", style = MaterialTheme.typography.titleMedium)

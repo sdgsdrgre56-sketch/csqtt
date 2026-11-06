@@ -98,6 +98,9 @@ class BuhtaVpnService : VpnService() {
             ensureTun()
             return
         }
+        if (line.contains("waiting up to") && line.contains("session-initiate")) {
+            BuhtaState.update("В комнате. Ждём сервер…")
+        }
         // XMPP-кадры огромные — их пропускаем, всё остальное показываем
         if (line.startsWith("<") || line.contains("<-- ") || line.contains("--> ") || line.length < 3) return
         BuhtaState.log(line.substringAfter(' ', line).take(200))

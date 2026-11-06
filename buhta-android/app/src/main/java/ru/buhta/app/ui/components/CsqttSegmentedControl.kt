@@ -34,6 +34,7 @@ fun <T> CsqttSegmentedControl(
     onSelected: (T) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    showCheck: Boolean = true,
 ) {
     Row(
         modifier = modifier
@@ -62,7 +63,7 @@ fun <T> CsqttSegmentedControl(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (isSelected) {
+                    if (isSelected && showCheck) {
                         Icon(
                             imageVector = Icons.Rounded.Check,
                             contentDescription = null,

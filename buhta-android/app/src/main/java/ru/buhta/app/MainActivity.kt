@@ -91,7 +91,7 @@ private val navItems = listOf(
     NavItem(0, "Бухта", Icons.Filled.PowerSettingsNew, Icons.Filled.PowerSettingsNew),
     NavItem(1, "Туннель", Icons.Filled.VpnKey, Icons.Outlined.VpnKey),
     NavItem(2, "Сервер", Icons.Filled.Cloud, Icons.Outlined.Cloud),
-    NavItem(3, "Исключения", Icons.Filled.FilterList, Icons.Outlined.FilterList),
+    NavItem(3, "Фильтр", Icons.Filled.FilterList, Icons.Outlined.FilterList),
     NavItem(4, "Логи", Icons.Filled.Terminal, Icons.Outlined.Terminal),
     NavItem(5, "Инфо", Icons.Filled.Info, Icons.Outlined.Info),
 )
