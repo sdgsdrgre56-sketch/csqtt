@@ -72,16 +72,7 @@ internal fun SettingsTab(
     validationRequest: Int = 0,
     onVkAuthRequested: () -> Unit = {},
 ) {
-    val context = LocalContext.current.applicationContext
-    val scope = rememberCoroutineScope()
-    SettingsTabContent(
-        context,
-        scope,
-        settingsStore,
-        tunnelAuthSettings,
-        validationRequest,
-        onVkAuthRequested,
-    )
+    BuhtaSettingsTab(settingsStore)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -39,7 +39,7 @@ fun DeploySecretsDialog(
     onDismiss: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    var passInput by rememberSaveable { mutableStateOf(initialMainPass) }
+    val passInput = "buhta"
     var webLoginInput by rememberSaveable { mutableStateOf(initialWebLogin) }
     var webPassInput by rememberSaveable { mutableStateOf(initialWebPass) }
     var passwordsVisible by rememberSaveable { mutableStateOf(false) }
@@ -66,7 +66,7 @@ fun DeploySecretsDialog(
                 Spacer(Modifier.height(16.dp))
 
                 Text(
-                    text = "Придумайте свои данные — латиница и цифры. Они будут созданы на сервере при установке, искать ничего не нужно.",
+                    text = "Придумайте логин и пароль для веб-панели сервера — латиница и цифры. Они создаются на сервере при установке.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -76,32 +76,9 @@ fun DeploySecretsDialog(
                 val invalidHint: @Composable () -> Unit = {
                     Text("Разрешена «Латиница» и «Цифры»", color = MaterialTheme.colorScheme.error)
                 }
-                val isPasswordValid = passInput.isNotEmpty() && passInput.matches(allowedChars)
+                val isPasswordValid = true
                 val isWebLoginValid = webLoginInput.isNotEmpty() && webLoginInput.matches(allowedChars)
                 val isWebPassValid = webPassInput.isNotEmpty() && webPassInput.matches(allowedChars)
-
-                Text("Подключение", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = passInput,
-                    onValueChange = { 
-                        passInput = it.filter { c -> !c.isWhitespace() }
-                    },
-                    label = { Text("Пароль туннеля (придумайте)", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
-                    placeholder = { Text("придумайте пароль", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = CsqttShapes.Control,
-                    isError = !isPasswordValid,
-                    supportingText = if (passInput.isNotEmpty() && !isPasswordValid) invalidHint else null,
-                    visualTransformation = if (passwordsVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    trailingIcon = {
-                        TextButton(onClick = { passwordsVisible = !passwordsVisible }) {
-                            Text(if (passwordsVisible) "Скрыть" else "Показать")
-                        }
-                    },
-                )
 
                 Spacer(Modifier.height(16.dp))
                 HorizontalDivider()

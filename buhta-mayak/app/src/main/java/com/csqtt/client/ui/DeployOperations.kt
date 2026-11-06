@@ -5,6 +5,9 @@ package com.csqtt.client.ui
 
 import android.content.Context
 import com.csqtt.client.CsqttConstants
+import com.csqtt.client.BuhtaPanel
+import com.csqtt.client.SettingsStore
+import com.csqtt.client.BuhtaRoom
 import com.csqtt.client.DeployManager
 import com.csqtt.client.TunnelManager
 import net.schmizz.sshj.SSHClient as SshjClient
@@ -553,6 +556,68 @@ private val BENIGN_STDERR = Regex(
 
 private fun isBenignStderr(line: String): Boolean = BENIGN_STDERR.containsMatchIn(line)
 
+private const val BUHTA_SCRIPT = "/tmp/buhta-deploy.sh"
+
+private suspend fun runBuhtaScript(
+    context: Context,
+    host: String, user: String, pass: String, port: Int,
+    privateKey: String, keyPassphrase: String,
+    action: String, room: String, panelUser: String, panelPass: String,
+    onProgress: (Float, String) -> Unit,
+    startProgress: Float,
+    title: String,
+): SSHExecResult {
+    var ssh: SshjClient? = null
+    var tmp: File? = null
+    try {
+        TunnelManager.beginDeployLog("$title: $host:$port")
+        onProgress(0.02f, "Подключение к серверу...")
+        val initialSsh = createSSHClient(host, user, pass, port, privateKey, keyPassphrase)
+        ssh = initialSsh
+        DeployManager.activeSession = initialSsh
+        val client = DeploySSHClient(initialSsh, pass) { stage ->
+            TunnelManager.addDeployInfoLog("Повторное SSH-подключение: $stage")
+            createSSHClient(host, user, pass, port, privateKey, keyPassphrase).also { ssh = it }
+        }
+        TunnelManager.addDeploySuccessLog("SSH-соединение установлено")
+        onProgress(0.08f, "Подготовка установщика...")
+        val file = File(context.cacheDir, "buhta-deploy-${System.nanoTime()}.sh")
+        tmp = file
+        context.assets.open("buhta-deploy.sh").use { i -> FileOutputStream(file).use { o -> i.copyTo(o) } }
+        client.upload(file, BUHTA_SCRIPT)
+        onProgress(startProgress, "$title...")
+        val args = "$action ${shellQuote(room)} ${shellQuote(panelUser)} ${shellQuote(panelPass)}"
+        return client.execResult(rootCommand("sh $BUHTA_SCRIPT $args"), timeout = CMD_TIMEOUT)
+    } finally {
+        try { ssh?.disconnect() } catch (_: Exception) {}
+        DeployManager.activeSession = null
+        runCatching { tmp?.delete() }
+    }
+}
+
+private fun finishDeploy(result: SSHExecResult, okText: String): Boolean {
+    return if (isSuccessfulDeployResult(result.exitStatus, result.output)) {
+        TunnelManager.addDeploySuccessLog(okText)
+        DeployManager.stopDeploy("success")
+        true
+    } else {
+        val msg = deployFailureMessage(result.exitStatus, result.output)
+        DeployManager.writeError("Deploy failed: exit=${result.exitStatus}\n${result.output.takeLast(1200)}")
+        TunnelManager.addDeployErrorLog(msg)
+        DeployManager.stopDeploy(msg)
+        false
+    }
+}
+
+private fun deployFailed(e: Exception): Boolean {
+    val friendly = friendlyDeployError(e.message)
+    DeployManager.writeError("Deploy error (${e.javaClass.simpleName}): ${e.message}")
+    TunnelManager.addDeployErrorLog(friendly)
+    DeployManager.stopDeploy(friendly)
+    return false
+}
+
+/** Шаг 1: ставит сервер и панель. Комнату приложение спросит после установки. */
 internal suspend fun performDeploy(
     context: Context,
     host: String, user: String, pass: String, port: Int,
@@ -564,129 +629,63 @@ internal suspend fun performDeploy(
     certificate: String = "",
     installInDocker: Boolean = false,
 ): Boolean = withContext(Dispatchers.IO) {
-    var ssh: SshjClient? = null
-    var tempDir: File? = null
     try {
-        TunnelManager.beginDeployLog("Начало установки на $host:$port")
-        onProgress(0.02f, "Подключение...")
-
-        TunnelManager.addDeployInfoLog("SSH/SFTP используют текущий системный маршрут")
-        TunnelManager.addDeployInfoLog("Подключение к VPS по SSH")
-        val initialSsh = createSSHClient(host, user, pass, port, privateKey, keyPassphrase)
-        ssh = initialSsh
-        DeployManager.activeSession = initialSsh
-        val sshClient = DeploySSHClient(initialSsh, pass) { stage ->
-            TunnelManager.addDeployInfoLog("Повторное SSH-подключение: $stage")
-            createSSHClient(host, user, pass, port, privateKey, keyPassphrase).also {
-                ssh = it
-            }
-        }
-        TunnelManager.addDeploySuccessLog("SSH-соединение установлено")
-
-        val architectureResult = sshClient.execResult("uname -m", timeout = 10000L)
-        if (architectureResult.exitStatus != 0) {
-            throw IOException("Не удалось определить архитектуру VPS: ${architectureResult.output.trim().take(160)}")
-        }
-        val serverArchitecture = serverArchitectureForMachine(architectureResult.output)
-        TunnelManager.addDeployInfoLog("Архитектура VPS: ${serverArchitecture.displayName}")
-
-        onProgress(0.05f, "Подготовка файлов...")
-        TunnelManager.addDeployInfoLog("Подготовка файлов установки")
-        val deviceId = TunnelManager.readDeviceId(context)
-
-        val workingDir = File(context.cacheDir, "deploy-${System.nanoTime()}")
-        tempDir = workingDir
-        if (!workingDir.mkdirs() && !workingDir.isDirectory) {
-            throw IOException("Не удалось создать временный каталог установки")
-        }
-        fun extractAsset(assetName: String): File {
-            val target = File(workingDir, assetName)
-            context.assets.open(assetName).use { input ->
-                FileOutputStream(target).use { output -> input.copyTo(output) }
-            }
-            if (!target.isFile || target.length() == 0L) {
-                throw IOException("Файл $assetName отсутствует или пуст в assets")
-            }
-            return target
-        }
-
-        val scriptFile = extractAsset("deploy.sh")
-        val serverFile = extractAsset(serverArchitecture.assetName)
-        val environmentFile = File(workingDir, "csqtt.env").apply {
-            writeText(
-                buildString {
-                    appendLine("CSQTT_WEB_USER=${deployEnvironmentValue(webLogin, installInDocker)}")
-                    appendLine("CSQTT_WEB_PASS=${deployEnvironmentValue(webPass, installInDocker)}")
-                }
-            )
-        }
-        val overridesFile = File(workingDir, "csqtt-deploy.json").apply {
-            writeText(
-                JSONObject()
-                    .put("main_password", mainPass)
-                    .put("device_id", deviceId)
-                    .toString()
-            )
-        }
-        TunnelManager.addDeploySuccessLog("Файлы установки подготовлены")
-
-        onProgress(0.06f, "Подготовка сервера...")
-        sshClient.upload(scriptFile, "/tmp/deploy.sh")
-
-        val deployEnvironment =
-            "env CSQTT_PEER_PORT=$peerPort CSQTT_SSH_PORT=$port CSQTT_WEB_PORT=$webPort " +
-                "CSQTT_DEPLOY_MODE=${deployMode(installInDocker)}"
-        onProgress(0.10f, "Загрузка нового сервера...")
-        sshClient.upload(serverFile, "/tmp/.csqtt-upload-server")
-        sshClient.upload(environmentFile, "/tmp/.csqtt-upload-web.env")
-        sshClient.upload(overridesFile, "/tmp/.csqtt-upload-overrides.json")
-
-        onProgress(0.18f, "Установка нового сервера...")
-        TunnelManager.addDeployInfoLog("Запуск установщика на VPS")
-        val deployResult = sshClient.execResult(
-            rootCommand("$deployEnvironment bash /tmp/deploy.sh install"),
-            timeout = CMD_TIMEOUT
+        val r = runBuhtaScript(
+            context, host, user, pass, port, privateKey, keyPassphrase,
+            "install", "", webLogin, webPass, onProgress, 0.2f, "Установка сервера и панели",
         )
-        val output = deployResult.output
-
-        if (isSuccessfulDeployResult(deployResult.exitStatus, output)) {
-            TunnelManager.addDeploySuccessLog(
-                if (installInDocker) {
-                    "Установка завершена · Docker-контейнер CSQTT активен"
-                } else {
-                    "Установка завершена · служба CSQTT активна"
-                }
-            )
-            DeployManager.stopDeploy("success")
-            return@withContext true
-        } else {
-            DeployManager.writeError(
-                "Deploy failed: exit=${deployResult.exitStatus}, success marker=${output.contains("CSQTT_DEPLOY_OK")}" +
-                    "\n${output.takeLast(1200)}"
-            )
-            val failureMessage = deployFailureMessage(deployResult.exitStatus, output)
-            TunnelManager.addDeployErrorLog(failureMessage)
-            DeployManager.stopDeploy(failureMessage)
-            return@withContext false
+        val ok = finishDeploy(r, "Сервер и панель установлены")
+        if (ok && r.output.contains("Нужна ссылка на комнату")) {
+            onProgress(0.9f, "Нужна ссылка на комнату")
+            DeployManager.needRoom.value = true
         }
+        ok
     } catch (e: CancellationException) {
-        DeployManager.writeError("Deploy cancelled")
-        TunnelManager.addDeployWarningLog("установка отменена пользователем")
         DeployManager.stopDeploy("Установка отменена")
         throw e
     } catch (e: Exception) {
-        val friendly = friendlyDeployError(e.message)
-        DeployManager.writeError(
-            "Deploy error (${e.javaClass.simpleName}): ${e.message}\n" +
-                e.stackTraceToString().take(1200)
+        deployFailed(e)
+    }
+}
+
+/** Шаг 2: задаёт комнату на сервере, создаёт ключ в панели и сохраняет его как «комнату» клиента. */
+internal suspend fun performSetRoom(
+    context: Context,
+    settingsStore: SettingsStore,
+    host: String, user: String, pass: String, port: Int,
+    room: String, webLogin: String, webPass: String, webPort: Int,
+    onProgress: (Float, String) -> Unit,
+    privateKey: String = "",
+    keyPassphrase: String = "",
+): Boolean = withContext(Dispatchers.IO) {
+    try {
+        val target = BuhtaRoom.parse(room)
+            ?: throw IOException("Это не ссылка на комнату Saby Meet")
+        val r = runBuhtaScript(
+            context, host, user, pass, port, privateKey, keyPassphrase,
+            "setroom", target.room, webLogin, webPass, onProgress, 0.3f, "Запуск сервера в комнате",
         )
-        TunnelManager.addDeployErrorLog(friendly)
-        DeployManager.stopDeploy(friendly)
-        return@withContext false
-    } finally {
-        try { ssh?.disconnect() } catch (_: Exception) {}
-        DeployManager.activeSession = null
-        runCatching { tempDir?.deleteRecursively() }
+        if (!isSuccessfulDeployResult(r.exitStatus, r.output)) return@withContext finishDeploy(r, "")
+        onProgress(0.7f, "Создаю ключ в панели...")
+        TunnelManager.addDeployInfoLog("Создаю ключ подключения в панели сервера")
+        val key = BuhtaPanel.autoKey(host, webPort, webLogin, webPass, "phone") { line ->
+            TunnelManager.addDeployInfoLog(line)
+        }
+        val save = key ?: target.room
+        settingsStore.saveParticipantTunnelSettings(save, 1)
+        if (key != null) {
+            TunnelManager.addDeploySuccessLog("Ключ создан и сохранён в приложении")
+        } else {
+            TunnelManager.addDeployWarningLog("Ключ не создан — сохранена ссылка на комнату (режим без ключа)")
+        }
+        onProgress(1.0f, "Готово!")
+        DeployManager.stopDeploy("success")
+        true
+    } catch (e: CancellationException) {
+        DeployManager.stopDeploy("Отменено")
+        throw e
+    } catch (e: Exception) {
+        deployFailed(e)
     }
 }
 
@@ -699,55 +698,16 @@ internal suspend fun performUninstall(
     keyPassphrase: String = "",
     certificate: String = "",
 ): Boolean = withContext(Dispatchers.IO) {
-    var ssh: SshjClient? = null
-    var uninstallScript: File? = null
     try {
-        TunnelManager.beginDeployLog("Начало удаления с $host:$port")
-        onProgress(0.05f, "Подключение...")
-        TunnelManager.addDeployInfoLog("SSH/SFTP используют текущий системный маршрут")
-        TunnelManager.addDeployInfoLog("Подключение к VPS по SSH")
-        ssh = createSSHClient(host, user, pass, port, privateKey, keyPassphrase)
-        DeployManager.activeSession = ssh
-        val sshClient = DeploySSHClient(ssh, pass)
-        TunnelManager.addDeploySuccessLog("SSH-соединение установлено")
-
-        onProgress(0.15f, "Подготовка штатного удаления...")
-        TunnelManager.addDeployInfoLog("Загрузка штатного установщика CSQTT")
-        uninstallScript = File(context.cacheDir, "csqtt-uninstall-${System.nanoTime()}.sh")
-        context.assets.open("deploy.sh").use { input ->
-            FileOutputStream(uninstallScript).use { output -> input.copyTo(output) }
-        }
-        if (!uninstallScript.isFile || uninstallScript.length() == 0L) {
-            throw IOException("Не удалось подготовить штатный установщик CSQTT")
-        }
-        sshClient.upload(uninstallScript, "/tmp/deploy.sh")
-
-        onProgress(0.30f, "Удаление через deploy.sh...")
-        TunnelManager.addDeployInfoLog("Запуск серверного удаления")
-        sshClient.exec(
-            rootCommand("env CSQTT_PEER_PORT=$peerPort CSQTT_SSH_PORT=$port bash /tmp/deploy.sh uninstall"),
-            timeout = 30000L,
+        val r = runBuhtaScript(
+            context, host, user, pass, port, privateKey, keyPassphrase,
+            "uninstall", "", "", "", onProgress, 0.3f, "Удаление сервера",
         )
-
-        onProgress(1.0f, "Готово!")
-        TunnelManager.addDeploySuccessLog("Удаление CSQTT завершено")
-        DeployManager.stopDeploy("success")
-        return@withContext true
-
+        finishDeploy(r, "Сервер Бухты удалён")
     } catch (e: CancellationException) {
-        DeployManager.writeError("Uninstall cancelled")
-        TunnelManager.addDeployWarningLog("удаление отменено пользователем")
         DeployManager.stopDeploy("Удаление отменено")
         throw e
     } catch (e: Exception) {
-        val friendly = friendlyDeployError(e.message)
-        DeployManager.writeError("Uninstall error (${e.javaClass.simpleName}): ${e.message}")
-        TunnelManager.addDeployErrorLog(friendly)
-        DeployManager.stopDeploy(friendly)
-        return@withContext false
-    } finally {
-        try { ssh?.disconnect() } catch (_: Exception) {}
-        DeployManager.activeSession = null
-        uninstallScript?.delete()
+        deployFailed(e)
     }
 }

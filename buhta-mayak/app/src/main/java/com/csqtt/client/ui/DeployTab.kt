@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.csqtt.client.BuhtaRoom
 import com.csqtt.client.DeployManager
 import com.csqtt.client.DeploySettingsSnapshot
 import com.csqtt.client.SettingsStore
@@ -83,7 +84,7 @@ internal data class DeployUiState(
         get() = !manualPorts || listOf(sshPort, peerPort, webPort).all(::isValidPort)
 
     val authorizationConfigured: Boolean
-        get() = mainPasswordConfigured && webPanelConfigured
+        get() = webPanelConfigured
 
     val sshAuthReady: Boolean
         get() = sshLogin.isNotBlank() && if (sshKeysMode) sshKeysFilled == 1 else sshPassword.isNotBlank()
@@ -186,6 +187,8 @@ internal fun DeployTab(
     val savedSshCertificate = savedSettings.sshCertificate
     val savedServerPeerPort = savedSettings.serverPeerPort
     val savedServerWebPort = savedSettings.serverWebPort
+    val needRoom by DeployManager.needRoom.collectAsStateWithLifecycle()
+    var roomInput by rememberSaveable { mutableStateOf("") }
     val isDeploying by DeployManager.isDeploying.collectAsStateWithLifecycle()
     val deployProgress by DeployManager.deployProgress.collectAsStateWithLifecycle()
     val currentStep by DeployManager.currentStep.collectAsStateWithLifecycle()
@@ -388,6 +391,44 @@ internal fun DeployTab(
         }
     }
 
+    fun startSetRoom(room: String) {
+        if (DeployManager.isDeploying.value) return
+        val ports = resolveServerPorts(savedManualPorts, sshPort, peerPort, webPort)
+        val key = if (savedSshKeysMode) savedSshPrivateKey else ""
+        val pass = if (savedSshKeysMode) "" else sshPassword
+        DeployManager.startDeploy()
+        DeployManager.scope.launch {
+            try {
+                context.startForegroundService(Intent(context, TunnelService::class.java).apply { action = "DEPLOY_START" })
+                val ok = performSetRoom(
+                    context = context,
+                    settingsStore = settingsStore,
+                    host = host,
+                    user = sshLogin,
+                    pass = pass,
+                    port = ports.ssh,
+                    room = room,
+                    webLogin = savedWebLogin,
+                    webPass = savedWebPassword,
+                    webPort = ports.web,
+                    onProgress = DeployManager::updateProgress,
+                    privateKey = key,
+                    keyPassphrase = if (savedSshKeysMode) savedSshKeyPassphrase else "",
+                )
+                if (ok) {
+                    showDeployToast(context, "Готово: сервер в комнате, ключ сохранён")
+                } else {
+                    val message = DeployManager.lastResult.value.ifBlank { "Ошибка настройки комнаты" }
+                    scope.launch { snackbarHostState.showSnackbar(message) }
+                }
+            } finally {
+                runCatching {
+                    context.startService(Intent(context, TunnelService::class.java).apply { action = "DEPLOY_STOP" })
+                }
+            }
+        }
+    }
+
     DeployScreen(
         state = state,
         snackbarHostState = snackbarHostState,
@@ -465,6 +506,36 @@ internal fun DeployTab(
         },
     )
 
+    if (needRoom && !isDeploying) {
+        AlertDialog(
+            onDismissRequest = { DeployManager.needRoom.value = false },
+            title = { Text("Ссылка на комнату") },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    Text("Сервер и панель установлены. Вставьте гостевую ссылку на комнату Saby Meet — сервер зайдёт в неё, ключ создастся сам.")
+                    OutlinedTextField(
+                        value = roomInput,
+                        onValueChange = { roomInput = it },
+                        singleLine = true,
+                        label = { Text("https://…/meet/… или UUID") },
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = BuhtaRoom.parse(roomInput) != null,
+                    onClick = {
+                        val r = roomInput.trim()
+                        DeployManager.needRoom.value = false
+                        startSetRoom(r)
+                    },
+                ) { Text("Продолжить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { DeployManager.needRoom.value = false }) { Text("Позже") }
+            },
+        )
+    }
     if (showSecretsDialog) {
         DeploySecretsDialog(
             settingsStore = settingsStore,

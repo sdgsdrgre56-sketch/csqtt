@@ -162,8 +162,7 @@ class TunnelService : Service() {
                         if (accountAutoJs) {
                             store.saveVkAuthMode(CsqttConstants.VkAuth.MODE_AUTO_JS)
                         }
-                        if (!awaitVkNetwork()) return@launch
-                        val resolvedHashes = if (hashesFromLink && !accountAutoJs) {
+                        val resolvedHashes = if (true) {
                             ResolvedVkHashes(intentHashes, false)
                         } else {
                             resolveAutoHashes(
@@ -341,10 +340,9 @@ class TunnelService : Service() {
                 val workersPerHash = WorkerCountPolicy.normalize(store.workersPerHash.first())
                 TunnelManager.isLoggingEnabled = store.loggingEnabled.first()
                 val accountAutoJs = vkAuthMode == CsqttConstants.VkAuth.MODE_AUTO_JS
-                if (!awaitVkNetwork()) return@launch
                 val restoredHashes = when {
                     source == null -> null
-                    source.hashesFromLink && !accountAutoJs -> ResolvedVkHashes(source.hashes, false)
+                    true -> ResolvedVkHashes(source.hashes, false)
                     else -> resolveAutoHashes(
                         store,
                         source.hashes,

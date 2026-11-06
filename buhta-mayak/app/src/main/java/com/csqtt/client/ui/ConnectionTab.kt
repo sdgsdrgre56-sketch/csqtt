@@ -144,7 +144,7 @@ internal fun ConnectionTab(
         csqttLinkMode && linkHashes.isNotEmpty() -> "${linkHashes.size}/${CsqttConstants.Tunnel.MAX_VK_HASHES}"
         autoHashMode && vkTokenActive -> "Авто"
         autoHashMode -> "Токен"
-        else -> "${manualHashes.size}/${CsqttConstants.Tunnel.MAX_VK_HASHES}"
+        else -> if (manualHashes.isNotEmpty()) "Есть" else "Нет"
     }
 
     fun startIntent(source: ConnectionSource, generationId: Long, salt: String): Intent =
@@ -402,7 +402,7 @@ private fun TunnelConnectionStatusPanel(
             )
             ConnectionStatusDivider()
             ConnectionStatusItem(
-                title = "Хеши",
+                title = "Комната",
                 value = hashStatus,
                 modifier = Modifier.weight(1f).padding(horizontal = 5.dp, vertical = 8.dp),
             )

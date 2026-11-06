@@ -29,7 +29,8 @@ object DeployManager {
     val isDeploying = MutableStateFlow(false)
     val deployProgress = MutableStateFlow(0f)
     val currentStep = MutableStateFlow("")
-    val lastResult = MutableStateFlow("") 
+    val lastResult = MutableStateFlow("")
+    val needRoom = MutableStateFlow(false)
 
     @Volatile
     var activeSession: java.io.Closeable? = null
