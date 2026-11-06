@@ -17,9 +17,11 @@ import (
 	"math/rand"
 	"net"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
+	"github.com/pion/ice/v2"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 )
@@ -93,6 +95,15 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 		log.Printf("[webrtc] gathering ALL candidate types — a direct UDP pair beats the TCP relay if it works")
 	}
 	settingEngine.SetICECredentials(ufrag, pwd)
+	if runtime.GOOS == "android" {
+		if an, nerr := newAndroidNet(); nerr == nil {
+			settingEngine.SetNet(an)
+		} else {
+			log.Printf("[webrtc] android net shim failed: %v", nerr)
+		}
+		settingEngine.SetICEMulticastDNSMode(ice.MulticastDNSModeDisabled)
+		settingEngine.SetNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeUDP4, webrtc.NetworkTypeTCP4})
+	}
 	// Run #9 proved ICE itself now works end to end (clean nomination over the TURN relay, no
 	// auth errors) — but DTLS stayed stuck forever at "[handshake:server] Flight 0:
 	// Sending/Waiting", i.e. pion sat passively waiting for a ClientHello that never arrived,
