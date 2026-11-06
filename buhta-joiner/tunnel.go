@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"os"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -161,25 +163,23 @@ func runServer(t *Tunnel) {
 
 func runPing(t *Tunnel) {
 	src := net.ParseIP(*clientIP)
-	dst := net.ParseIP(*pingTarget)
-	if src == nil || dst == nil {
-		log.Printf("[ping] неверный адрес")
+	if src == nil {
+		log.Printf("[ping] неверный client-ip")
 		return
 	}
-	sent := map[uint16]time.Time{}
+	targets := strings.Split(*pingTarget, ",")
 	var mu sync.Mutex
-	got := 0
+	sent := map[uint16]time.Time{}
+	rtts := map[uint16]time.Duration{}
 	t.OnPacket = func(pkt []byte) {
-		from, _, seq, ok := ParseICMPEchoReply(pkt)
+		_, _, seq, ok := ParseICMPEchoReply(pkt)
 		if !ok {
 			return
 		}
 		mu.Lock()
-		st, known := sent[seq]
-		got++
-		mu.Unlock()
-		if known {
-			log.Printf("[ping] ответ от %s seq=%d время=%v размер=%d", from, seq, time.Since(st).Round(time.Millisecond), len(pkt))
+		defer mu.Unlock()
+		if st, known := sent[seq]; known && rtts[seq] == 0 {
+			rtts[seq] = time.Since(st)
 		}
 	}
 	time.Sleep(2 * time.Second)
@@ -187,17 +187,43 @@ func runPing(t *Tunnel) {
 	for i := range data {
 		data[i] = byte(i)
 	}
-	for i := 1; i <= *pingCount; i++ {
+	var seq uint16
+	total, totalGot := 0, 0
+	for _, tg := range targets {
+		dst := net.ParseIP(strings.TrimSpace(tg))
+		if dst == nil {
+			continue
+		}
+		var mine []uint16
+		for i := 0; i < *pingCount; i++ {
+			seq++
+			mu.Lock()
+			sent[seq] = time.Now()
+			mu.Unlock()
+			mine = append(mine, seq)
+			t.SendPacket(BuildICMPEcho(src, dst, 0xB7B7, seq, data))
+			time.Sleep(500 * time.Millisecond)
+		}
+		time.Sleep(1200 * time.Millisecond)
 		mu.Lock()
-		sent[uint16(i)] = time.Now()
+		var got []time.Duration
+		for _, q := range mine {
+			if d := rtts[q]; d > 0 {
+				got = append(got, d)
+			}
+		}
 		mu.Unlock()
-		t.SendPacket(BuildICMPEcho(src, dst, 0xB7B7, uint16(i), data))
-		time.Sleep(700 * time.Millisecond)
+		total += len(mine)
+		totalGot += len(got)
+		if len(got) == 0 {
+			log.Printf("[ping] %-16s нет ответов (0/%d)", dst, len(mine))
+			continue
+		}
+		sort.Slice(got, func(i, j int) bool { return got[i] < got[j] })
+		log.Printf("[ping] %-16s ответов %d/%d  мин=%v  мед=%v  макс=%v", dst, len(got), len(mine),
+			got[0].Round(time.Millisecond), got[len(got)/2].Round(time.Millisecond), got[len(got)-1].Round(time.Millisecond))
 	}
-	time.Sleep(3 * time.Second)
-	mu.Lock()
-	log.Printf("[ping] ИТОГ: отправлено %d, ответов %d", *pingCount, got)
-	mu.Unlock()
+	log.Printf("[ping] ИТОГ: отправлено %d, ответов %d", total, totalGot)
 }
 
 // tunnelOnState вызывается из обработчика состояния PeerConnection. В туннельном
