@@ -48,6 +48,8 @@ import ru.buhta.app.ui.design.CsqttSizes
 import ru.buhta.app.ui.design.CsqttSpacing
 import ru.buhta.app.ui.design.CsqttTheme
 
+val LocalHeaderActions = androidx.compose.runtime.staticCompositionLocalOf<(@Composable RowScope.() -> Unit)?> { null }
+
 /** Каркас вкладки: заголовок «Бухта» + версия, как шапка в Маяке. */
 @Composable
 fun BuhtaScreen(
@@ -83,6 +85,7 @@ fun BuhtaScreen(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
                 )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Surface(
                     shape = CsqttShapes.Control,
                     color = MaterialTheme.colorScheme.surfaceVariant,
@@ -93,6 +96,8 @@ fun BuhtaScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                     )
+                }
+                LocalHeaderActions.current?.let { it() }
                 }
             }
             content()
@@ -235,92 +240,51 @@ private fun PillButton(text: String, filled: Boolean = true, modifier: Modifier 
 }
 
 @Composable
-fun ColumnScope.ServersSection() {
+fun ColumnScope.ProfileSection() {
     val ctx = LocalContext.current
-    var servers by remember { mutableStateOf(Settings.servers().toList()) }
-    var sel by remember { mutableIntStateOf(Settings.selected.coerceIn(0, servers.size - 1)) }
-    var name by remember { mutableStateOf("") }
-    var link by remember { mutableStateOf("") }
+    val cur = remember { Settings.currentServer() }
+    var name by remember { mutableStateOf(if (cur.name.startsWith("Профиль ")) "" else cur.name) }
+    var link by remember { mutableStateOf(if (cur.key.isNotEmpty()) cur.key else cur.room) }
+    var saved by remember { mutableStateOf(cur) }
     fun toast(s: String) = Toast.makeText(ctx, s, Toast.LENGTH_SHORT).show()
     val colors = MaterialTheme.colorScheme
 
-    run {
-        servers.forEachIndexed { i, s ->
-            val chosen = i == sel
-            Surface(
-                shape = CsqttShapes.Card,
-                color = if (chosen) colors.primaryContainer.copy(alpha = 0.55f) else colors.surface,
-                border = BorderStroke(1.dp, if (chosen) colors.primary.copy(alpha = 0.7f) else colors.outlineVariant.copy(alpha = 0.32f)),
-                modifier = Modifier.fillMaxWidth().clip(CsqttShapes.Card).clickable {
-                    if (BuhtaState.active) toast("Сначала отключись")
-                    else { Settings.selected = i; sel = i }
-                },
-            ) {
-                Column(Modifier.padding(CsqttSpacing.Md), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = chosen, onClick = null)
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(s.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(s.room, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        IconButton(onClick = {
-                            if (servers.size <= 1) toast("Нужен хотя бы один сервер")
-                            else if (BuhtaState.active) toast("Сначала отключись")
-                            else {
-                                val l = servers.toMutableList().also { it.removeAt(i) }
-                                Settings.saveServers(l); Settings.selected = 0
-                                servers = l; sel = 0
-                            }
-                        }) { Icon(Icons.Outlined.Delete, contentDescription = "Удалить", tint = colors.onSurfaceVariant) }
-                    }
-                    Text(
-                        if (s.key.isNotEmpty()) "● шифрование E2E (ключ buhta://)" else "○ без шифрования",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (s.key.isNotEmpty()) BuhtaColors.connected else colors.onSurfaceVariant,
-                    )
+    AppSectionCard {
+        Text("Сервер · Профиль ${Settings.profile}", style = MaterialTheme.typography.titleMedium)
+        Text(
+            if (saved.room.isEmpty()) "Сервер не задан"
+            else (if (saved.key.isNotEmpty()) "● шифрование E2E (ключ buhta://)" else "○ без шифрования") + "\n" + saved.room,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (saved.key.isNotEmpty()) BuhtaColors.connected else colors.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = name, onValueChange = { name = it }, singleLine = true, shape = CsqttShapes.Small,
+            label = { Text("Название (необязательно)") }, modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = link, onValueChange = { link = it }, maxLines = 3, shape = CsqttShapes.Small,
+            label = { Text("Ключ buhta://, ссылка на комнату или UUID") }, modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            PillButton("Из буфера", filled = false, modifier = Modifier.weight(1f)) {
+                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                link = cm.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString().orEmpty().trim()
+            }
+            PillButton("Сохранить", modifier = Modifier.weight(1f)) {
+                if (BuhtaState.active) { toast("Сначала отключись"); return@PillButton }
+                val raw = link.trim()
+                val parsed = Settings.parseKey(raw)
+                val m = if (parsed != null) null else Settings.UUID_RE.find(raw)
+                if (parsed == null && m == null) {
+                    toast("Не нашёл ключ или UUID комнаты")
+                } else {
+                    val nm = name.trim().ifEmpty { parsed?.first?.ifEmpty { null } ?: "" }
+                    if (parsed != null) Settings.saveServer(nm, parsed.second, raw) else Settings.saveServer(nm, m!!.value, "")
+                    saved = Settings.currentServer()
+                    toast("Сохранено в профиле ${Settings.profile}")
                 }
             }
         }
-
-        AppSectionCard {
-            Text("Добавить сервер", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Вставь ключ buhta:// из панели (с шифрованием) либо ссылку на гостевую комнату Saby Meet / UUID.",
-                style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
-            )
-            OutlinedTextField(
-                value = name, onValueChange = { name = it }, singleLine = true, shape = CsqttShapes.Small,
-                label = { Text("Название (необязательно)") }, modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = link, onValueChange = { link = it }, maxLines = 3, shape = CsqttShapes.Small,
-                label = { Text("Ссылка, ключ или UUID") }, modifier = Modifier.fillMaxWidth(),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                PillButton("Из буфера", filled = false, modifier = Modifier.weight(1f)) {
-                    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    link = cm.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString().orEmpty().trim()
-                }
-                PillButton("Добавить", modifier = Modifier.weight(1f)) {
-                    val raw = link.trim()
-                    val parsed = Settings.parseKey(raw)
-                    val m = if (parsed != null) null else Settings.UUID_RE.find(raw)
-                    if (parsed == null && m == null) {
-                        toast("Не нашёл ключ или UUID комнаты")
-                    } else {
-                        val fb = parsed?.first?.ifEmpty { null } ?: "Сервер ${servers.size + 1}"
-                        val nm = name.trim().ifEmpty { fb }
-                        val l = servers.toMutableList()
-                        if (parsed != null) l.add(Settings.Server(nm, parsed.second, raw)) else l.add(Settings.Server(nm, m!!.value))
-                        Settings.saveServers(l)
-                        servers = l; name = ""; link = ""
-                        toast("Сервер добавлен")
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
     }
 }
 
@@ -476,7 +440,7 @@ fun InfoTab() {
 @Composable
 fun TunnelTab(mode: String, skin: String, onMode: (String) -> Unit, onSkin: (String) -> Unit) {
     BuhtaScreen {
-        ServersSection()
+        ProfileSection()
         SettingsSection(mode, skin, onMode, onSkin)
     }
 }

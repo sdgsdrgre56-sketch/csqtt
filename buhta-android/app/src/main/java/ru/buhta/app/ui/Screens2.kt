@@ -57,7 +57,7 @@ fun DeployTab() {
     var port by remember { mutableStateOf(Settings.deployPort) }
     var user by remember { mutableStateOf(Settings.deployUser) }
     var pass by remember { mutableStateOf("") }
-    var room by remember { mutableStateOf(Settings.deployRoom) }
+    var room by remember { mutableStateOf(Settings.deployRoom.ifEmpty { Settings.currentServer().room }) }
     fun toast(s: String) = Toast.makeText(ctx, s, Toast.LENGTH_SHORT).show()
 
     fun run(action: String) {

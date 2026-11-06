@@ -105,6 +105,7 @@ fun MainScreen(
     val view = LocalView.current
     val density = LocalDensity.current
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var profile by remember { mutableIntStateOf(Settings.profile) }
     val dragTargetIndex = remember { mutableIntStateOf(-1) }
     val dragProgress = remember { mutableFloatStateOf(0f) }
     val tabStateHolder = rememberSaveableStateHolder()
@@ -115,6 +116,9 @@ fun MainScreen(
 
     Box(Modifier.fillMaxSize()) {
         AppBackdrop(Modifier.matchParentSize())
+        CompositionLocalProvider(
+            LocalHeaderActions provides { ProfileMenu(profile, { profile = it }, mode, onMode) },
+        ) {
         Scaffold(
             contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
             containerColor = Color.Transparent,
@@ -154,8 +158,8 @@ fun MainScreen(
                     },
             ) {
                 Box(Modifier.fillMaxSize().padding(bottom = navOverlayReserve)) {
-                    key(selectedTab) {
-                        tabStateHolder.SaveableStateProvider(selectedTab) {
+                    key(selectedTab, profile) {
+                        tabStateHolder.SaveableStateProvider("$selectedTab:$profile") {
                             when (selectedTab) {
                                 0 -> ConnectionTab(onToggle)
                                 1 -> TunnelTab(mode, skin, onMode, onSkin)
@@ -183,6 +187,7 @@ fun MainScreen(
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
+        }
         }
     }
 }

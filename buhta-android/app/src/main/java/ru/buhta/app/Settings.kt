@@ -30,33 +30,6 @@ object Settings {
         if (!::sp.isInitialized) sp = c.applicationContext.getSharedPreferences("buhta", Context.MODE_PRIVATE)
     }
 
-    fun servers(): MutableList<Server> {
-        val out = mutableListOf<Server>()
-        val raw = sp.getString("servers", null)
-        if (raw != null) {
-            try {
-                val a = JSONArray(raw)
-                for (i in 0 until a.length()) {
-                    val o = a.getJSONObject(i)
-                    out.add(Server(o.getString("name"), o.getString("room"), o.optString("key", "")))
-                }
-            } catch (e: Exception) {
-            }
-        }
-        if (out.isEmpty()) {
-            val old = sp.getString("room", DEFAULT_ROOM) ?: DEFAULT_ROOM
-            out.add(Server("Мой сервер", old))
-            saveServers(out)
-        }
-        return out
-    }
-
-    fun saveServers(l: List<Server>) {
-        val a = JSONArray()
-        for (s in l) a.put(JSONObject().put("name", s.name).put("room", s.room).put("key", s.key))
-        sp.edit().putString("servers", a.toString()).apply()
-    }
-
     /** Разбирает buhta://… ключ из веб-панели: возвращает (имя, UUID комнаты) или null. */
     fun parseKey(raw: String): Pair<String, String>? {
         val t = raw.trim()
@@ -72,13 +45,45 @@ object Settings {
         }
     }
 
-    var selected: Int
-        get() = sp.getInt("selected", 0)
-        set(v) { sp.edit().putInt("selected", v).apply() }
+    // ---- профили конфигурации (как в Маяке: 4 профиля, у каждого свой сервер) ----
+    const val PROFILES = 4
 
+    var profile: Int
+        get() = sp.getInt("profile", 0).coerceIn(0, PROFILES - 1)
+        set(v) { sp.edit().putInt("profile", v.coerceIn(0, PROFILES - 1)).apply() }
+
+    private fun pk(base: String, p: Int = profile) = if (p == 0) base else "${base}_$p"
+
+    private fun migrate() {
+        val raw = sp.getString("servers", null) ?: return
+        try {
+            val a = JSONArray(raw)
+            val e = sp.edit()
+            for (i in 0 until minOf(a.length(), PROFILES)) {
+                val o = a.getJSONObject(i)
+                e.putString(pk("s_name", i), o.optString("name"))
+                e.putString(pk("s_room", i), o.optString("room"))
+                e.putString(pk("s_key", i), o.optString("key"))
+            }
+            e.remove("servers").apply()
+        } catch (_: Exception) {
+            sp.edit().remove("servers").apply()
+        }
+    }
+
+    /** Сервер активного профиля. */
     fun currentServer(): Server {
-        val l = servers()
-        return l[selected.coerceIn(0, l.size - 1)]
+        migrate()
+        val room = sp.getString(pk("s_room"), "") ?: ""
+        return Server(
+            sp.getString(pk("s_name"), "")?.ifEmpty { null } ?: "Профиль $profile",
+            room.ifEmpty { if (profile == 0) DEFAULT_ROOM else "" },
+            sp.getString(pk("s_key"), "") ?: "",
+        )
+    }
+
+    fun saveServer(name: String, room: String, key: String) {
+        sp.edit().putString(pk("s_name"), name).putString(pk("s_room"), room).putString(pk("s_key"), key).apply()
     }
 
     var dnsKey: String
@@ -110,17 +115,17 @@ object Settings {
 
     // ---- установка на VPS (пароль SSH не сохраняется) ----
     var deployHost: String
-        get() = sp.getString("d_host", "") ?: ""
-        set(v) { sp.edit().putString("d_host", v).apply() }
+        get() = sp.getString(pk("d_host"), "") ?: ""
+        set(v) { sp.edit().putString(pk("d_host"), v).apply() }
     var deployPort: String
-        get() = sp.getString("d_port", "22") ?: "22"
-        set(v) { sp.edit().putString("d_port", v).apply() }
+        get() = sp.getString(pk("d_port"), "22") ?: "22"
+        set(v) { sp.edit().putString(pk("d_port"), v).apply() }
     var deployUser: String
-        get() = sp.getString("d_user", "root") ?: "root"
-        set(v) { sp.edit().putString("d_user", v).apply() }
+        get() = sp.getString(pk("d_user"), "root") ?: "root"
+        set(v) { sp.edit().putString(pk("d_user"), v).apply() }
     var deployRoom: String
-        get() = sp.getString("d_room", "") ?: ""
-        set(v) { sp.edit().putString("d_room", v).apply() }
+        get() = sp.getString(pk("d_room"), "") ?: ""
+        set(v) { sp.edit().putString(pk("d_room"), v).apply() }
 
     // ---- исключения: приложения мимо VPN / только через VPN ----
     var excluded: Set<String>
