@@ -178,6 +178,27 @@ fun ConnectionTab(onToggle: () -> Unit) {
                 )
             }
         }
+        val recent = BuhtaState.lines().takeLast(8)
+        if (active || recent.isNotEmpty()) {
+            val ext = CsqttTheme.extendedColors
+            Surface(shape = CsqttShapes.Card, color = ext.terminalBackground, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Ход соединения: " + BuhtaState.status, color = ext.terminalText,
+                        style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    if (recent.isEmpty()) {
+                        Text("ждём ответ от процесса…", color = ext.terminalMuted, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    }
+                    recent.forEach { l ->
+                        val c = when {
+                            l.contains("Ошибка", true) || l.contains("error", true) || l.contains("fail", true) -> ext.terminalError
+                            l.contains("Подключено") || l.contains("connected") -> ext.terminalSuccess
+                            else -> ext.terminalMuted
+                        }
+                        Text(l, color = c, fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 15.sp)
+                    }
+                }
+            }
+        }
         AppSectionCard {
             Text("Как это работает", style = MaterialTheme.typography.titleMedium)
             Text(
