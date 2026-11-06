@@ -631,8 +631,18 @@ func (o *JingleOffer) BuildSessionAccept(answerSDP, toJID, responderJID string, 
 				fmt.Fprintf(&b, `</payload-type>`)
 			}
 			if ssrc != 0 {
-				fmt.Fprintf(&b, `<source name="buhta-%s" ssrc="%d" xmlns="urn:xmpp:jingle:apps:rtp:ssma:0"><parameter name="msid" value="buhta-%s buhta-track-%s"/></source>`,
-					label, ssrc, label, label)
+				// Jicofo only relays sources to other participants when they follow the usual naming:
+				// <endpoint id>-a0 / -v0, with the owner set to the endpoint id.
+				sfx := "a0"
+				if c.Name == "video" {
+					sfx = "v0"
+				}
+				ep := ourEndpointID
+				if ep == "" {
+					ep = "buhta"
+				}
+				fmt.Fprintf(&b, `<source name="%s-%s" ssrc="%d" xmlns="urn:xmpp:jingle:apps:rtp:ssma:0"><ssrc-info owner="%s" xmlns="http://jitsi.org/jitmeet"/><parameter name="msid" value="%s-%s buhta-track-%s"/></source>`,
+					xmlEscape(ep), sfx, ssrc, xmlEscape(ep), xmlEscape(ep), label, label)
 			}
 			fmt.Fprintf(&b, `<rtcp-mux/></description>`)
 		}
@@ -659,6 +669,9 @@ func (o *JingleOffer) BuildSessionAccept(answerSDP, toJID, responderJID string, 
 	fmt.Fprintf(&b, `</jingle></iq>`)
 	return b.String(), nil
 }
+
+// ourEndpointID is our MUC resource / endpoint id, set by main once we are bound.
+var ourEndpointID string
 
 func xmlEscape(s string) string {
 	var b strings.Builder
