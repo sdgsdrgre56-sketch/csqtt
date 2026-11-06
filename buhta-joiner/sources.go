@@ -61,8 +61,12 @@ func queueSourceUpdate(frame string) {
 		return
 	}
 	u := srcUpdate{Action: iq.Jingle.Action}
+	rtx := rtxSSRCs(frame)
 	for _, c := range iq.Jingle.Contents {
 		for _, s := range c.Desc.Sources {
+			if rtx[s.SSRC] {
+				continue
+			}
 			it := srcItem{Content: c.Name, SSRC: s.SSRC, Name: s.Name}
 			for _, p := range s.Params {
 				if p.Name == "msid" {
@@ -80,6 +84,24 @@ func queueSourceUpdate(frame string) {
 	default:
 		log.Printf("[src] update queue full, dropping %s", u.Action)
 	}
+}
+
+var (
+	fidGroupRe = regexp.MustCompile(`(?s)<ssrc-group[^>]*semantics=['"]FID['"][^>]*>(.*?)</ssrc-group>`)
+	srcSSRCRe  = regexp.MustCompile(`ssrc=['"](\d+)['"]`)
+)
+
+// rtxSSRCs returns the retransmission SSRCs (second member of each FID group) in a frame,
+// which must not get their own m-section.
+func rtxSSRCs(frame string) map[string]bool {
+	out := map[string]bool{}
+	for _, g := range fidGroupRe.FindAllStringSubmatch(frame, -1) {
+		ms := srcSSRCRe.FindAllStringSubmatch(g[1], -1)
+		if len(ms) >= 2 {
+			out[ms[1][1]] = true
+		}
+	}
+	return out
 }
 
 var ssrcAttrRe = regexp.MustCompile(`(?m)^a=ssrc:(\d+) `)
@@ -106,6 +128,9 @@ func runSourceUpdates(pc *webrtc.PeerConnection) {
 		}
 		if len(add) == 0 {
 			continue
+		}
+		for i := 0; i < 300 && pc.ConnectionState() != webrtc.PeerConnectionStateConnected; i++ {
+			time.Sleep(100 * time.Millisecond)
 		}
 		for i := 0; i < 100 && pc.SignalingState() != webrtc.SignalingStateStable; i++ {
 			time.Sleep(100 * time.Millisecond)
