@@ -99,21 +99,31 @@ class BuhtaVpnService : VpnService() {
     @Synchronized
     private fun ensureTun() {
         if (tun != null || !running) return
-        val b = Builder()
-            .setSession("Бухта")
-            .setMtu(1200)
-            .addAddress("10.77.0.2", 32)
-            .addRoute("0.0.0.0", 0)
-            .addAddress("fd00:77::2", 128) // IPv6 заворачиваем в TUN и там отбрасываем, чтобы не утекал
-            .addRoute("::", 0)
-            .addDnsServer("1.1.1.1")
-            .addDnsServer("8.8.8.8")
-        try {
-            b.addDisallowedApplication(packageName)
-        } catch (e: Exception) {
-            BuhtaState.log("addDisallowedApplication: ${e.message}")
+        fun build(v6: Boolean): ParcelFileDescriptor? {
+            val b = Builder()
+                .setSession("Бухта")
+                .setMtu(1200)
+                .addAddress("10.77.0.2", 32)
+                .addRoute("0.0.0.0", 0)
+                .addDnsServer("1.1.1.1")
+                .addDnsServer("8.8.8.8")
+            if (v6) {
+                // IPv6 заворачиваем в TUN и там отбрасываем, чтобы не утекал
+                b.addAddress("fd00:77::2", 128).addRoute("::", 0)
+            }
+            try {
+                b.addDisallowedApplication(packageName)
+            } catch (e: Exception) {
+                BuhtaState.log("addDisallowedApplication: ${e.message}")
+            }
+            return b.establish()
         }
-        val fd = b.establish()
+        val fd = try {
+            build(true)
+        } catch (e: Exception) {
+            BuhtaState.log("VPN с IPv6 не вышел (${e.message}), пробую только IPv4")
+            build(false)
+        }
         if (fd == null) {
             BuhtaState.update("Не удалось поднять VPN (нет разрешения?)")
             return
