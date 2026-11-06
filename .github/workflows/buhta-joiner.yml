@@ -1,0 +1,40 @@
+name: Buhta joiner (Windows exe)
+
+# Isolated build for the Buhta experiment: runs only on pushes to buhta-app that touch
+# buhta-joiner/, publishes a pre-release tagged buhta-build-N. It never touches the Mayak
+# release flow (build-N tags, latest release).
+on:
+  push:
+    branches: [buhta-app]
+    paths:
+      - 'buhta-joiner/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: buhta-joiner/go.mod
+          cache-dependency-path: buhta-joiner/go.sum
+      - name: Build Windows exe
+        working-directory: buhta-joiner
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -trimpath -o buhta-joiner.exe .
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "buhta-build-${{ github.run_number }}" buhta-joiner/buhta-joiner.exe \
+            --title "buhta-build-${{ github.run_number }}" \
+            --notes "buhta-joiner.exe from ${{ github.sha }} (experiment, not for the Mayak updater)" \
+            --target "${{ github.sha }}" \
+            --prerelease --latest=false
