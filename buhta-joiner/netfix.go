@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net"
 
 	"github.com/pion/transport/v2"
@@ -27,11 +28,7 @@ func (a *androidNet) ListenUDP(network string, laddr *net.UDPAddr) (transport.UD
 }
 
 func (a *androidNet) ListenTCP(network string, laddr *net.TCPAddr) (transport.TCPListener, error) {
-	l, err := net.ListenTCP(network, laddr)
-	if err != nil {
-		return nil, err
-	}
-	return l, nil
+	return nil, errors.New("tcp listen not supported")
 }
 
 func (a *androidNet) Dial(network, address string) (net.Conn, error) {
