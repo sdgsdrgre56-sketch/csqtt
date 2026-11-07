@@ -28,7 +28,7 @@ Description=Buhta room keeper (second participant keeps the Saby conference aliv
 After=network-online.target buhta.service
 [Service]
 EnvironmentFile=-/etc/buhta/panel.env
-ExecStart=$BIN -room \${BUHTA_ROOM} -name Страж -nomedia -hold 8760h -timeout 90s
+ExecStart=$BIN -room \${BUHTA_ROOM} -name Страж -nomedia -hold 8760h -timeout 30s
 Restart=always
 RestartSec=2
 [Install]
@@ -55,7 +55,7 @@ Wants=network-online.target
 [Service]
 EnvironmentFile=-/etc/buhta/panel.env
 ExecStartPre=/usr/local/bin/buhta-net.sh
-ExecStart=$BIN -room \${BUHTA_ROOM} -tunnel server -hold 8760h -timeout 90s -data /etc/buhta -panel :8787
+ExecStart=$BIN -room \${BUHTA_ROOM} -tunnel server -hold 8760h -timeout 30s -data /etc/buhta -panel :8787
 Restart=always
 RestartSec=1
 [Install]
@@ -94,7 +94,7 @@ After=network-online.target
 Wants=network-online.target
 [Service]
 ExecStartPre=/usr/local/bin/buhta-net-multi.sh $i
-ExecStart=$BIN -room $R -tunnel server -tun buhta$i -hold 8760h -timeout 90s -data /etc/buhta/r$i -panel=
+ExecStart=$BIN -room $R -tunnel server -tun buhta$i -hold 8760h -timeout 30s -data /etc/buhta/r$i -panel=
 Restart=always
 RestartSec=1
 [Install]
@@ -106,7 +106,7 @@ Description=Buhta keeper $i
 After=network-online.target
 Wants=network-online.target
 [Service]
-ExecStart=$BIN -room $R -name Страж$i -nomedia -hold 8760h -timeout 90s
+ExecStart=$BIN -room $R -name Страж$i -nomedia -hold 8760h -timeout 30s
 Restart=always
 RestartSec=3
 [Install]
@@ -159,7 +159,7 @@ Wants=network-online.target
 [Service]
 EnvironmentFile=-/etc/buhta/panel.env
 ExecStartPre=/usr/local/bin/buhta-net.sh
-ExecStart=$BIN -room \${BUHTA_ROOM} -tunnel server -hold 8760h -timeout 90s -data /etc/buhta -panel :8787
+ExecStart=$BIN -room \${BUHTA_ROOM} -tunnel server -hold 8760h -timeout 30s -data /etc/buhta -panel :8787
 Restart=always
 RestartSec=1
 [Install]
