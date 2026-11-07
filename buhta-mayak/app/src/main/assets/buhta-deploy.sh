@@ -50,9 +50,9 @@ Wants=network-online.target
 [Service]
 EnvironmentFile=-/etc/buhta/panel.env
 ExecStartPre=/usr/local/bin/buhta-net.sh
-ExecStart=$BIN -room \${BUHTA_ROOM} -tunnel server -hold 8760h -timeout 8760h -data /etc/buhta -panel :8787
+ExecStart=$BIN -room \${BUHTA_ROOM} -tunnel server -hold 8760h -timeout 90s -data /etc/buhta -panel :8787
 Restart=always
-RestartSec=3
+RestartSec=1
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -88,6 +88,9 @@ resetpass)
   [ -f /etc/buhta/panel.env ] && . /etc/buhta/panel.env
   ( umask 077; printf 'BUHTA_PANEL_USER=%s\nBUHTA_PANEL_PASS=%s\nBUHTA_ROOM=%s\n' "$PUSER" "$PPASS" "$BUHTA_ROOM" > /etc/buhta/panel.env )
   chmod 600 /etc/buhta/panel.env
+  fetch
+  sed -i -E 's/-timeout [0-9]+[hms]/-timeout 90s/; s/RestartSec=[0-9]+/RestartSec=1/' /etc/systemd/system/buhta.service
+  systemctl daemon-reload
   systemctl restart buhta
   echo "[OK] Логин и пароль панели записаны на сервер"
   sleep 3
@@ -106,7 +109,7 @@ setroom)
   ( umask 077; printf 'BUHTA_PANEL_USER=%s\nBUHTA_PANEL_PASS=%s\nBUHTA_ROOM=%s\n' "$BUHTA_PANEL_USER" "$BUHTA_PANEL_PASS" "$ROOM" > /etc/buhta/panel.env )
   chmod 600 /etc/buhta/panel.env
   fetch
-  sed -i 's/-timeout 60s/-timeout 8760h/' /etc/systemd/system/buhta.service
+  sed -i -E 's/-timeout [0-9]+[hms]/-timeout 90s/; s/RestartSec=[0-9]+/RestartSec=1/' /etc/systemd/system/buhta.service
   systemctl daemon-reload
   systemctl restart buhta
   sleep 2
