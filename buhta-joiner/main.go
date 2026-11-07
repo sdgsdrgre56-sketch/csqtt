@@ -229,8 +229,8 @@ func main() {
 	statsID := "buhta-" + randHex(3)
 	nick := endpointID + "#" + *name
 	send(fmt.Sprintf(
-		`<presence to="%s/%s" xmlns="jabber:client"><x xmlns="http://jabber.org/protocol/muc"/><stats-id>%s</stats-id><jitsi_participant_codecList>vp8,vp9,h264</jitsi_participant_codecList><nick xmlns="http://jabber.org/protocol/nick">%s</nick></presence>`,
-		mucRoom, endpointID, statsID, nick))
+		`<presence to="%s/%s" xmlns="jabber:client"><x xmlns="http://jabber.org/protocol/muc"/><stats-id>%s</stats-id><jitsi_participant_codecList>vp8,vp9,h264</jitsi_participant_codecList><audiomuted xmlns="http://jitsi.org/jitmeet/audio">false</audiomuted><videomuted xmlns="http://jitsi.org/jitmeet/video">false</videomuted><SourceInfo>{"%s-a0":{"muted":false},"%s-v0":{"muted":false,"videoType":"camera"}}</SourceInfo><nick xmlns="http://jabber.org/protocol/nick">%s</nick></presence>`,
+		mucRoom, endpointID, statsID, endpointID, endpointID, nick))
 	waitFor("own presence echoed back", mucRoom)
 
 	log.Printf("joined %s as %s — waiting up to %s for a Jingle session-initiate from the bridge", mucRoom, nick, timeout)
