@@ -35,8 +35,23 @@ internal fun BuhtaSettingsTab(settingsStore: SettingsStore) {
         settingsStore.saveParticipantTunnelSettings(text.trim(), 1)
     }
     val parsedCount = BuhtaRoom.parseAll(text).size
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var dns by remember { mutableStateOf(BuhtaRoom.dns(ctx)) }
     CsqttScreen(title = "Туннель", subtitle = "Комната вместо хэшей") {
         Column2(text, parsedCount, { text = it; edited = true })
+        Spacer(Modifier.height(12.dp))
+        val opts = BuhtaRoom.DNS_OPTIONS.let { o -> if (o.any { it.first == dns }) o else o + (dns to dns) }
+        com.csqtt.client.ui.tunnel.CompactDropdownSetting(
+            title = "DNS",
+            selectedKey = dns,
+            options = opts,
+            enabled = true,
+            onSelected = { v ->
+                dns = v
+                BuhtaRoom.setDns(ctx, v)
+                android.widget.Toast.makeText(ctx, "DNS сохранён — переподключите туннель", android.widget.Toast.LENGTH_SHORT).show()
+            },
+        )
     }
 }
 

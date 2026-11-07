@@ -8,6 +8,34 @@ object BuhtaRoom {
     const val UDP_PORT = 17777
     const val DNS = "1.1.1.1,8.8.8.8"
 
+    /** Список DNS для выбора во вкладке «Туннель» (значение, название). */
+    val DNS_OPTIONS = listOf(
+        "1.1.1.1,8.8.8.8" to "Cloudflare + Google",
+        "1.1.1.1,1.0.0.1" to "Cloudflare",
+        "8.8.8.8,8.8.4.4" to "Google",
+        "77.88.8.8,77.88.8.1" to "Яндекс",
+        "94.140.14.14,94.140.15.14" to "AdGuard (без рекламы)",
+        "9.9.9.9,149.112.112.112" to "Quad9",
+        "208.67.222.222,208.67.220.220" to "OpenDNS",
+        "45.90.28.181,45.90.30.181" to "NextDNS",
+        "195.208.4.1,195.208.5.1" to "НСДИ",
+        "111.88.96.50,111.88.96.51" to "Xbox DNS",
+        "95.182.120.241,37.230.192.51" to "Geohide",
+        "83.220.169.155,212.109.195.93" to "Comms",
+    )
+
+    private const val PREFS = "buhta_prefs"
+    private const val KEY_DNS = "dns"
+
+    fun dns(ctx: android.content.Context?): String {
+        val v = ctx?.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)?.getString(KEY_DNS, null)
+        return if (v.isNullOrBlank()) DNS else v
+    }
+
+    fun setDns(ctx: android.content.Context, v: String) {
+        ctx.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().putString(KEY_DNS, v).apply()
+    }
+
     data class Target(val room: String, val key: String)
 
     private val UUID_RE = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")

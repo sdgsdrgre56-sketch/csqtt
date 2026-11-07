@@ -993,7 +993,7 @@ object TunnelManager {
                 }
             }
             updateProcessLog(identity, "buhta_connected", "[КОМНАТА] Сервер найден, туннель $ip ✓", 20, false, LogLevel.OK)
-            val cfg = "TUNCONF:$ip:${BuhtaRoom.DNS}:"
+            val cfg = "TUNCONF:$ip:${BuhtaRoom.dns(activeContext())}:"
             config.value = cfg
             activeScope.launch(Dispatchers.Main) {
                 if (isCurrent(identity)) ensureVpnStarted(cfg, identity)
