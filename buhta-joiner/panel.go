@@ -107,7 +107,7 @@ func startPanel(addr string, st *Store, sec *SecServer, dir string) {
 			log.Printf("[panel] порт %s: %v", addr, err)
 			return
 		}
-		log.Printf("[panel] https://<IP-сервера>%s (логин admin)", addr)
+		log.Printf("[panel] https://<IP-сервера>%s (логин из установки)", addr)
 		if err := srv.ServeTLS(ln, "", ""); err != nil {
 			log.Printf("[panel] остановлена: %v", err)
 		}
