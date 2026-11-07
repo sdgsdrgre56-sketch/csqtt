@@ -221,7 +221,7 @@ func main() {
 
 	// 6) Stream management — not required for a one-shot probe, but costs one line and
 	// matches what a real client does.
-	send(`<enable resume="true" xmlns="urn:xmpp:sm:3"/>`)
+	send(`<enable xmlns="urn:xmpp:sm:3"/>`)
 	waitFor("sm enabled", "enabled")
 
 	// 7) Ask what STUN/TURN the server is willing to hand out. This is where
