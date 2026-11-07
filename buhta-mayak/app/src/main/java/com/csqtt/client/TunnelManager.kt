@@ -900,7 +900,7 @@ object TunnelManager {
             "-tunnel", "client",
             "-udp", "127.0.0.1:${BuhtaRoom.UDP_PORT}",
             "-hold", "8760h",
-            "-timeout", "8760h",
+            "-timeout", "60s",
         )
         if (target.key.isNotEmpty()) {
             cmd.add("-key")
