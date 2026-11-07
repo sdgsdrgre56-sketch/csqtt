@@ -71,6 +71,7 @@ internal fun dnsProfileName(dns: String): String = when (dns.trim()) {
     "45.90.28.181,45.90.30.181" -> "NextDNS"
     "195.208.6.1,195.208.7.1" -> "BI.ZONE DNS"
     "195.208.4.1,195.208.5.1" -> "НСДИ DNS"
+    "none", "" -> "Без DNS"
     else -> "Пользовательский DNS"
 }
 

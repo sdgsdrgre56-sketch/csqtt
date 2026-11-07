@@ -122,18 +122,23 @@ class TunVpnService : VpnService() {
                 .addAddress(clientIp, 32)
                 .addRoute("0.0.0.0", 0)
 
+            val noDns = dns.isBlank() || dns.trim().equals("none", ignoreCase = true)
             var validDnsServers = 0
-            dns.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { dnsServer ->
-                try {
-                    builder.addDnsServer(dnsServer)
-                    validDnsServers++
-                } catch (e: Exception) {
-                    Log.w(TAG, "Invalid DNS server: $dnsServer")
+            if (!noDns) {
+                dns.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { dnsServer ->
+                    try {
+                        builder.addDnsServer(dnsServer)
+                        validDnsServers++
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Invalid DNS server: $dnsServer")
+                    }
                 }
-            }
-            if (validDnsServers == 0) {
-                failVpn("сервер передал некорректный DNS: $dns")
-                return
+                if (validDnsServers == 0) {
+                    failVpn("сервер передал некорректный DNS: $dns")
+                    return
+                }
+            } else {
+                Log.d(TAG, "DNS not set by app (системный DNS)")
             }
 
             if (isWhitelist) {

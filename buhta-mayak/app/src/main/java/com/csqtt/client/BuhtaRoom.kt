@@ -30,6 +30,7 @@ object BuhtaRoom {
         "111.88.96.50,111.88.96.51" to "Xbox DNS",
         "95.182.120.241,37.230.192.51" to "Geohide",
         "83.220.169.155,212.109.195.93" to "Comms",
+        "none" to "Без DNS (системный)",
     )
 
     private const val PREFS = "buhta_prefs"
