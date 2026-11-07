@@ -967,6 +967,9 @@ object TunnelManager {
     /** Строки Go-движка Бухты → события интерфейса Маяка. true = строка обработана. */
     private fun handleBuhtaLine(line: String, identity: ProcessIdentity): Boolean {
         if (line.startsWith("<") || line.contains("<-- ") || line.contains("--> ")) return true
+        // Шум движка (счётчики RTP, строки SDP) в лог не пускаем.
+        if (line.contains("[rtp] ") || Regex("^(\\S+ \\S+ )?[a-z]=").containsMatchIn(line) ||
+            line.contains("=== FULL") || line.contains("candidate gathered")) return true
         if (line.contains("[status] connected")) {
             val ip = Regex("ip=(\\d+\\.\\d+\\.\\d+\\.\\d+)").find(line)?.groupValues?.get(1) ?: "10.77.0.2"
             identity.startupProgress.streamReady()
