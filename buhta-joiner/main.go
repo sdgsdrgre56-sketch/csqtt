@@ -123,7 +123,10 @@ func main() {
 			}
 		}
 		log.Printf("--> %s", frag)
-		if err := conn.WriteMessage(websocket.TextMessage, []byte(frag)); err != nil {
+		wsMu.Lock()
+		err := conn.WriteMessage(websocket.TextMessage, []byte(frag))
+		wsMu.Unlock()
+		if err != nil {
 			log.Fatalf("write failed: %v", err)
 		}
 	}
@@ -151,6 +154,26 @@ func main() {
 					return frame
 				}
 				log.Printf("%s%s", tag, truncate(frame, 300))
+				// Пока ждём, всё равно отвечаем Saby как живой клиент: на <r/> (stream
+				// management) и на IQ get/set (пинги focus). Иначе Saby считает нас
+				// мёртвыми и выкидывает из комнаты, не дождавшись сеанса.
+				if ack := smAnswer(frame); ack != "" {
+					send(ack)
+				}
+				if !strings.Contains(frame, "<jingle") {
+					if h := iqHeadRe.FindString(frame); h != "" && (strings.Contains(h, "type='get'") || strings.Contains(h, "type='set'") || strings.Contains(h, `type="get"`) || strings.Contains(h, `type="set"`)) {
+						id, from := "", ""
+						if mm := iqIDRe.FindStringSubmatch(h); mm != nil {
+							id = mm[1]
+						}
+						if mm := iqFromRe.FindStringSubmatch(h); mm != nil {
+							from = mm[1]
+						}
+						if id != "" && from != "" {
+							send(fmt.Sprintf(`<iq to="%s" id="%s" type="result" xmlns="jabber:client"/>`, from, id))
+						}
+					}
+				}
 			case <-ctx.Done():
 				leaveRoom()
 				log.Fatalf("timed out waiting for %s", label)
@@ -247,8 +270,10 @@ func main() {
 	var leaveOnce sync.Once
 	leaveRoom = func() {
 		leaveOnce.Do(func() {
+			wsMu.Lock()
 			_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`<presence to="%s/%s" type="unavailable" xmlns="jabber:client"/>`, mucRoom, endpointID)))
 			_ = conn.WriteMessage(websocket.TextMessage, []byte(`<close xmlns="urn:ietf:params:xml:ns:xmpp-framing"/>`))
+			wsMu.Unlock()
 			time.Sleep(300 * time.Millisecond)
 			_ = conn.Close()
 		})
@@ -310,6 +335,10 @@ func main() {
 				}
 			}
 		}
+		// Saby закрыл служебное соединение: участник для него уже мёртв, медиа скоро
+		// оборвётся. Выходим сразу, чтобы приложение/systemd переподключились без паузы.
+		log.Printf("[status] signalling closed, reconnecting")
+		os.Exit(3)
 	}()
 	if *noMedia {
 		log.Printf("[keep] в комнате без медиа: держим встречу открытой, трафик не принимаем")
@@ -393,6 +422,14 @@ func main() {
 	leaveRoom()
 	log.Println("=== done, exiting ===")
 }
+
+var wsMu sync.Mutex
+
+var (
+	iqHeadRe = regexp.MustCompile(`^<iq[^>]*>`)
+	iqIDRe   = regexp.MustCompile(`\sid=['"]([^'"]+)['"]`)
+	iqFromRe = regexp.MustCompile(`\sfrom=['"]([^'"]+)['"]`)
+)
 
 // leaveRoom выходит из комнаты; до входа — ничего не делает.
 var leaveRoom = func() {}
