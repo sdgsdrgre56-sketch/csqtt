@@ -881,7 +881,8 @@ object TunnelManager {
     private fun startProcessLocked(context: Context, params: TunnelParams, epoch: Long) {
         if (!lifecycleState.canStart(epoch) || process != null) return
         val jsHashMode = false
-        val target = BuhtaRoom.parse(params.vkHashes)
+        val targets = BuhtaRoom.parseAll(params.vkHashes)
+        val target = targets.firstOrNull()
         if (target == null) {
             failStartLocked("hash_error", "Ошибка: укажите ссылку на комнату Saby или ключ buhta://")
             return
@@ -962,6 +963,13 @@ object TunnelManager {
         resetWorkerRecoveryState()
         startLogReader(identity)
         scheduleStartupDiagnostic(identity, context.applicationContext)
+        BuhtaLinks.markDown(BuhtaLinks.BASE_PORT)
+        if (targets.size > 1) {
+            updateProcessLog(identity, "buhta_links", "[ПОТОКИ] Комнат: ${targets.size} — запускаю дополнительные", 15, false, LogLevel.NET)
+            BuhtaLinks.startExtras(context.applicationContext, targets.drop(1)) { line ->
+                updateLog("buhta_link_" + line.hashCode(), line, 15, false, LogLevel.LOG)
+            }
+        }
     }
 
     /** Строки Go-движка Бухты → события интерфейса Маяка. true = строка обработана. */
@@ -974,6 +982,7 @@ object TunnelManager {
             val ip = Regex("ip=(\\d+\\.\\d+\\.\\d+\\.\\d+)").find(line)?.groupValues?.get(1) ?: "10.77.0.2"
             identity.startupProgress.streamReady()
             activeWorkers.value = 1
+            BuhtaLinks.markReady(BuhtaLinks.BASE_PORT)
             updateProcessLog(identity, "buhta_connected", "[КОМНАТА] Сервер найден, туннель $ip ✓", 20, false, LogLevel.OK)
             val cfg = "TUNCONF:$ip:${BuhtaRoom.DNS}:"
             config.value = cfg
@@ -997,7 +1006,9 @@ object TunnelManager {
     fun reportBuhtaTraffic(up: Long, down: Long) {
         val id = processIdentity ?: return
         val totalMB = (up + down) / (1024.0 * 1024.0)
-        val msg = "Активных: ${activeWorkers.value} | Трафик: %.2f МБ".format(totalMB)
+        val streams = BuhtaLinks.readyPorts().size.coerceAtLeast(1)
+        activeWorkers.value = streams
+        val msg = "Потоков: $streams | Трафик: %.2f МБ".format(totalMB)
         stats.value = msg
         updateProcessLog(id, "stats", "[СЕТЬ] $msg", 25, false, LogLevel.NET)
     }
@@ -1520,6 +1531,7 @@ object TunnelManager {
             try { ctx.startService(stopIntent) } catch (_: Exception) {}
         }
         terminateProcessLocked(identity, finishVkCalls)
+        BuhtaLinks.stopExtras()
         running.value = false
         stopping.value = false
         activeWorkers.value = 0

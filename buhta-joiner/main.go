@@ -61,6 +61,10 @@ func main() {
 	relayOnly := flag.Bool("relayonly", false, "force all media through Saby's TCP TURN relay instead of letting ICE try a direct UDP path")
 	flag.Parse()
 	roomID = *room
+	if *tunnelMode == "concentrator" {
+		runConcentrator("buhta0")
+		return
+	}
 	if *tunnelMode == "server" {
 		earlyServerInit()
 	}

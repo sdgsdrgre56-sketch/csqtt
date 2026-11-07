@@ -660,13 +660,25 @@ internal suspend fun performSetRoom(
     keyPassphrase: String = "",
 ): Boolean = withContext(Dispatchers.IO) {
     try {
-        val target = BuhtaRoom.parse(room)
-            ?: throw IOException("Это не ссылка на комнату Saby Meet")
+        val targets = BuhtaRoom.parseAll(room)
+        if (targets.isEmpty()) throw IOException("Это не ссылка на комнату Saby Meet")
+        val roomsArg = targets.joinToString(",") { it.room }
         val r = runBuhtaScript(
             context, host, user, pass, port, privateKey, keyPassphrase,
-            "setroom", target.room, webLogin, webPass, onProgress, 0.3f, "Запуск сервера в комнате",
+            "setroom", roomsArg, webLogin, webPass, onProgress, 0.3f,
+            if (targets.size > 1) "Запуск сервера в ${targets.size} комнатах" else "Запуск сервера в комнате",
         )
         if (!isSuccessfulDeployResult(r.exitStatus, r.output)) return@withContext finishDeploy(r, "")
+        if (targets.size > 1) {
+            // Несколько потоков: панели/ключа нет, сохраняем все комнаты как есть.
+            val save = targets.joinToString("\n") { if (it.key.isNotEmpty()) it.key else it.room }
+            settingsStore.saveParticipantTunnelSettings(save, targets.size)
+            TunnelManager.addDeploySuccessLog("Сервер запущен в ${targets.size} комнатах (режим потоков)")
+            onProgress(1.0f, "Готово!")
+            DeployManager.stopDeploy("success")
+            return@withContext true
+        }
+        val target = targets.first()
         onProgress(0.8f, "Ключ подключения...")
         var key: String? = Regex("BUHTA_KEY\\|(buhta://[A-Za-z0-9_=-]+)").find(r.output)?.groupValues?.get(1)
         if (key == null) {

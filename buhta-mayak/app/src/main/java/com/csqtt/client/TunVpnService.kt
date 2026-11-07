@@ -219,24 +219,45 @@ class TunVpnService : VpnService() {
     private val upBytes = java.util.concurrent.atomic.AtomicLong()
     private val downBytes = java.util.concurrent.atomic.AtomicLong()
 
-    /** Бухта: гоняем IP-пакеты TUN <-> локальный UDP-порт Go-движка (libbuhta.so). */
+    /** Бухта: гоняем IP-пакеты TUN <-> локальные UDP-порты движка. При нескольких
+     *  комнатах (потоках) раскладываем исходящие пакеты по всем готовым портам по кругу. */
     private fun sendTunFd(pfd: ParcelFileDescriptor, dns: String? = null) {
         sendJob?.cancel()
         runCatching { pumpSocket?.close() }
         val sock = java.net.DatagramSocket()
         pumpSocket = sock
         upBytes.set(0); downBytes.set(0)
-        val target = java.net.InetSocketAddress(java.net.InetAddress.getByName("127.0.0.1"), BuhtaRoom.UDP_PORT)
+        val local = java.net.InetAddress.getByName("127.0.0.1")
+        val mainTarget = java.net.InetSocketAddress(local, BuhtaLinks.BASE_PORT)
         val input = java.io.FileInputStream(pfd.fileDescriptor)
         val output = java.io.FileOutputStream(pfd.fileDescriptor)
+        // keepalive: будим все готовые линки, чтобы они знали обратный адрес насоса
+        Thread {
+            try {
+                while (!sock.isClosed) {
+                    for (port in BuhtaLinks.readyPorts()) {
+                        try { sock.send(java.net.DatagramPacket(BuhtaLinks.KEEP_MAGIC, BuhtaLinks.KEEP_MAGIC.size, local, port)) } catch (_: Exception) {}
+                    }
+                    Thread.sleep(3000)
+                }
+            } catch (_: Exception) {}
+        }.apply { isDaemon = true }.start()
         Thread {
             val buf = ByteArray(32768)
+            var rr = 0L
             try {
                 while (!sock.isClosed) {
                     val n = input.read(buf)
                     if (n <= 0) continue
+                    val ports = BuhtaLinks.readyPorts()
+                    val dst = if (ports.isEmpty()) {
+                        mainTarget
+                    } else {
+                        val port = ports[((rr++) % ports.size).toInt()]
+                        java.net.InetSocketAddress(local, port)
+                    }
                     try {
-                        sock.send(java.net.DatagramPacket(buf, 0, n, target))
+                        sock.send(java.net.DatagramPacket(buf, 0, n, dst))
                         upBytes.addAndGet(n.toLong())
                     } catch (_: Exception) {
                     }

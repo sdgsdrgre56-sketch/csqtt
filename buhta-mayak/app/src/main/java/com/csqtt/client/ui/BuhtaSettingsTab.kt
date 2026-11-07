@@ -34,26 +34,28 @@ internal fun BuhtaSettingsTab(settingsStore: SettingsStore) {
         delay(450)
         settingsStore.saveParticipantTunnelSettings(text.trim(), 1)
     }
-    val parsed = BuhtaRoom.parse(text)
+    val parsedCount = BuhtaRoom.parseAll(text).size
     CsqttScreen(title = "Туннель", subtitle = "Комната вместо хэшей") {
-        Column2(text, parsed != null, { text = it; edited = true })
+        Column2(text, parsedCount, { text = it; edited = true })
     }
 }
 
 @Composable
-private fun Column2(text: String, ok: Boolean, onChange: (String) -> Unit) {
+private fun Column2(text: String, parsedCount: Int, onChange: (String) -> Unit) {
+    val ok = parsedCount > 0
     androidx.compose.foundation.layout.Column(Modifier.verticalScroll(rememberScrollState())) {
         OutlinedTextField(
             value = text,
             onValueChange = onChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Ссылка на комнату Saby или ключ buhta://") },
+            label = { Text("Ссылки на комнаты Saby (по одной в строке) или ключ buhta://") },
             isError = text.isNotBlank() && !ok,
-            minLines = 2,
+            minLines = 3,
             supportingText = {
                 Text(
                     when {
-                        text.isBlank() -> "Вставьте гостевую ссылку на комнату Saby Meet. После установки сервера ключ подставится сам."
+                        text.isBlank() -> "Вставьте ссылку на комнату Saby Meet. Несколько ссылок (по одной в строке) — это потоки, их скорость складывается."
+                        parsedCount > 1 -> "Комнат распознано: $parsedCount ✓ (потоки)"
                         ok -> if (text.trim().startsWith("buhta://")) "Ключ распознан ✓" else "Комната распознана ✓ (без ключа)"
                         else -> "Не похоже на ссылку комнаты или ключ"
                     }

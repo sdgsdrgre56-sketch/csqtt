@@ -541,18 +541,19 @@ internal fun DeployTab(
             title = { Text("Ссылка на комнату") },
             text = {
                 androidx.compose.foundation.layout.Column {
-                    Text("Сервер и панель установлены. Вставьте гостевую ссылку на комнату Saby Meet — сервер зайдёт в неё, ключ создастся сам.")
+                    Text("Сервер установлен. Вставьте ссылку на комнату Saby Meet. Для нескольких потоков вставьте несколько ссылок, по одной в строке — скорость комнат сложится.")
                     OutlinedTextField(
                         value = roomInput,
                         onValueChange = { roomInput = it },
-                        singleLine = true,
+                        singleLine = false,
+                        minLines = 2,
                         label = { Text("https://…/meet/… или UUID") },
                     )
                 }
             },
             confirmButton = {
                 TextButton(
-                    enabled = BuhtaRoom.parse(roomInput) != null,
+                    enabled = BuhtaRoom.parseAll(roomInput).isNotEmpty(),
                     onClick = {
                         val r = roomInput.trim()
                         DeployManager.needRoom.value = false

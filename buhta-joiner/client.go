@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"log"
@@ -63,6 +64,9 @@ func runClient(t *Tunnel) {
 			return
 		}
 		peer.Store(from)
+		if n >= len(KeepMagic) && bytes.Equal(buf[:len(KeepMagic)], KeepMagic) {
+			continue // приманка от концентратора: только запоминаем адрес, в Saby не шлём
+		}
 		t.SendPacket(append([]byte(nil), buf[:n]...))
 	}
 }

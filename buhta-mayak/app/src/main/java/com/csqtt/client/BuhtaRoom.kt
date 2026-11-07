@@ -12,6 +12,10 @@ object BuhtaRoom {
 
     private val UUID_RE = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
+    /** Разбирает все комнаты (по строке/запятой) для режима нескольких потоков. */
+    fun parseAll(raw: String): List<Target> =
+        raw.split(Regex("[,\\n]+")).map { it.trim() }.filter { it.isNotEmpty() }.mapNotNull { parse(it) }
+
     fun parse(raw: String): Target? {
         val t = raw.trim().split(Regex("[,\\s]+")).firstOrNull { it.isNotEmpty() } ?: return null
         if (t.startsWith("buhta://")) {
