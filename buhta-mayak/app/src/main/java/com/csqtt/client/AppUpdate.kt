@@ -46,6 +46,8 @@ enum class RemoteVersionSource {
 }
 
 suspend fun fetchLatestReleaseInfo(localVersion: String? = null): AppReleaseInfo? = withContext(Dispatchers.IO) {
+    // Бухта: автообновление отключено (иначе тянет релизы оригинального csqtt).
+    if (true) return@withContext null
     val latestRelease = fetchReleaseFromLatestWebRedirect()
         ?: fetchReleaseFromLatestEndpoint()
         ?: fetchLatestStableReleaseFromList()
