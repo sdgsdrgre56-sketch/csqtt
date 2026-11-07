@@ -761,7 +761,7 @@ internal suspend fun fetchServerJournal(context: Context): List<String> = withCo
         ssh = createSSHClient(d.ip, d.sshLogin.ifBlank { "root" }, if (d.sshKeysMode) "" else d.sshPassword, port,
             if (d.sshKeysMode) d.sshPrivateKey else "", if (d.sshKeysMode) d.sshKeyPassphrase else "")
         val client = DeploySSHClient(ssh, d.sshPassword) { _ -> throw IOException("reconnect") }
-        val cmd = "systemctl is-active buhta; grep BUHTA_ROOM /etc/buhta/panel.env; journalctl -u buhta --no-pager -n 30 -o cat | grep -v '^<' | grep -v -- '<-- ' | grep -v -- '--> ' | cut -c1-180"
+        val cmd = "for s in buhta buhta-link-0 buhta-link-1 buhta-keep-0 buhta-keep-1; do systemctl list-unit-files | grep -q \"^$s.service\" || continue; echo \"== $s: $(systemctl is-active $s) ==\"; journalctl -u $s --no-pager -n 6 -o cat 2>/dev/null | grep -v '^<' | grep -v -- '<-- ' | grep -v -- '--> ' | cut -c1-180; done; grep BUHTA_ROOM /etc/buhta/panel.env"
         val r = client.execResult(rootCommand(cmd), timeout = 30_000)
         r.output.lines().map { it.trim() }.filter { it.isNotEmpty() }
     } catch (e: Exception) {

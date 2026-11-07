@@ -40,7 +40,7 @@ object BuhtaLinks {
                 while (running) {
                     val cmd = mutableListOf(
                         bin, "-room", target.room, "-tunnel", "client",
-                        "-udp", "127.0.0.1:$port", "-hold", "8760h", "-timeout", "90s",
+                        "-udp", "127.0.0.1:$port", "-hold", "8760h", "-timeout", "8760h",
                     )
                     if (target.key.isNotEmpty()) { cmd.add("-key"); cmd.add(target.key) }
                     val p = try {
