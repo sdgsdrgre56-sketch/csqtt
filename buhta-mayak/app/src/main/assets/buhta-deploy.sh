@@ -42,7 +42,7 @@ rebuild_services() {
   fetch
   N=$(printf '%s' "$BUHTA_ROOM" | tr ',' '\n' | grep -c .)
   # снести прошлые линки
-  for u in $(ls /etc/systemd/system 2>/dev/null | grep -E '^buhta-link-[0-9]+\.service$'); do
+  for u in $(ls /etc/systemd/system 2>/dev/null | grep -E '^buhta-(link|keep)-[0-9]+\.service$'); do
     systemctl disable --now "$u" >/dev/null 2>&1; rm -f "/etc/systemd/system/$u"
   done
   if [ "$N" -le 1 ]; then
@@ -69,6 +69,7 @@ EOF
     echo "[LOG] Режим: одна комната (сервер + панель + страж)"
   else
     systemctl disable --now buhta-keep >/dev/null 2>&1 || true
+    for u in $(ls /etc/systemd/system 2>/dev/null | grep -E '^buhta-keep-[0-9]+\.service$'); do systemctl disable --now "$u" >/dev/null 2>&1; rm -f "/etc/systemd/system/$u"; done
     i=0; LINKS=""
     for R in $(printf '%s' "$BUHTA_ROOM" | tr ',' ' '); do
       P=$((18001+i))
@@ -79,9 +80,21 @@ Description=Buhta link $i
 After=network-online.target
 Wants=network-online.target
 [Service]
-ExecStart=$BIN -room $R -tunnel client -udp 127.0.0.1:$P -hold 8760h -timeout 90s
+ExecStart=$BIN -room $R -tunnel client -udp 127.0.0.1:$P -hold 8760h -timeout 8760h
 Restart=always
 RestartSec=2
+[Install]
+WantedBy=multi-user.target
+EOF
+      cat > /etc/systemd/system/buhta-keep-$i.service <<EOF
+[Unit]
+Description=Buhta keeper $i
+After=network-online.target
+Wants=network-online.target
+[Service]
+ExecStart=$BIN -room $R -name Страж$i -nomedia -hold 8760h -timeout 8760h
+Restart=always
+RestartSec=3
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -102,7 +115,12 @@ WantedBy=multi-user.target
 EOF
     systemctl daemon-reload
     j=0
-    while [ $j -lt $N ]; do systemctl enable buhta-link-$j >/dev/null 2>&1; systemctl restart buhta-link-$j; j=$((j+1)); done
+    while [ $j -lt $N ]; do
+      systemctl enable buhta-link-$j buhta-keep-$j >/dev/null 2>&1
+      systemctl restart buhta-link-$j
+      systemctl restart buhta-keep-$j
+      j=$((j+1))
+    done
     systemctl enable buhta >/dev/null 2>&1
     systemctl restart buhta
     echo "[LOG] Режим: $N комнат (концентратор + линки, без панели)"
@@ -231,7 +249,7 @@ setroom)
   ;;
 uninstall)
   systemctl disable --now buhta buhta-keep >/dev/null 2>&1
-  for u in $(ls /etc/systemd/system 2>/dev/null | grep -E '^buhta-link-[0-9]+\.service$'); do systemctl disable --now "$u" >/dev/null 2>&1; rm -f "/etc/systemd/system/$u"; done
+  for u in $(ls /etc/systemd/system 2>/dev/null | grep -E '^buhta-(link|keep)-[0-9]+\.service$'); do systemctl disable --now "$u" >/dev/null 2>&1; rm -f "/etc/systemd/system/$u"; done
   rm -f /etc/systemd/system/buhta.service /etc/systemd/system/buhta-keep.service /usr/local/bin/buhta-joiner /usr/local/bin/buhta-net.sh
   rm -rf /etc/buhta
   systemctl daemon-reload
