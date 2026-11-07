@@ -41,7 +41,7 @@ internal fun BuhtaSettingsTab(settingsStore: SettingsStore) {
         Column2(text, parsedCount, { text = it; edited = true })
         Spacer(Modifier.height(12.dp))
         val opts = BuhtaRoom.DNS_OPTIONS.let { o -> if (o.any { it.first == dns }) o else o + (dns to dns) }
-        com.csqtt.client.ui.tunnel.CompactDropdownSetting(
+        CompactDropdownSetting(
             title = "DNS",
             selectedKey = dns,
             options = opts,
