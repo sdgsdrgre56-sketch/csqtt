@@ -88,8 +88,14 @@ resetpass)
   [ -f /etc/buhta/panel.env ] && . /etc/buhta/panel.env
   ( umask 077; printf 'BUHTA_PANEL_USER=%s\nBUHTA_PANEL_PASS=%s\nBUHTA_ROOM=%s\n' "$PUSER" "$PPASS" "$BUHTA_ROOM" > /etc/buhta/panel.env )
   chmod 600 /etc/buhta/panel.env
-  [ -n "$BUHTA_ROOM" ] && systemctl restart buhta
-  echo "[OK] Логин и пароль панели обновлены"
+  systemctl restart buhta
+  echo "[OK] Логин и пароль панели записаны на сервер"
+  sleep 3
+  . /etc/buhta/panel.env
+  C=$(curl -sk -m 8 -o /dev/null -w '%{http_code}' -H 'X-Buhta: 1' -H 'Content-Type: application/json' -d "{\"login\":\"$BUHTA_PANEL_USER\",\"password\":\"$BUHTA_PANEL_PASS\"}" https://127.0.0.1:8787/api/login)
+  if [ "$C" = "200" ]; then echo "[OK] Вход в панель проверен: логин $BUHTA_PANEL_USER"; else echo "[WARN] Вход в панель не прошёл (код $C), логин $BUHTA_PANEL_USER"; fi
+  echo "[LOG] Журнал сервера:"
+  journalctl -u buhta --no-pager -n 25 -o cat 2>/dev/null | grep -v '^<\|<-- \|--> ' | cut -c1-160 | sed 's/^/[LOG] /'
   echo "CSQTT_DEPLOY_OK"
   ;;
 setroom)

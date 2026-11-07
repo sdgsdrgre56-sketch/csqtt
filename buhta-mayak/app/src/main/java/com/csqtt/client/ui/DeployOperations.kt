@@ -713,3 +713,26 @@ internal suspend fun performUninstall(
         deployFailed(e)
     }
 }
+
+/** Применяет логин и пароль веб-панели на уже установленном сервере. */
+internal suspend fun performResetPanelPass(
+    context: Context,
+    host: String, user: String, pass: String, port: Int,
+    webLogin: String, webPass: String,
+    onProgress: (Float, String) -> Unit,
+    privateKey: String = "",
+    keyPassphrase: String = "",
+): Boolean = withContext(Dispatchers.IO) {
+    try {
+        val r = runBuhtaScript(
+            context, host, user, pass, port, privateKey, keyPassphrase,
+            "resetpass", "", webLogin, webPass, onProgress, 0.4f, "Смена логина и пароля панели",
+        )
+        finishDeploy(r, "Логин и пароль панели применены на сервере")
+    } catch (e: CancellationException) {
+        DeployManager.stopDeploy("Отменено")
+        throw e
+    } catch (e: Exception) {
+        deployFailed(e)
+    }
+}

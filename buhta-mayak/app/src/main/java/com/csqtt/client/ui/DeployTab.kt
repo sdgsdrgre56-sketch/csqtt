@@ -391,6 +391,29 @@ internal fun DeployTab(
         }
     }
 
+    fun applyPanelCredentials(login: String, password: String) {
+        if (DeployManager.isDeploying.value) return
+        if (host.isBlank() || login.isBlank() || password.isBlank()) return
+        if (!savedSshKeysMode && sshPassword.isBlank()) return
+        val ports = resolveServerPorts(savedManualPorts, sshPort, peerPort, webPort)
+        DeployManager.startDeploy()
+        DeployManager.scope.launch {
+            val ok = performResetPanelPass(
+                context = context,
+                host = host,
+                user = sshLogin,
+                pass = if (savedSshKeysMode) "" else sshPassword,
+                port = ports.ssh,
+                webLogin = login,
+                webPass = password,
+                onProgress = DeployManager::updateProgress,
+                privateKey = if (savedSshKeysMode) savedSshPrivateKey else "",
+                keyPassphrase = if (savedSshKeysMode) savedSshKeyPassphrase else "",
+            )
+            if (ok) showDeployToast(context, "Логин и пароль панели применены")
+        }
+    }
+
     fun startSetRoom(room: String) {
         if (DeployManager.isDeploying.value) return
         val ports = resolveServerPorts(savedManualPorts, sshPort, peerPort, webPort)
@@ -544,7 +567,7 @@ internal fun DeployTab(
             initialSshPass = sshPassword,
             initialWebLogin = savedWebLogin,
             initialWebPass = savedWebPassword,
-            onSaved = {},
+            onSaved = { login, password -> applyPanelCredentials(login, password) },
             onDismiss = { showSecretsDialog = false },
         )
     }

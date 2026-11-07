@@ -35,7 +35,7 @@ fun DeploySecretsDialog(
     initialSshPass: String,
     initialWebLogin: String,
     initialWebPass: String,
-    onSaved: () -> Unit,
+    onSaved: (String, String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -124,7 +124,7 @@ fun DeploySecretsDialog(
                     onClick = {
                         scope.launch {
                             settingsStore.saveDeploySecrets(passInput, initialSshLogin, initialSshPass, webLoginInput, webPassInput)
-                            onSaved()
+                            onSaved(webLoginInput.trim(), webPassInput)
                             onDismiss()
                         }
                     },
