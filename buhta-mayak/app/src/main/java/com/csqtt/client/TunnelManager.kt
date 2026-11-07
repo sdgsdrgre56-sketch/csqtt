@@ -105,6 +105,9 @@ object TunnelManager {
     private val callRecoveryPending = AtomicBoolean(false)
     private val workerRecoveryPolicy = WorkerRecoveryPolicy()
     private var crashRestartStreak = 0
+    @Volatile private var pendingExtras: List<BuhtaRoom.Target> = emptyList()
+    @Volatile private var extrasAppContext: Context? = null
+    @Volatile private var extrasStarted = false
     private const val WORKER_ZERO_CONFIRMATION_MS = 4_000L
     private const val PANEL_SERVER_RESTART_DELAY_MS = 4_000L
     private const val STARTUP_DIAGNOSTIC_MS = 30_000L
@@ -965,12 +968,8 @@ object TunnelManager {
         scheduleStartupDiagnostic(identity, context.applicationContext)
         BuhtaLinks.markDown(BuhtaLinks.BASE_PORT)
         BuhtaLinks.total = targets.size.coerceAtLeast(1)
-        if (targets.size > 1) {
-            updateProcessLog(identity, "buhta_links", "[ПОТОКИ] Комнат: ${targets.size} — запускаю дополнительные", 15, false, LogLevel.NET)
-            BuhtaLinks.startExtras(context.applicationContext, targets.drop(1)) { line ->
-                updateLog("buhta_link_" + line.hashCode(), line, 15, false, LogLevel.LOG)
-            }
-        }
+        pendingExtras = targets.drop(1)
+        extrasAppContext = context.applicationContext
     }
 
     /** Строки Go-движка Бухты → события интерфейса Маяка. true = строка обработана. */
@@ -984,6 +983,15 @@ object TunnelManager {
             identity.startupProgress.streamReady()
             activeWorkers.value = 1
             BuhtaLinks.markReady(BuhtaLinks.BASE_PORT)
+            val extras = pendingExtras
+            val ctx = extrasAppContext
+            if (extras.isNotEmpty() && ctx != null && !extrasStarted) {
+                extrasStarted = true
+                updateProcessLog(identity, "buhta_links", "[ПОТОКИ] Первая комната работает — подключаю ещё ${extras.size}", 20, false, LogLevel.NET)
+                BuhtaLinks.startExtras(ctx, extras) { l ->
+                    updateLog("buhta_link_" + l.hashCode(), l, 15, false, LogLevel.LOG)
+                }
+            }
             updateProcessLog(identity, "buhta_connected", "[КОМНАТА] Сервер найден, туннель $ip ✓", 20, false, LogLevel.OK)
             val cfg = "TUNCONF:$ip:${BuhtaRoom.DNS}:"
             config.value = cfg
@@ -1533,6 +1541,7 @@ object TunnelManager {
         }
         terminateProcessLocked(identity, finishVkCalls)
         BuhtaLinks.stopExtras()
+        extrasStarted = false
         running.value = false
         stopping.value = false
         activeWorkers.value = 0
