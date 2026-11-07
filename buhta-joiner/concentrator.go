@@ -28,9 +28,18 @@ func runConcentrator(tunName string) {
 		log.Printf("[conc] нет -links")
 		os.Exit(2)
 	}
-	tun, err := OpenTUN(tunName)
-	if err != nil {
-		log.Printf("[conc] TUN %s: %v", tunName, err)
+	var tun *os.File
+	for attempt := 0; attempt < 20; attempt++ {
+		t, err := OpenTUN(tunName)
+		if err == nil {
+			tun = t
+			break
+		}
+		log.Printf("[conc] TUN %s занят (попытка %d): %v", tunName, attempt+1, err)
+		time.Sleep(500 * time.Millisecond)
+	}
+	if tun == nil {
+		log.Printf("[conc] TUN %s так и не открылся", tunName)
 		os.Exit(1)
 	}
 	log.Printf("[conc] TUN %s открыт, линков: %d", tunName, len(ports))

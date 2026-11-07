@@ -116,6 +116,10 @@ install)
   fetch
   cat > /usr/local/bin/buhta-net.sh <<'EOF'
 #!/bin/sh
+# снять старое устройство и любой зависший сервер-процесс, иначе TUN занят
+pkill -f 'buhta-joiner .*-tunnel server' 2>/dev/null || true
+ip link del buhta0 2>/dev/null || true
+sleep 1
 ip tuntap add dev buhta0 mode tun 2>/dev/null || true
 ip addr replace 10.77.0.1/24 dev buhta0
 ip link set buhta0 up mtu 1200
