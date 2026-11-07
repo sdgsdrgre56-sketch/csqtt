@@ -244,18 +244,13 @@ class TunVpnService : VpnService() {
         }.apply { isDaemon = true }.start()
         Thread {
             val buf = ByteArray(32768)
-            var rr = 0L
             try {
                 while (!sock.isClosed) {
                     val n = input.read(buf)
                     if (n <= 0) continue
-                    val ports = BuhtaLinks.readyPorts()
-                    val dst = if (ports.isEmpty()) {
-                        mainTarget
-                    } else {
-                        val port = ports[((rr++) % ports.size).toInt()]
-                        java.net.InetSocketAddress(local, port)
-                    }
+                    val k = BuhtaLinks.pickLink(buf, n)
+                    if (k > 0) BuhtaLinks.rewriteThirdOctet(buf, n, 12, k)
+                    val dst = if (k == 0) mainTarget else java.net.InetSocketAddress(local, BuhtaLinks.BASE_PORT + k)
                     try {
                         sock.send(java.net.DatagramPacket(buf, 0, n, dst))
                         upBytes.addAndGet(n.toLong())
@@ -271,6 +266,8 @@ class TunVpnService : VpnService() {
                 while (!sock.isClosed) {
                     val p = java.net.DatagramPacket(buf, buf.size)
                     sock.receive(p)
+                    val k = p.port - BuhtaLinks.BASE_PORT
+                    if (k > 0) BuhtaLinks.rewriteThirdOctet(buf, p.length, 16, 0)
                     output.write(buf, 0, p.length)
                     downBytes.addAndGet(p.length.toLong())
                 }

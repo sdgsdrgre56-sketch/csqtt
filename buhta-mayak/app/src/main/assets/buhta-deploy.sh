@@ -69,20 +69,34 @@ EOF
     echo "[LOG] Режим: одна комната (сервер + панель + страж)"
   else
     systemctl disable --now buhta-keep >/dev/null 2>&1 || true
-    for u in $(ls /etc/systemd/system 2>/dev/null | grep -E '^buhta-keep-[0-9]+\.service$'); do systemctl disable --now "$u" >/dev/null 2>&1; rm -f "/etc/systemd/system/$u"; done
-    i=0; LINKS=""
+    cat > /usr/local/bin/buhta-net-multi.sh <<'EOF'
+#!/bin/sh
+I=$1; D=buhta$I
+ip link del $D 2>/dev/null || true
+sleep 1
+ip tuntap add dev $D mode tun 2>/dev/null || true
+ip addr replace 10.77.$I.1/24 dev $D
+ip link set $D up mtu 1200
+sysctl -w net.ipv4.ip_forward=1 >/dev/null
+iptables -t nat -C POSTROUTING -s 10.77.$I.0/24 ! -o $D -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s 10.77.$I.0/24 ! -o $D -j MASQUERADE
+iptables -C FORWARD -i $D -j ACCEPT 2>/dev/null || iptables -I FORWARD -i $D -j ACCEPT
+iptables -C FORWARD -o $D -j ACCEPT 2>/dev/null || iptables -I FORWARD -o $D -j ACCEPT
+EOF
+    chmod +x /usr/local/bin/buhta-net-multi.sh
+    i=0
     for R in $(printf '%s' "$BUHTA_ROOM" | tr ',' ' '); do
-      P=$((18001+i))
-      if [ -z "$LINKS" ]; then LINKS="127.0.0.1:$P"; else LINKS="$LINKS,127.0.0.1:$P"; fi
-      cat > /etc/systemd/system/buhta-link-$i.service <<EOF
+      mkdir -p /etc/buhta/r$i
+      if [ $i -eq 0 ]; then UNIT=buhta; else UNIT=buhta-link-$i; fi
+      cat > /etc/systemd/system/$UNIT.service <<EOF
 [Unit]
-Description=Buhta link $i
+Description=Buhta room server $i
 After=network-online.target
 Wants=network-online.target
 [Service]
-ExecStart=$BIN -room $R -tunnel client -udp 127.0.0.1:$P -hold 8760h -timeout 90s
+ExecStartPre=/usr/local/bin/buhta-net-multi.sh $i
+ExecStart=$BIN -room $R -tunnel server -tun buhta$i -hold 8760h -timeout 90s -data /etc/buhta/r$i -panel=
 Restart=always
-RestartSec=2
+RestartSec=1
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -100,30 +114,16 @@ WantedBy=multi-user.target
 EOF
       i=$((i+1))
     done
-    cat > /etc/systemd/system/buhta.service <<EOF
-[Unit]
-Description=Buhta concentrator
-After=network-online.target
-Wants=network-online.target
-[Service]
-ExecStartPre=/usr/local/bin/buhta-net.sh
-ExecStart=$BIN -tunnel concentrator -links $LINKS
-Restart=always
-RestartSec=1
-[Install]
-WantedBy=multi-user.target
-EOF
     systemctl daemon-reload
     j=0
     while [ $j -lt $N ]; do
-      systemctl enable buhta-link-$j buhta-keep-$j >/dev/null 2>&1
-      systemctl restart buhta-link-$j
+      if [ $j -eq 0 ]; then UNIT=buhta; else UNIT=buhta-link-$j; fi
+      systemctl enable $UNIT buhta-keep-$j >/dev/null 2>&1
+      systemctl restart $UNIT
       systemctl restart buhta-keep-$j
       j=$((j+1))
     done
-    systemctl enable buhta >/dev/null 2>&1
-    systemctl restart buhta
-    echo "[LOG] Режим: $N комнат (концентратор + линки, без панели)"
+    echo "[LOG] Режим: $N комнат (по серверу в каждой, без панели)"
   fi
 }
 case "$ACTION" in

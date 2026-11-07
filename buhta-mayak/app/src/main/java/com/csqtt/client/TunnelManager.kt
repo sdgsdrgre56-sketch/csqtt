@@ -964,6 +964,7 @@ object TunnelManager {
         startLogReader(identity)
         scheduleStartupDiagnostic(identity, context.applicationContext)
         BuhtaLinks.markDown(BuhtaLinks.BASE_PORT)
+        BuhtaLinks.total = targets.size.coerceAtLeast(1)
         if (targets.size > 1) {
             updateProcessLog(identity, "buhta_links", "[ПОТОКИ] Комнат: ${targets.size} — запускаю дополнительные", 15, false, LogLevel.NET)
             BuhtaLinks.startExtras(context.applicationContext, targets.drop(1)) { line ->

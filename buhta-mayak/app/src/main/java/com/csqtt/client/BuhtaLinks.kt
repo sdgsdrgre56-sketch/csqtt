@@ -18,7 +18,11 @@ object BuhtaLinks {
     // запоминает обратный адрес насоса. Совпадает с KeepMagic в движке.
     val KEEP_MAGIC = byteArrayOf(0x00, 'B'.code.toByte(), 'U'.code.toByte(), 'H'.code.toByte(), 'T'.code.toByte(), 'A'.code.toByte(), 'K'.code.toByte(), 'A'.code.toByte())
 
+    /** Сколько комнат настроено (1 = обычный режим). */
+    @Volatile var total = 1
+
     private val ready = CopyOnWriteArraySet<Int>()
+    fun isReady(port: Int) = ready.contains(port)
     fun readyPorts(): List<Int> = ready.sorted()
     fun markReady(port: Int) { ready.add(port) }
     fun markDown(port: Int) { ready.remove(port) }
@@ -83,5 +87,63 @@ object BuhtaLinks {
             procs.clear()
         }
         ready.clear()
+    }
+
+    // ---- Закрепление соединений за комнатами и подмена адреса ----
+    // Комната k (k ≥ 1) на сервере — отдельный сервер с подсетью 10.77.k.0/24.
+    // Телефон шлёт туда пакеты с адресом 10.77.k.2 вместо 10.77.0.2, ответы
+    // возвращает к 10.77.0.2. Одно соединение всегда идёт через одну комнату.
+
+    /** Номер комнаты для исходящего пакета. */
+    fun pickLink(pkt: ByteArray, len: Int): Int {
+        val n = total
+        if (n <= 1 || len < 20) return 0
+        if ((pkt[0].toInt() ushr 4) != 4) return 0
+        val ihl = (pkt[0].toInt() and 0x0f) * 4
+        val frag = ((pkt[6].toInt() and 0x3f) shl 8) or (pkt[7].toInt() and 0xff)
+        if (frag != 0) return 0 // фрагменты (MF или смещение) — через первую комнату
+        val proto = pkt[9].toInt() and 0xff
+        if ((proto != 6 && proto != 17) || len < ihl + 4) return 0
+        var h = 17
+        for (i in 16..19) h = h * 31 + (pkt[i].toInt() and 0xff)
+        for (i in 0..3) h = h * 31 + (pkt[ihl + i].toInt() and 0xff)
+        h = h * 31 + proto
+        val k = Math.floorMod(h, n)
+        return if (k == 0 || isReady(BASE_PORT + k)) k else 0
+    }
+
+    private fun csum16(b: ByteArray, off: Int, len: Int): Int {
+        var sum = 0
+        var i = off
+        while (i + 1 < off + len) { sum += ((b[i].toInt() and 0xff) shl 8) or (b[i + 1].toInt() and 0xff); i += 2 }
+        if (i < off + len) sum += (b[i].toInt() and 0xff) shl 8
+        while (sum ushr 16 != 0) sum = (sum and 0xffff) + (sum ushr 16)
+        return sum.inv() and 0xffff
+    }
+
+    /** Меняет третий октет адреса (src при at=12, dst при at=16) и чинит контрольные суммы. */
+    fun rewriteThirdOctet(pkt: ByteArray, len: Int, at: Int, newOctet: Int) {
+        if (len < 20 || (pkt[0].toInt() ushr 4) != 4) return
+        val ihl = (pkt[0].toInt() and 0x0f) * 4
+        val oldWord = ((pkt[at + 2].toInt() and 0xff) shl 8) or (pkt[at + 3].toInt() and 0xff)
+        pkt[at + 2] = newOctet.toByte()
+        val newWord = ((pkt[at + 2].toInt() and 0xff) shl 8) or (pkt[at + 3].toInt() and 0xff)
+        // заголовок IP
+        pkt[10] = 0; pkt[11] = 0
+        val hc = csum16(pkt, 0, ihl)
+        pkt[10] = (hc ushr 8).toByte(); pkt[11] = hc.toByte()
+        val frag = ((pkt[6].toInt() and 0x1f) shl 8) or (pkt[7].toInt() and 0xff)
+        if (frag != 0) return // не первый фрагмент: заголовка TCP/UDP нет
+        val proto = pkt[9].toInt() and 0xff
+        val co = when (proto) { 6 -> ihl + 16; 17 -> ihl + 6; else -> return }
+        if (len < co + 2) return
+        val old = ((pkt[co].toInt() and 0xff) shl 8) or (pkt[co + 1].toInt() and 0xff)
+        if (proto == 17 && old == 0) return // UDP без контрольной суммы
+        // RFC 1624: HC' = ~(~HC + ~m + m')
+        var sum = (old.inv() and 0xffff) + (oldWord.inv() and 0xffff) + newWord
+        while (sum ushr 16 != 0) sum = (sum and 0xffff) + (sum ushr 16)
+        var res = sum.inv() and 0xffff
+        if (proto == 17 && res == 0) res = 0xffff
+        pkt[co] = (res ushr 8).toByte(); pkt[co + 1] = res.toByte()
     }
 }

@@ -24,6 +24,7 @@ var (
 	pingSize   = flag.Int("ping-size", 900, "размер данных в ping (больше ~990 проверяет фрагментацию)")
 	pingCount  = flag.Int("ping-count", 20, "сколько пингов отправить")
 	clientIP   = flag.String("client-ip", "10.77.0.2", "адрес клиента внутри туннеля")
+	tunName    = flag.String("tun", "buhta0", "имя TUN-интерфейса сервера (для нескольких комнат: buhta0, buhta1…)")
 	dataDir    = flag.String("data", "/etc/buhta", "папка данных сервера: ключ, клиенты, пароль панели")
 	panelAddr  = flag.String("panel", ":8787", "адрес веб-панели (HTTPS); пусто = панель выключена")
 )
@@ -161,12 +162,12 @@ func tunnelAttach(track *webrtc.TrackLocalStaticRTP) bool {
 }
 
 func runServer(t *Tunnel) {
-	tun, err := OpenTUN("buhta0")
+	tun, err := OpenTUN(*tunName)
 	if err != nil {
 		log.Printf("[tun] ОШИБКА открытия TUN: %v (запусти server-setup.sh от root)", err)
 		os.Exit(1)
 	}
-	log.Printf("[tun] TUN buhta0 открыт")
+	log.Printf("[tun] TUN %s открыт", *tunName)
 	var wmu sync.Mutex
 	tunWrite := func(pkt []byte) {
 		wmu.Lock()
