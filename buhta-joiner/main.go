@@ -100,6 +100,7 @@ func main() {
 			_, data, err := conn.ReadMessage()
 			if err != nil {
 				log.Printf("read loop ended: %v", err)
+				lastReadErr = err
 				close(in)
 				return
 			}
@@ -265,6 +266,7 @@ func main() {
 		`<presence to="%s/%s" xmlns="jabber:client"><x xmlns="http://jabber.org/protocol/muc"/><stats-id>%s</stats-id><jitsi_participant_codecList>vp8,vp9,h264</jitsi_participant_codecList><audiomuted xmlns="http://jitsi.org/jitmeet/audio">false</audiomuted><videomuted xmlns="http://jitsi.org/jitmeet/video">false</videomuted><SourceInfo>{"%s-a0":{"muted":false},"%s-v0":{"muted":false,"videoType":"camera"}}</SourceInfo><nick xmlns="http://jabber.org/protocol/nick">%s</nick></presence>`,
 		mucRoom, endpointID, statsID, endpointID, endpointID, nick))
 	waitFor("own presence echoed back", mucRoom)
+	joinedAt = time.Now()
 	// Уходим из комнаты по-честному (presence unavailable + закрытие потока), иначе Saby
 	// держит «призрака» несколько минут и в комнате копятся лишние участники.
 	var leaveOnce sync.Once
@@ -337,7 +339,11 @@ func main() {
 		}
 		// Saby закрыл служебное соединение: участник для него уже мёртв, медиа скоро
 		// оборвётся. Выходим сразу, чтобы приложение/systemd переподключились без паузы.
-		log.Printf("[status] signalling closed, reconnecting")
+		ms := "нет"
+		if mediaState != nil {
+			ms = mediaState()
+		}
+		log.Printf("[status] signalling closed (причина: %v; медиа: %s; в комнате %s), reconnecting", lastReadErr, ms, time.Since(joinedAt).Round(time.Second))
 		os.Exit(3)
 	}()
 	if *noMedia {
@@ -375,6 +381,7 @@ func main() {
 		log.Fatalf("Phase 2: AcceptAndConnect failed: %v", aerr)
 	}
 	defer pc.Close()
+	mediaState = func() string { return pc.ConnectionState().String() }
 	go runSourceUpdates(pc)
 	// Sources already present in the session-initiate (other participants). Only the first
 	// one per content made it into the initial SDP; the rest are added via renegotiation.
@@ -424,6 +431,13 @@ func main() {
 }
 
 var wsMu sync.Mutex
+
+// Диагностика обрывов сигналки: почему Saby закрыл сокет и жило ли медиа.
+var (
+	lastReadErr error
+	mediaState  func() string
+	joinedAt    = time.Now()
+)
 
 var (
 	iqHeadRe = regexp.MustCompile(`^<iq[^>]*>`)
