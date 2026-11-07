@@ -961,7 +961,7 @@ object TunnelManager {
         activeWorkers.value = 0
         resetWorkerRecoveryState()
         startLogReader(identity)
-        scheduleStartupDiagnostic(identity)
+        scheduleStartupDiagnostic(identity, context.applicationContext)
     }
 
     /** Строки Go-движка Бухты → события интерфейса Маяка. true = строка обработана. */
@@ -999,7 +999,7 @@ object TunnelManager {
         updateProcessLog(id, "stats", "[СЕТЬ] $msg", 25, false, LogLevel.NET)
     }
 
-    private fun scheduleStartupDiagnostic(identity: ProcessIdentity) {
+    private fun scheduleStartupDiagnostic(identity: ProcessIdentity, appContext: Context) {
         activeScope.launch {
             delay(STARTUP_DIAGNOSTIC_MS)
             if (!isCurrent(identity) || activeWorkers.value > 0) return@launch
@@ -1011,6 +1011,11 @@ object TunnelManager {
                 true,
                 LogLevel.ERR,
             )
+            updateProcessLog(identity, "srv_journal_hdr", "[СЕРВЕР] Читаю журнал сервера по SSH…", 90, false, LogLevel.LOG)
+            val lines = com.csqtt.client.ui.fetchServerJournal(appContext)
+            lines.forEachIndexed { i, l ->
+                updateProcessLog(identity, "srv_journal_$i", "[СЕРВЕР] $l", 90, false, LogLevel.LOG)
+            }
         }
     }
 

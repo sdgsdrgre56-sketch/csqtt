@@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import org.json.JSONObject
 
 private const val CMD_TIMEOUT = CsqttConstants.Timeouts.DEPLOY_CMD_TIMEOUT_MS
@@ -734,5 +735,26 @@ internal suspend fun performResetPanelPass(
         throw e
     } catch (e: Exception) {
         deployFailed(e)
+    }
+}
+
+/** Читает журнал сервера по SSH (данные из вкладки «Деплой») — для диагностики подключения. */
+internal suspend fun fetchServerJournal(context: Context): List<String> = withContext(Dispatchers.IO) {
+    val d = SettingsStore(context).deploySettingsSnapshot.first()
+    if (d.ip.isBlank()) return@withContext listOf("Сервер не указан во вкладке «Деплой»")
+    if (!d.sshKeysMode && d.sshPassword.isBlank()) return@withContext listOf("Нет SSH-пароля во вкладке «Деплой» — журнал сервера прочитать нельзя")
+    val port = d.sshPort.toIntOrNull() ?: 22
+    var ssh: SshjClient? = null
+    try {
+        ssh = createSSHClient(d.ip, d.sshLogin.ifBlank { "root" }, if (d.sshKeysMode) "" else d.sshPassword, port,
+            if (d.sshKeysMode) d.sshPrivateKey else "", if (d.sshKeysMode) d.sshKeyPassphrase else "")
+        val client = DeploySSHClient(ssh, d.sshPassword) { _ -> throw IOException("reconnect") }
+        val cmd = "systemctl is-active buhta; grep BUHTA_ROOM /etc/buhta/panel.env; journalctl -u buhta --no-pager -n 30 -o cat | grep -v '^<' | grep -v -- '<-- ' | grep -v -- '--> ' | cut -c1-180"
+        val r = client.execResult(rootCommand(cmd), timeout = 30_000)
+        r.output.lines().map { it.trim() }.filter { it.isNotEmpty() }
+    } catch (e: Exception) {
+        listOf("SSH к серверу не удался: ${e.message}")
+    } finally {
+        runCatching { ssh?.disconnect() }
     }
 }
