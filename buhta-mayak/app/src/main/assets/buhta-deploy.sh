@@ -28,7 +28,7 @@ Description=Buhta room keeper (second participant keeps the Saby conference aliv
 After=network-online.target buhta.service
 [Service]
 EnvironmentFile=-/etc/buhta/panel.env
-ExecStart=$BIN -room \${BUHTA_ROOM} -name Страж -hold 8760h -timeout 90s
+ExecStart=$BIN -room \${BUHTA_ROOM} -name Страж -nomedia -hold 8760h -timeout 90s
 Restart=always
 RestartSec=2
 [Install]

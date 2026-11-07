@@ -57,6 +57,7 @@ func main() {
 	turnTest := flag.Bool("turntest", false, "only fetch Saby TURN credentials and test whether the TURN relay reaches external hosts, then exit")
 	udpTest := flag.Bool("udptest", false, "probe for a UDP TURN endpoint and for direct UDP reachability of the bridge media port, then exit")
 	bridgeAddr := flag.String("bridge", "91.232.93.237:10000", "bridge media address used by -udptest part B")
+	noMedia := flag.Bool("nomedia", false, "stay in the room as a participant but never accept media (keeps the conference alive without receiving traffic)")
 	relayOnly := flag.Bool("relayonly", false, "force all media through Saby's TCP TURN relay instead of letting ICE try a direct UDP path")
 	flag.Parse()
 	roomID = *room
@@ -306,6 +307,12 @@ func main() {
 			}
 		}
 	}()
+	if *noMedia {
+		log.Printf("[keep] в комнате без медиа: держим встречу открытой, трафик не принимаем")
+		time.Sleep(*hold)
+		leaveRoom()
+		return
+	}
 	fmt.Println()
 	fmt.Println("=== FULL Jingle session-initiate ===")
 	fmt.Println(offerRaw)
