@@ -31,8 +31,11 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"os/signal"
 	"regexp"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -127,6 +130,7 @@ func main() {
 			select {
 			case frame, ok := <-in:
 				if !ok {
+					leaveRoom()
 					log.Fatalf("connection closed while waiting for %s", label)
 				}
 				tag := "<-- "
@@ -143,6 +147,7 @@ func main() {
 				}
 				log.Printf("%s%s", tag, truncate(frame, 300))
 			case <-ctx.Done():
+				leaveRoom()
 				log.Fatalf("timed out waiting for %s", label)
 			}
 		}
@@ -232,6 +237,24 @@ func main() {
 		`<presence to="%s/%s" xmlns="jabber:client"><x xmlns="http://jabber.org/protocol/muc"/><stats-id>%s</stats-id><jitsi_participant_codecList>vp8,vp9,h264</jitsi_participant_codecList><audiomuted xmlns="http://jitsi.org/jitmeet/audio">false</audiomuted><videomuted xmlns="http://jitsi.org/jitmeet/video">false</videomuted><SourceInfo>{"%s-a0":{"muted":false},"%s-v0":{"muted":false,"videoType":"camera"}}</SourceInfo><nick xmlns="http://jabber.org/protocol/nick">%s</nick></presence>`,
 		mucRoom, endpointID, statsID, endpointID, endpointID, nick))
 	waitFor("own presence echoed back", mucRoom)
+	// Уходим из комнаты по-честному (presence unavailable + закрытие потока), иначе Saby
+	// держит «призрака» несколько минут и в комнате копятся лишние участники.
+	var leaveOnce sync.Once
+	leaveRoom = func() {
+		leaveOnce.Do(func() {
+			_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`<presence to="%s/%s" type="unavailable" xmlns="jabber:client"/>`, mucRoom, endpointID)))
+			_ = conn.WriteMessage(websocket.TextMessage, []byte(`<close xmlns="urn:ietf:params:xml:ns:xmpp-framing"/>`))
+			time.Sleep(300 * time.Millisecond)
+			_ = conn.Close()
+		})
+	}
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+		<-sig
+		leaveRoom()
+		os.Exit(0)
+	}()
 
 	log.Printf("joined %s as %s — waiting up to %s for a Jingle session-initiate from the bridge", mucRoom, nick, timeout)
 	log.Printf("(this only arrives once there is real media to negotiate — a lone muted guest with no camera/mic may never get one; join from a second device if nothing shows up)")
@@ -299,6 +322,7 @@ func main() {
 	log.Println("=== Phase 2: translating offer -> SDP -> pion/webrtc answer ===")
 	jingleOffer, perr := ParseOffer(offerRaw)
 	if perr != nil {
+		leaveRoom()
 		log.Fatalf("Phase 2: could not parse session-initiate: %v", perr)
 	}
 	log.Printf("parsed offer: sid=%s initiator=%s contents=%d bundle=%v",
@@ -307,6 +331,7 @@ func main() {
 	log.Printf("Phase 2: using %d ICE server(s) discovered via extdisco", len(iceServers))
 	acceptXML, pc, aerr := AcceptAndConnect(jingleOffer, jid, iceServers, send)
 	if aerr != nil {
+		leaveRoom()
 		log.Fatalf("Phase 2: AcceptAndConnect failed: %v", aerr)
 	}
 	defer pc.Close()
@@ -354,8 +379,12 @@ func main() {
 	// bit so we can observe whatever the bridge sends next (source-add, etc.) and so the
 	// data channel has a chance to actually open.
 	time.Sleep(*hold)
+	leaveRoom()
 	log.Println("=== done, exiting ===")
 }
+
+// leaveRoom выходит из комнаты; до входа — ничего не делает.
+var leaveRoom = func() {}
 
 func must(err error) {
 	if err != nil {
