@@ -21,6 +21,22 @@ panelpass() {
     i=$((i+1)); sleep 1
   done
 }
+keeper() {
+  cat > /etc/systemd/system/buhta-keep.service <<EOF
+[Unit]
+Description=Buhta room keeper (second participant keeps the Saby conference alive)
+After=network-online.target buhta.service
+[Service]
+EnvironmentFile=-/etc/buhta/panel.env
+ExecStart=$BIN -room \${BUHTA_ROOM} -name Страж -hold 8760h -timeout 90s
+Restart=always
+RestartSec=2
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable buhta-keep >/dev/null 2>&1
+}
 case "$ACTION" in
 install)
   echo "[LOG] Проверяю систему"
@@ -91,7 +107,9 @@ resetpass)
   fetch
   sed -i -E 's/-timeout [0-9]+[hms]/-timeout 90s/; s/RestartSec=[0-9]+/RestartSec=1/' /etc/systemd/system/buhta.service
   systemctl daemon-reload
+  keeper
   systemctl restart buhta
+  systemctl restart buhta-keep
   echo "[OK] Логин и пароль панели записаны на сервер"
   sleep 3
   . /etc/buhta/panel.env
@@ -111,7 +129,9 @@ setroom)
   fetch
   sed -i -E 's/-timeout [0-9]+[hms]/-timeout 90s/; s/RestartSec=[0-9]+/RestartSec=1/' /etc/systemd/system/buhta.service
   systemctl daemon-reload
+  keeper
   systemctl restart buhta
+  systemctl restart buhta-keep
   sleep 2
   if systemctl is-active --quiet buhta; then echo "[OK] Комната задана, сервер запущен"; else echo "[ERR] служба не запустилась"; journalctl -u buhta --no-pager -n 20; exit 1; fi
   echo "[LOG] Создаю ключ в панели сервера"
@@ -135,8 +155,8 @@ setroom)
   echo "CSQTT_DEPLOY_OK"
   ;;
 uninstall)
-  systemctl disable --now buhta >/dev/null 2>&1
-  rm -f /etc/systemd/system/buhta.service /usr/local/bin/buhta-joiner /usr/local/bin/buhta-net.sh
+  systemctl disable --now buhta buhta-keep >/dev/null 2>&1
+  rm -f /etc/systemd/system/buhta.service /etc/systemd/system/buhta-keep.service /usr/local/bin/buhta-joiner /usr/local/bin/buhta-net.sh
   rm -rf /etc/buhta
   systemctl daemon-reload
   echo "[OK] Сервер Бухты удалён"
