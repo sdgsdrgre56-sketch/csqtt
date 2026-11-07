@@ -66,6 +66,7 @@ internal fun InfoHeroCard(
     onSupportClick: () -> Unit,
     onCryptoClick: () -> Unit,
 ) {
+    if (true) return
     val colors = MaterialTheme.colorScheme
 
     AppSectionCard(
@@ -78,7 +79,7 @@ internal fun InfoHeroCard(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = "Поддержать разработчика Amurcanov",
+                text = "Бухта",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = colors.onSurface,

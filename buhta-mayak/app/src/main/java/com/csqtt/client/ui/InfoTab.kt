@@ -336,8 +336,8 @@ fun InfoTab(
             }
         ) {
             ProjectLinkRow(
-                title = "Автор Android-версии",
-                subtitle = "GitHub профиль amurcanov",
+                title = "Проект Бухта",
+                subtitle = "GitHub",
                 onClick = { openUrlInBrowser(context, DeveloperProfileUrl) },
                 icon = {
                     Icon(
