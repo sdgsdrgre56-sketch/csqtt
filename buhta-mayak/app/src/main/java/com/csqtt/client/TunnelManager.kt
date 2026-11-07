@@ -983,7 +983,11 @@ object TunnelManager {
             updateProcessLog(identity, "buhta_waiting", "[КОМНАТА] Вошли в комнату, ждём сервер…", 15, false)
             return true
         }
-        return false
+        val clean = line.replace(Regex("^\\d{4}/\\d\\d/\\d\\d \\d\\d:\\d\\d:\\d\\d(\\.\\d+)? "), "").take(200)
+        if (clean.isNotBlank()) {
+            updateProcessLog(identity, "buhta_raw_" + clean.hashCode(), "[ДВИЖОК] $clean", 15, false, LogLevel.LOG)
+        }
+        return true
     }
 
     /** Счётчики трафика из TUN-насоса (TunVpnService). */

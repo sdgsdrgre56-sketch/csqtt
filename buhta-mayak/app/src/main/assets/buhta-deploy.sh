@@ -95,6 +95,8 @@ resetpass)
 setroom)
   [ -f /etc/buhta/panel.env ] || { echo "[ERR] сервер не установлен"; exit 1; }
   . /etc/buhta/panel.env
+  [ -n "$PUSER" ] && BUHTA_PANEL_USER="$PUSER"
+  [ -n "$PPASS" ] && BUHTA_PANEL_PASS="$PPASS"
   ( umask 077; printf 'BUHTA_PANEL_USER=%s\nBUHTA_PANEL_PASS=%s\nBUHTA_ROOM=%s\n' "$BUHTA_PANEL_USER" "$BUHTA_PANEL_PASS" "$ROOM" > /etc/buhta/panel.env )
   chmod 600 /etc/buhta/panel.env
   fetch
@@ -118,6 +120,9 @@ setroom)
   LINK=$(curl -sk -m 10 -b $JAR -H 'X-Buhta: 1' "$B/api/clients/$CID/link" | grep -o 'buhta://[A-Za-z0-9_=-]*')
   rm -f $JAR
   if [ -n "$LINK" ]; then echo "BUHTA_KEY|$LINK"; else echo "[WARN] ключ не удалось создать на сервере"; fi
+  sleep 6
+  echo "[LOG] Журнал сервера:"
+  journalctl -u buhta --no-pager -n 25 -o cat 2>/dev/null | grep -v '^<\|<-- \|--> ' | cut -c1-160 | sed 's/^/[LOG] /'
   echo "CSQTT_DEPLOY_OK"
   ;;
 uninstall)
