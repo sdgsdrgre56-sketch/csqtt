@@ -100,6 +100,21 @@ setroom)
   systemctl restart buhta
   sleep 2
   if systemctl is-active --quiet buhta; then echo "[OK] Комната задана, сервер запущен"; else echo "[ERR] служба не запустилась"; journalctl -u buhta --no-pager -n 20; exit 1; fi
+  echo "[LOG] Создаю ключ в панели сервера"
+  B=https://127.0.0.1:8787
+  need curl || { apt-get update -qq >/dev/null 2>&1; apt-get install -y -qq curl >/dev/null 2>&1; }
+  . /etc/buhta/panel.env
+  i=0
+  while [ $i -lt 40 ]; do curl -sk -m 4 -o /dev/null "$B/api/me" && break; i=$((i+1)); sleep 2; done
+  JAR=/tmp/buhta-jar.$$
+  curl -sk -m 10 -c $JAR -H 'X-Buhta: 1' -H 'Content-Type: application/json' -d "{\"login\":\"$BUHTA_PANEL_USER\",\"password\":\"$BUHTA_PANEL_PASS\"}" "$B/api/login" >/dev/null
+  CID=$(curl -sk -m 10 -b $JAR -H 'X-Buhta: 1' "$B/api/clients" | grep -o '"id": *"[^"]*"' | head -1 | sed 's/.*: *"//; s/"$//')
+  if [ -z "$CID" ]; then
+    CID=$(curl -sk -m 10 -b $JAR -H 'X-Buhta: 1' -H 'Content-Type: application/json' -d '{"name":"phone","limit_mbps":0}' "$B/api/clients" | grep -o '"id": *"[^"]*"' | head -1 | sed 's/.*: *"//; s/"$//')
+  fi
+  LINK=$(curl -sk -m 10 -b $JAR -H 'X-Buhta: 1' "$B/api/clients/$CID/link" | grep -o 'buhta://[A-Za-z0-9_=-]*')
+  rm -f $JAR
+  if [ -n "$LINK" ]; then echo "BUHTA_KEY|$LINK"; else echo "[WARN] ключ не удалось создать на сервере"; fi
   echo "CSQTT_DEPLOY_OK"
   ;;
 uninstall)

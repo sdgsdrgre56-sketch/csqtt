@@ -133,9 +133,9 @@ internal fun ConnectionTab(
     val startBlocker = ConnectionStartPolicy.blocker(
         linkMode = csqttLinkMode,
         linkValid = parsedLink != null,
-        peerValid = peer.isNotBlank() && !peer.contains(":"),
+        peerValid = true,
         peerPortValid = peerPortValid,
-        connectionPasswordSet = connectionPassword.isNotBlank(),
+        connectionPasswordSet = true,
         connectionPasswordReadable = tunnelAuthSettings.connectionPasswordState != StoredSecretState.Unreadable,
         hashesReady = hashesReady,
     )

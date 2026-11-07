@@ -666,10 +666,12 @@ internal suspend fun performSetRoom(
             "setroom", target.room, webLogin, webPass, onProgress, 0.3f, "Запуск сервера в комнате",
         )
         if (!isSuccessfulDeployResult(r.exitStatus, r.output)) return@withContext finishDeploy(r, "")
-        onProgress(0.7f, "Создаю ключ в панели...")
-        TunnelManager.addDeployInfoLog("Создаю ключ подключения в панели сервера")
-        val key = BuhtaPanel.autoKey(host, webPort, webLogin, webPass, "phone") { line ->
-            TunnelManager.addDeployInfoLog(line)
+        onProgress(0.8f, "Ключ подключения...")
+        var key: String? = Regex("BUHTA_KEY\\|(buhta://[A-Za-z0-9_=-]+)").find(r.output)?.groupValues?.get(1)
+        if (key == null) {
+            key = BuhtaPanel.autoKey(host, webPort, webLogin, webPass, "phone") { line ->
+                TunnelManager.addDeployInfoLog(line)
+            }
         }
         val save = key ?: target.room
         settingsStore.saveParticipantTunnelSettings(save, 1)
