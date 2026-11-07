@@ -80,7 +80,7 @@ Description=Buhta link $i
 After=network-online.target
 Wants=network-online.target
 [Service]
-ExecStart=$BIN -room $R -tunnel client -udp 127.0.0.1:$P -hold 8760h -timeout 8760h
+ExecStart=$BIN -room $R -tunnel client -udp 127.0.0.1:$P -hold 8760h -timeout 90s
 Restart=always
 RestartSec=2
 [Install]
@@ -92,7 +92,7 @@ Description=Buhta keeper $i
 After=network-online.target
 Wants=network-online.target
 [Service]
-ExecStart=$BIN -room $R -name Страж$i -nomedia -hold 8760h -timeout 8760h
+ExecStart=$BIN -room $R -name Страж$i -nomedia -hold 8760h -timeout 90s
 Restart=always
 RestartSec=3
 [Install]
