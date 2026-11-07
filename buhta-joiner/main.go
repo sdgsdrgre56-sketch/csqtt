@@ -95,7 +95,26 @@ func main() {
 	defer conn.Close()
 
 	in := make(chan string, 64)
+	// Keepalive: websocket-ping каждые 15с. Без трафика по сокету промежуточные
+	// балансировщики Saby рвут соединение (close 1006 / EOF), хотя медиа живо.
+	pingStop := make(chan struct{})
 	go func() {
+		t := time.NewTicker(15 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-pingStop:
+				return
+			case <-t.C:
+				if err := conn.WriteControl(websocket.PingMessage, []byte("b"), time.Now().Add(5*time.Second)); err != nil {
+					log.Printf("[keepalive] ping failed: %v", err)
+					return
+				}
+			}
+		}
+	}()
+	go func() {
+		defer close(pingStop)
 		for {
 			_, data, err := conn.ReadMessage()
 			if err != nil {
