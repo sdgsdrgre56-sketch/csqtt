@@ -50,7 +50,7 @@ Wants=network-online.target
 [Service]
 EnvironmentFile=-/etc/buhta/panel.env
 ExecStartPre=/usr/local/bin/buhta-net.sh
-ExecStart=$BIN -room \${BUHTA_ROOM} -tunnel server -hold 8760h -timeout 60s -data /etc/buhta -panel :8787
+ExecStart=$BIN -room \${BUHTA_ROOM} -tunnel server -hold 8760h -timeout 8760h -data /etc/buhta -panel :8787
 Restart=always
 RestartSec=3
 [Install]
@@ -97,6 +97,9 @@ setroom)
   . /etc/buhta/panel.env
   ( umask 077; printf 'BUHTA_PANEL_USER=%s\nBUHTA_PANEL_PASS=%s\nBUHTA_ROOM=%s\n' "$BUHTA_PANEL_USER" "$BUHTA_PANEL_PASS" "$ROOM" > /etc/buhta/panel.env )
   chmod 600 /etc/buhta/panel.env
+  fetch
+  sed -i 's/-timeout 60s/-timeout 8760h/' /etc/systemd/system/buhta.service
+  systemctl daemon-reload
   systemctl restart buhta
   sleep 2
   if systemctl is-active --quiet buhta; then echo "[OK] Комната задана, сервер запущен"; else echo "[ERR] служба не запустилась"; journalctl -u buhta --no-pager -n 20; exit 1; fi

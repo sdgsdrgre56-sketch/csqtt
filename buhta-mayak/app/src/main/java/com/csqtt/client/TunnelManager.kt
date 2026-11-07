@@ -999,23 +999,14 @@ object TunnelManager {
         activeScope.launch {
             delay(STARTUP_DIAGNOSTIC_MS)
             if (!isCurrent(identity) || activeWorkers.value > 0) return@launch
-            when (identity.startupProgress.stage()) {
-                TunnelStartupStage.WAITING_FOR_CREDENTIALS -> updateProcessLog(
-                    identity,
-                    "startup_waiting_credentials",
-                    "[ДИАГНОСТИКА] Rust-клиент запущен, но VK не выдал TURN-креды: проверьте сеть, токен и капчу",
-                    98,
-                    true,
-                )
-                TunnelStartupStage.WAITING_FOR_TURN_OR_PEER -> updateProcessLog(
-                    identity,
-                    "startup_waiting_turn",
-                    "[ДИАГНОСТИКА] TURN-креды получены, но ни один allocation/handshake с сервером не завершился",
-                    98,
-                    true,
-                )
-                TunnelStartupStage.READY -> Unit
-            }
+            updateProcessLog(
+                identity,
+                "buhta_no_server",
+                "[КОМНАТА] Сервер не отвечает в комнате. Проверь вкладку «Деплой»: сервер должен быть установлен и запущен в этой же комнате",
+                90,
+                true,
+                LogLevel.ERR,
+            )
         }
     }
 

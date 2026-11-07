@@ -161,7 +161,6 @@ func tunnelAttach(track *webrtc.TrackLocalStaticRTP) bool {
 }
 
 func runServer(t *Tunnel) {
-	setupLogRing()
 	tun, err := OpenTUN("buhta0")
 	if err != nil {
 		log.Printf("[tun] ОШИБКА открытия TUN: %v (запусти server-setup.sh от root)", err)
@@ -176,29 +175,11 @@ func runServer(t *Tunnel) {
 			log.Printf("[tun] запись в TUN: %v", err)
 		}
 	}
-	st, firstPass, err := openStore(*dataDir)
-	if err != nil {
-		log.Printf("[tun] хранилище %s: %v", *dataDir, err)
-		os.Exit(1)
-	}
-	sec := newSecServer(st, t, tunWrite)
+	sec := earlyServerInit()
+	sec.t = t
+	sec.tunWrite = tunWrite
 	t.OnDatagram = sec.onDatagram
-	// Логин и пароль панели можно задать при установке (переменные окружения из /etc/buhta/panel.env):
-	// так пароль придумывает владелец, а не ищется в логах.
-	if u := os.Getenv("BUHTA_PANEL_USER"); u != "" {
-		panelUser = u
-	}
-	if pw := os.Getenv("BUHTA_PANEL_PASS"); pw != "" {
-		st.SetPassword(pw)
-		firstPass = ""
-		log.Printf("[panel] логин %s, пароль задан при установке", panelUser)
-	}
-	if firstPass != "" {
-		log.Printf("[panel] ПЕРВЫЙ ЗАПУСК: логин admin, пароль %s (смени в Настройках)", firstPass)
-	}
-	if *panelAddr != "" {
-		startPanel(*panelAddr, st, sec, *dataDir)
-	}
+	st := sec.st
 	log.Printf("[sec] ключ сервера: %s, клиентов: %d", st.PublicKeyHex(), st.Count())
 	go func() {
 		for {
@@ -304,4 +285,39 @@ func tunnelOnState(pc *webrtc.PeerConnection, s webrtc.PeerConnectionState) {
 			}
 		}()
 	}
+}
+
+var (
+	earlyOnce sync.Once
+	earlySec  *SecServer
+)
+
+// earlyServerInit поднимает хранилище клиентов и веб-панель сразу при старте сервера,
+// ещё до того как в комнату зайдёт клиент: мост Saby начинает сессию только при двух
+// участниках, а панель и ключ нужны раньше.
+func earlyServerInit() *SecServer {
+	earlyOnce.Do(func() {
+		setupLogRing()
+		st, firstPass, err := openStore(*dataDir)
+		if err != nil {
+			log.Printf("[tun] хранилище %s: %v", *dataDir, err)
+			os.Exit(1)
+		}
+		if u := os.Getenv("BUHTA_PANEL_USER"); u != "" {
+			panelUser = u
+		}
+		if pw := os.Getenv("BUHTA_PANEL_PASS"); pw != "" {
+			st.SetPassword(pw)
+			firstPass = ""
+			log.Printf("[panel] логин %s, пароль задан при установке", panelUser)
+		}
+		if firstPass != "" {
+			log.Printf("[panel] ПЕРВЫЙ ЗАПУСК: логин admin, пароль %s (смени в Настройках)", firstPass)
+		}
+		earlySec = newSecServer(st, nil, nil)
+		if *panelAddr != "" {
+			startPanel(*panelAddr, st, earlySec, *dataDir)
+		}
+	})
+	return earlySec
 }

@@ -57,6 +57,9 @@ func main() {
 	relayOnly := flag.Bool("relayonly", false, "force all media through Saby's TCP TURN relay instead of letting ICE try a direct UDP path")
 	flag.Parse()
 	roomID = *room
+	if *tunnelMode == "server" {
+		earlyServerInit()
+	}
 
 	if *room == "" {
 		fmt.Fprintln(os.Stderr, "error: -room is required (the UUID from the guest link)")
