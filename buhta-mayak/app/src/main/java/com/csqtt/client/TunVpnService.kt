@@ -281,7 +281,7 @@ class TunVpnService : VpnService() {
         } ?: return
         TunnelManager.onVpnInterfaceStopped()
         if (recoveryAttempts >= 2) {
-            failVpn("не удалось передать TUN fd Rust-клиенту после повторных попыток")
+            failVpn("не удалось передать TUN движку после повторных попыток")
             return
         }
         recoveryAttempts++

@@ -1340,7 +1340,7 @@ object TunnelManager {
                             val reason = lastDiagnostic?.let { " Причина: $it" }.orEmpty()
                             updateLog(
                                 "process_restart",
-                                "✗ Rust-клиент завершился (код ${exitCode ?: "?"}). Перезапуск...$reason",
+                                "✗ Движок Бухты завершился (код ${exitCode ?: "?"}). Перезапуск...$reason",
                                 50,
                                 true,
                             )
