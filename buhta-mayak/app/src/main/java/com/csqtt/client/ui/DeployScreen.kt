@@ -71,6 +71,24 @@ internal fun DeployScreen(
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(CsqttSpacing.Md),
             ) {
+                if (state.serverHosts.isNotEmpty()) {
+                    AppSectionCard {
+                        CompactDropdownSetting(
+                            title = "Сервер",
+                            selectedKey = state.serverProfile.toString(),
+                            options = state.serverHosts.mapIndexed { i, h ->
+                                i.toString() to "${i + 1}. " + h.ifBlank { "— пусто —" }
+                            },
+                            enabled = !state.isDeploying,
+                            onSelected = { k -> k.toIntOrNull()?.let { onAction(DeployAction.ServerProfileChanged(it)) } },
+                        )
+                        Text(
+                            "У каждого сервера свои SSH-данные, пароль панели и комната. Выберите пустую ячейку, чтобы добавить новый сервер.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 AppSectionCard {
                     Text("Деплой и SSH", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     if (state.sshKeysMode) {

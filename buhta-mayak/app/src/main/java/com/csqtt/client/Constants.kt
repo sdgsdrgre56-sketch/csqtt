@@ -17,7 +17,7 @@ object CsqttConstants {
 
     object Profiles {
         const val MIN_INDEX = 0
-        const val MAX_INDEX = 3
+        const val MAX_INDEX = 7
     }
 
     object Network {

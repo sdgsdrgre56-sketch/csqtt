@@ -79,6 +79,8 @@ internal data class DeployUiState(
     val progress: Float = 0f,
     val currentStep: String = "",
     val showValidation: Boolean = false,
+    val serverProfile: Int = 0,
+    val serverHosts: List<String> = emptyList(),
 ) {
     val portsValid: Boolean
         get() = !manualPorts || listOf(sshPort, peerPort, webPort).all(::isValidPort)
@@ -113,6 +115,7 @@ internal sealed interface DeployAction {
     data object Uninstall : DeployAction
     data object OpenControlPanel : DeployAction
     data object PanelInfo : DeployAction
+    data class ServerProfileChanged(val profile: Int) : DeployAction
 }
 
 internal fun passwordToSynchronizeAfterDeploy(deploySucceeded: Boolean, mainPassword: String): String? =
@@ -187,6 +190,7 @@ internal fun DeployTab(
     val savedSshCertificate = savedSettings.sshCertificate
     val savedServerPeerPort = savedSettings.serverPeerPort
     val savedServerWebPort = savedSettings.serverWebPort
+    val serverHosts by settingsStore.profileHosts.collectAsStateWithLifecycle(initialValue = emptyList())
     val needRoom by DeployManager.needRoom.collectAsStateWithLifecycle()
     var roomInput by rememberSaveable { mutableStateOf("") }
     val isDeploying by DeployManager.isDeploying.collectAsStateWithLifecycle()
@@ -272,6 +276,8 @@ internal fun DeployTab(
         progress = deployProgress,
         currentStep = currentStep,
         showValidation = showValidation,
+        serverProfile = savedSettings.profile,
+        serverHosts = serverHosts,
     )
 
     fun startDeploy() {
@@ -463,6 +469,10 @@ internal fun DeployTab(
         snackbarHostState = snackbarHostState,
         onAction = { action ->
             when (action) {
+                is DeployAction.ServerProfileChanged -> scope.launch {
+                    settingsStore.saveActiveProfile(action.profile)
+                    showDeployToast(context, "Выбран сервер ${action.profile + 1}. Если туннель включён — переподключите")
+                }
                 is DeployAction.HostChanged -> {
                     host = action.value.filterNot(Char::isWhitespace)
                     generalEdited = true

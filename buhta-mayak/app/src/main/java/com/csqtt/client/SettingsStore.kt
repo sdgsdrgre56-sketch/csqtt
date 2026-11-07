@@ -300,6 +300,10 @@ class SettingsStore(context: Context) {
         val profile = prefs[ACTIVE_PROFILE] ?: 0
         prefs[getProfileKey(DEPLOY_SSH_PORT, profile)] ?: ""
     }
+    /** IP/домен каждого сервера (ячейки 0..MAX) — для выбора во вкладке «Сервер». */
+    val profileHosts: Flow<List<String>> = dataStore.data.map { prefs ->
+        (CsqttConstants.Profiles.MIN_INDEX..CsqttConstants.Profiles.MAX_INDEX).map { prefs[getProfileKey(DEPLOY_IP, it)] ?: "" }
+    }
     internal val deploySettingsSnapshot: Flow<DeploySettingsSnapshot> = dataStore.data.map { prefs ->
         val profile = prefs[ACTIVE_PROFILE] ?: 0
         DeploySettingsSnapshot(
