@@ -113,7 +113,7 @@ object TunnelManager {
     private const val STARTUP_DIAGNOSTIC_MS = 30_000L
     // A process that lived shorter than this counts toward the crash-loop
     // backoff; a longer-lived run resets it.
-    private const val CRASH_RESTART_STABLE_MS = 15_000L
+    private const val CRASH_RESTART_STABLE_MS = 30_000L
     private const val CRASH_RESTART_MAX_DELAY_MS = 60_000L
     // Stats-path VPN start retry window: the START intent fires once from the
     // Config event, then at most once per this interval until vpnReady.
