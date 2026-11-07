@@ -393,8 +393,14 @@ internal fun DeployTab(
 
     fun applyPanelCredentials(login: String, password: String) {
         if (DeployManager.isDeploying.value) return
-        if (host.isBlank() || login.isBlank() || password.isBlank()) return
-        if (!savedSshKeysMode && sshPassword.isBlank()) return
+        if (host.isBlank() || login.isBlank() || password.isBlank()) {
+            showDeployToast(context, "Сначала укажите IP сервера, логин и пароль панели")
+            return
+        }
+        if (!savedSshKeysMode && sshPassword.isBlank()) {
+            showDeployToast(context, "Введите SSH-пароль сервера, затем снова нажмите «Сохранить»")
+            return
+        }
         val ports = resolveServerPorts(savedManualPorts, sshPort, peerPort, webPort)
         DeployManager.startDeploy()
         DeployManager.scope.launch {
