@@ -597,7 +597,7 @@ func (o *JingleOffer) BuildSessionAccept(answerSDP, toJID, responderJID string, 
 	candID := 1
 	for _, c := range o.Contents {
 		fmt.Fprintf(&b, `<content creator="responder" name="%s"`, xmlEscape(c.Name))
-		if c.Name == "video" {
+		if c.Name == "video" && !*videoLane {
 			fmt.Fprintf(&b, ` senders="responder"`)
 		} else if c.Name != "data" {
 			fmt.Fprintf(&b, ` senders="both"`)

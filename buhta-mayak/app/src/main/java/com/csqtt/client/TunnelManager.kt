@@ -910,6 +910,7 @@ object TunnelManager {
             cmd.add("-key")
             cmd.add(target.key)
         }
+        if (BuhtaRoom.videoLane(context)) cmd.add("-video")
 
         val pb = ProcessBuilder(cmd)
         pb.directory(context.filesDir)

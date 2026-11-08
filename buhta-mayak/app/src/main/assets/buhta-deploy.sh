@@ -55,7 +55,7 @@ Wants=network-online.target
 [Service]
 EnvironmentFile=-/etc/buhta/panel.env
 ExecStartPre=/usr/local/bin/buhta-net.sh
-ExecStart=$BIN -room \${BUHTA_ROOM} -tunnel server -hold 8760h -timeout 90s -data /etc/buhta -panel :8787
+ExecStart=$BIN -room \${BUHTA_ROOM} -tunnel server -video -hold 8760h -timeout 90s -data /etc/buhta -panel :8787
 Restart=always
 RestartSec=1
 [Install]
@@ -94,7 +94,7 @@ After=network-online.target
 Wants=network-online.target
 [Service]
 ExecStartPre=/usr/local/bin/buhta-net-multi.sh $i
-ExecStart=$BIN -room $R -tunnel server -tun buhta$i -hold 8760h -timeout 90s -data /etc/buhta/r$i -panel=
+ExecStart=$BIN -room $R -tunnel server -video -tun buhta$i -hold 8760h -timeout 90s -data /etc/buhta/r$i -panel=
 Restart=always
 RestartSec=1
 [Install]
@@ -159,7 +159,7 @@ Wants=network-online.target
 [Service]
 EnvironmentFile=-/etc/buhta/panel.env
 ExecStartPre=/usr/local/bin/buhta-net.sh
-ExecStart=$BIN -room \${BUHTA_ROOM} -tunnel server -hold 8760h -timeout 90s -data /etc/buhta -panel :8787
+ExecStart=$BIN -room \${BUHTA_ROOM} -tunnel server -video -hold 8760h -timeout 90s -data /etc/buhta -panel :8787
 Restart=always
 RestartSec=1
 [Install]

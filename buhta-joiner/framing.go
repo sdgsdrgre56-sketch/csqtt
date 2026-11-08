@@ -61,6 +61,11 @@ func (f *Fragmenter) Split(pkt []byte) [][]byte {
 
 func PingFrame() []byte { return []byte{framePing, 0, 0, 0, 1} }
 
+// Флаги пинга (байт 1): старые версии его не читают.
+const pingFlagSeesVideo byte = 0x01
+
+func PingFrameFlags(f byte) []byte { return []byte{framePing, f, 0, 0, 1} }
+
 type partial struct {
 	parts [][]byte
 	got   int

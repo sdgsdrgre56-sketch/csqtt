@@ -41,6 +41,16 @@ object BuhtaRoom {
         return if (v.isNullOrBlank()) DNS else v
     }
 
+    private const val KEY_VIDEO = "video_lane"
+
+    /** Видеополоса (эксперимент): часть трафика через видеодорожку звонка. */
+    fun videoLane(ctx: android.content.Context?): Boolean =
+        ctx?.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)?.getBoolean(KEY_VIDEO, false) ?: false
+
+    fun setVideoLane(ctx: android.content.Context, on: Boolean) {
+        ctx.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().putBoolean(KEY_VIDEO, on).apply()
+    }
+
     fun setDns(ctx: android.content.Context, v: String) {
         ctx.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().putString(KEY_DNS, v).apply()
     }

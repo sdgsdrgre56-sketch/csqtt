@@ -252,7 +252,8 @@ func (s *SecServer) fromTun(pkt []byte) {
 		return
 	}
 	atomic.AddUint64(&lc.bytesOut, uint64(len(pkt)))
-	s.t.SendPacket(sess.seal(pkt))
+	k := flowKey(pkt)
+	s.t.SendPacketFlow(sess.seal(pkt), k)
 }
 
 type clientStat struct {

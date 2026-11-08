@@ -169,6 +169,8 @@ func runClientSecure(t *Tunnel, conn *net.UDPConn, peer *atomic.Value) {
 			continue // туннель ещё не готов
 		}
 		atomic.StoreInt64(&lastTx, time.Now().UnixNano())
-		t.SendPacket(s.seal(append([]byte(nil), buf[:n]...)))
+		pl := append([]byte(nil), buf[:n]...)
+		k := flowKey(pl)
+		t.SendPacketFlow(s.seal(pl), k)
 	}
 }

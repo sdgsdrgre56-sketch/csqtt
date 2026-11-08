@@ -52,6 +52,29 @@ internal fun BuhtaSettingsTab(settingsStore: SettingsStore) {
                 android.widget.Toast.makeText(ctx, "DNS сохранён — переподключите туннель", android.widget.Toast.LENGTH_SHORT).show()
             },
         )
+        Spacer(Modifier.height(12.dp))
+        var video by remember { mutableStateOf(BuhtaRoom.videoLane(ctx)) }
+        androidx.compose.foundation.layout.Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+                Text("Видеополоса (эксперимент)", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Часть трафика идёт через видео звонка. Нужен обновлённый сервер. Если мост видео не пропускает — всё само остаётся на аудио.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            androidx.compose.material3.Switch(
+                checked = video,
+                onCheckedChange = { on ->
+                    video = on
+                    BuhtaRoom.setVideoLane(ctx, on)
+                    android.widget.Toast.makeText(ctx, "Сохранено — переподключите туннель", android.widget.Toast.LENGTH_SHORT).show()
+                },
+            )
+        }
     }
 }
 

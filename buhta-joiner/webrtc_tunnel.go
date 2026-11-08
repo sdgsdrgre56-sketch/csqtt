@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/pion/ice/v2"
+	"github.com/pion/interceptor"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 )
@@ -116,6 +117,15 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 		log.Printf("[webrtc] WARNING: SetAnsweringDTLSRole failed: %v", derr)
 	}
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(&m), webrtc.WithSettingEngine(settingEngine))
+	if *videoLane {
+		// Мост пересылает видео не больше, чем позволяет его оценка нашего канала.
+		// Отчёты transport-cc дают ему эту оценку; без -video ничего не меняется.
+		ir := &interceptor.Registry{}
+		if terr := webrtc.ConfigureTWCCSender(&m, ir); terr != nil {
+			log.Printf("[lane] WARNING: TWCC: %v", terr)
+		}
+		api = webrtc.NewAPI(webrtc.WithMediaEngine(&m), webrtc.WithSettingEngine(settingEngine), webrtc.WithInterceptorRegistry(ir))
+	}
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), crand.Reader)
 	if err != nil {
@@ -181,6 +191,7 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 	// Receive path: count every RTP packet the bridge forwards to us.
 	pc.OnTrack(func(tr *webrtc.TrackRemote, rcv *webrtc.RTPReceiver) {
 		log.Printf("[rtp] OnTrack ssrc=%d pt=%d codec=%s", tr.SSRC(), tr.PayloadType(), tr.Codec().MimeType)
+		isVideo := tr.Kind() == webrtc.RTPCodecTypeVideo
 		go func() {
 			buf := make([]byte, 1500)
 			var n, total int
@@ -192,7 +203,7 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 				}
 				n++
 				total += k
-				tunnelRX(buf[:k])
+				tunnelRX(buf[:k], isVideo)
 				if n == 1 || n%50 == 0 {
 					log.Printf("[rtp] ssrc=%d got %d pkts / %d bytes (last %d bytes)", tr.SSRC(), n, total, k)
 				}
@@ -274,6 +285,28 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 		}()
 	}
 
+	// Видеополоса: исходящая VP8-дорожка, по которой туннель шлёт кадры в обёртке ключевого кадра.
+	if *videoLane {
+		vt, verr := webrtc.NewTrackLocalStaticRTP(
+			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000},
+			"buhta-video", "buhta")
+		if verr != nil {
+			log.Printf("[lane] WARNING: video track: %v", verr)
+		} else if vs, aerr := pc.AddTrack(vt); aerr != nil {
+			log.Printf("[lane] WARNING: AddTrack(video): %v", aerr)
+		} else {
+			videoOutTrack = vt
+			go func() {
+				buf := make([]byte, 1500)
+				for {
+					if _, _, e := vs.Read(buf); e != nil {
+						return
+					}
+				}
+			}()
+		}
+	}
+
 	// Safety net: explicitly (re-)add each remote ICE candidate from the parsed Jingle offer
 	// via AddICECandidate, instead of relying solely on pion having parsed them back out of
 	// the SDP text we generated. The live trace from the first TURN-enabled run showed ICE
@@ -329,8 +362,13 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 	} else {
 		log.Printf("[rtp] announcing our audio ssrc %d in session-accept", ourAudioSSRC)
 	}
+	var ourVideoSSRC uint32
+	if videoOutTrack != nil {
+		ourVideoSSRC = answerSSRC(answer.SDP, "m=video")
+		log.Printf("[lane] announcing our video ssrc %d in session-accept", ourVideoSSRC)
+	}
 	earlyAccept, aerr := offer.BuildSessionAccept(answer.SDP, offer.ConferenceID, responderJID,
-		ourAudioSSRC, 0)
+		ourAudioSSRC, ourVideoSSRC)
 	if aerr != nil {
 		return "", nil, fmt.Errorf("build early session-accept: %w", aerr)
 	}
@@ -384,8 +422,11 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 var ssrcLineRe = regexp.MustCompile(`(?m)^a=ssrc:(\d+) `)
 
 // answerAudioSSRC returns the first a=ssrc found in the audio m-section of an SDP, or 0.
-func answerAudioSSRC(sdp string) uint32 {
-	i := strings.Index(sdp, "m=audio")
+func answerAudioSSRC(sdp string) uint32 { return answerSSRC(sdp, "m=audio") }
+
+// answerSSRC returns the first a=ssrc in the m-section starting with mline, or 0.
+func answerSSRC(sdp, mline string) uint32 {
+	i := strings.Index(sdp, mline)
 	if i < 0 {
 		return 0
 	}
