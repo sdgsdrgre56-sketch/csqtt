@@ -911,6 +911,7 @@ object TunnelManager {
             cmd.add(target.key)
         }
         if (BuhtaRoom.videoLane(context)) cmd.add("-video")
+        if (BuhtaRoom.relayOnly(context)) cmd.add("-relayonly")
 
         val pb = ProcessBuilder(cmd)
         pb.directory(context.filesDir)

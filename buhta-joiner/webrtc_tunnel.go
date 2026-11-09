@@ -157,10 +157,20 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 		time.Sleep(headStart)
 	}
 
-	pc, err = api.NewPeerConnection(webrtc.Configuration{
+	cfg := webrtc.Configuration{
 		ICEServers:   iceServers,
 		Certificates: []webrtc.Certificate{*cert},
-	})
+	}
+	if keepRelayOnly {
+		// Жёстко прижимаем ICE к релею: собираются ТОЛЬКО relay-кандидаты.
+		// Фильтра по приватным адресам мало — публичный прямой-UDP (srflx) по
+		// приоритету побеждает релей, но на мобильном NAT (Yota) живёт недолго:
+		// медиа встаёт, клиент уходит в переподключение (тот самый флапинг).
+		// ICETransportPolicyRelay не даёт собрать host/srflx вовсе — путь один,
+		// стабильный, через TCP TURN Saby.
+		cfg.ICETransportPolicy = webrtc.ICETransportPolicyRelay
+	}
+	pc, err = api.NewPeerConnection(cfg)
 	if err != nil {
 		return "", nil, fmt.Errorf("new peer connection: %w", err)
 	}

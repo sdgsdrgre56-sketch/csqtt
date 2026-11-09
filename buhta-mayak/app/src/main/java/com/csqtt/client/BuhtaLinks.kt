@@ -47,6 +47,7 @@ object BuhtaLinks {
                         "-udp", "127.0.0.1:$port", "-hold", "8760h", "-timeout", "60s",
                     )
                     if (target.key.isNotEmpty()) { cmd.add("-key"); cmd.add(target.key) }
+                    if (BuhtaRoom.relayOnly(context)) cmd.add("-relayonly")
                     val p = try {
                         ProcessBuilder(cmd).apply {
                             redirectErrorStream(true)

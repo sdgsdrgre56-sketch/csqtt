@@ -51,6 +51,17 @@ object BuhtaRoom {
         ctx.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().putBoolean(KEY_VIDEO, on).apply()
     }
 
+    private const val KEY_RELAY = "relay_only"
+
+    /** Прижать медиа к TCP-релею Saby (стабильно на Yota, без скачков на прямой UDP).
+     *  По умолчанию включено: на мобильном флапинг важнее лишней скорости прямого UDP. */
+    fun relayOnly(ctx: android.content.Context?): Boolean =
+        ctx?.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)?.getBoolean(KEY_RELAY, true) ?: true
+
+    fun setRelayOnly(ctx: android.content.Context, on: Boolean) {
+        ctx.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().putBoolean(KEY_RELAY, on).apply()
+    }
+
     fun setDns(ctx: android.content.Context, v: String) {
         ctx.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().putString(KEY_DNS, v).apply()
     }
