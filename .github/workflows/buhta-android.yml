@@ -4,7 +4,7 @@ name: Buhta Android (APK)
 # как libbuhta.so, Gradle собирает APK. Запускается только на push в buhta-app.
 on:
   push:
-    branches: [buhta-app]
+    branches: [buhta-app, buhta-relayfix]
     paths:
       - 'buhta-mayak/**'
       - 'buhta-joiner/**'
@@ -45,7 +45,13 @@ jobs:
         env:
           BUHTA_BUILD: ${{ github.run_number }}
         run: ./gradlew --no-daemon :app:assembleDebug
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Buhta-apk
+          path: buhta-mayak/app/build/outputs/apk/debug/app-debug.apk
       - name: Publish pre-release
+        if: github.ref == 'refs/heads/buhta-app'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
