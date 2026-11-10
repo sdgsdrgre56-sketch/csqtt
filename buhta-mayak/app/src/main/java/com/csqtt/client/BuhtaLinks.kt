@@ -67,6 +67,12 @@ object BuhtaLinks {
                                 onLog("[ДВИЖОК-$label] комната $label подключена ✓")
                             } else if (line.contains("waiting up to") && line.contains("session-initiate")) {
                                 onLog("[ДВИЖОК-$label] комната $label: ждём сервер…")
+                            } else if (line.contains("signalling closed")) {
+                                markDown(port)
+                                onLog("[ДВИЖОК-$label] комната $label: обрыв ${line.substringAfter("signalling closed").take(120)}")
+                            } else if (line.contains("[sec]") || line.contains("[lane]") || line.contains("[status] error") ||
+                                line.contains("ICE") || line.contains("[tun]")) {
+                                onLog("[ДВИЖОК-$label] ${line.replace(Regex("^\\d{4}/\\d\\d/\\d\\d \\d\\d:\\d\\d:\\d\\d(\\.\\d+)? "), "").take(160)}")
                             }
                         }
                     } catch (_: Exception) {
