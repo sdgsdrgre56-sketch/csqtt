@@ -177,6 +177,29 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 
 	pc.OnICEConnectionStateChange(func(s webrtc.ICEConnectionState) {
 		log.Printf("[webrtc] ICE connection state -> %s", s)
+		if s == webrtc.ICEConnectionStateChecking {
+			go func() {
+				for _, d := range []time.Duration{10 * time.Second, 25 * time.Second} {
+					time.Sleep(d)
+					if pc.ICEConnectionState() != webrtc.ICEConnectionStateChecking {
+						return
+					}
+					log.Printf("[webrtc] ICE всё ещё checking, пары кандидатов:")
+					rep := pc.GetStats()
+					loc := map[string]string{}
+					for id, st := range rep {
+						if c, ok := st.(webrtc.ICECandidateStats); ok {
+							loc[id] = fmt.Sprintf("%s/%s %s:%d", c.CandidateType, c.Protocol, c.IP, c.Port)
+						}
+					}
+					for _, st := range rep {
+						if cp, ok := st.(webrtc.ICECandidatePairStats); ok {
+							log.Printf("[webrtc] пара %s -> %s state=%s sent=%d recv=%d req=%d resp=%d", loc[cp.LocalCandidateID], loc[cp.RemoteCandidateID], cp.State, cp.BytesSent, cp.BytesReceived, cp.RequestsSent, cp.ResponsesReceived)
+						}
+					}
+				}
+			}()
+		}
 	})
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		log.Printf("[webrtc] peer connection state -> %s", s)

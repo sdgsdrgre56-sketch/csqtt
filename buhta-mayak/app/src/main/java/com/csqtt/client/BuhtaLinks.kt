@@ -71,7 +71,7 @@ object BuhtaLinks {
                                 markDown(port)
                                 onLog("[ДВИЖОК-$label] комната $label: обрыв ${line.substringAfter("signalling closed").take(120)}")
                             } else if (line.contains("[sec]") || line.contains("[lane]") || line.contains("[status] error") ||
-                                line.contains("ICE") || line.contains("[tun]")) {
+                                line.contains("ICE") || line.contains("[webrtc] пара") || line.contains("peer connection") || line.contains("[tun]")) {
                                 onLog("[ДВИЖОК-$label] ${line.replace(Regex("^\\d{4}/\\d\\d/\\d\\d \\d\\d:\\d\\d:\\d\\d(\\.\\d+)? "), "").take(160)}")
                             }
                         }
