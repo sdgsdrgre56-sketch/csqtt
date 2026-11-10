@@ -81,7 +81,7 @@ object BuhtaLinks {
                     procs.remove(p)
                     if (running) {
                         onLog("[ДВИЖОК-$label] комната $label переподключается…")
-                        Thread.sleep(1500)
+                        Thread.sleep(700)
                     }
                 }
             }.apply { isDaemon = true; name = "buhta-link-$port" }.start()

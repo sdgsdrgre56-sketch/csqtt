@@ -156,7 +156,7 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 		tiXML := buildEarlyTransportInfoXML(offer, responderJID, ufrag, pwd, fpHash, fpVal)
 		log.Println("=== sending early Jingle transport-info (ufrag/pwd/fingerprint, well before any ICE check) ===")
 		send(tiXML)
-		const headStart = 3 * time.Second
+		headStart := *iceWait
 		log.Printf("[webrtc] waiting %s for the bridge to register our credentials before starting ICE", headStart)
 		time.Sleep(headStart)
 	}
@@ -412,7 +412,7 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 	if send != nil {
 		log.Println("=== sending Jingle session-accept BEFORE starting ICE ===")
 		send(earlyAccept)
-		time.Sleep(3 * time.Second)
+		time.Sleep(*iceWait)
 	}
 
 	gatherComplete := webrtc.GatheringCompletePromise(pc)

@@ -29,6 +29,7 @@ var (
 	dataDir    = flag.String("data", "/etc/buhta", "папка данных сервера: ключ, клиенты, пароль панели")
 	panelAddr  = flag.String("panel", ":8787", "адрес веб-панели (HTTPS); пусто = панель выключена")
 	tunMQ      = flag.Bool("mq", false, "TUN в режиме multi_queue: несколько комнат (процессов) на одном buhta0")
+	iceWait    = flag.Duration("icewait", 1500*time.Millisecond, "пауза, чтобы мост успел принять наши ключи (дважды перед ICE); было 3s")
 	maxPayload = flag.Int("maxpayload", 1250, "макс. размер RTP-нагрузки кадра; при MTU 1200 пакет едет одним кадром вместо двух (меньше нагрузка на процессор)")
 	videoLane  = flag.Bool("video", false, "вторая полоса через видеодорожку (VP8) — включается, только если собеседник подтвердил приём")
 )

@@ -119,7 +119,7 @@ func runClientSecure(t *Tunnel, conn *net.UDPConn, peer *atomic.Value) {
 		}
 	}
 
-	// Рукопожатие: пока нет сессии — шлём приветствие раз в 2 с (новое каждые 8 с);
+	// Рукопожатие: пока нет сессии — шлём приветствие раз в 1 с (новое каждые 8 с);
 	// если сессия есть, но данные перестали приходить (сервер перезапущен) — начинаем заново.
 	go func() {
 		var hello []byte
@@ -151,7 +151,7 @@ func runClientSecure(t *Tunnel, conn *net.UDPConn, peer *atomic.Value) {
 				hsMu.Unlock()
 				hello, made, sent = h, now, time.Time{}
 			}
-			if now.Sub(sent) >= 2*time.Second {
+			if now.Sub(sent) >= 1*time.Second {
 				t.SendPacket(hello)
 				sent = now
 			}
