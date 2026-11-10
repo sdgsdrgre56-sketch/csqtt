@@ -223,6 +223,8 @@ class TunVpnService : VpnService() {
     @Volatile private var pumpSocket: java.net.DatagramSocket? = null
     private val upBytes = java.util.concurrent.atomic.AtomicLong()
     private val downBytes = java.util.concurrent.atomic.AtomicLong()
+    private val upPer = java.util.concurrent.atomic.AtomicLongArray(8)
+    private val downPer = java.util.concurrent.atomic.AtomicLongArray(8)
 
     /** Бухта: гоняем IP-пакеты TUN <-> локальные UDP-порты движка. При нескольких
      *  комнатах (потоках) раскладываем исходящие пакеты по всем готовым портам по кругу. */
@@ -232,6 +234,7 @@ class TunVpnService : VpnService() {
         val sock = java.net.DatagramSocket()
         pumpSocket = sock
         upBytes.set(0); downBytes.set(0)
+        for (i in 0 until 8) { upPer.set(i, 0); downPer.set(i, 0) }
         val local = java.net.InetAddress.getByName("127.0.0.1")
         val mainTarget = java.net.InetSocketAddress(local, BuhtaLinks.BASE_PORT)
         val input = java.io.FileInputStream(pfd.fileDescriptor)
@@ -258,6 +261,7 @@ class TunVpnService : VpnService() {
                     try {
                         sock.send(java.net.DatagramPacket(buf, 0, n, dst))
                         upBytes.addAndGet(n.toLong())
+                        if (k in 0..7) upPer.addAndGet(k, n.toLong())
                     } catch (_: Exception) {
                     }
                 }
@@ -272,6 +276,8 @@ class TunVpnService : VpnService() {
                     sock.receive(p)
                     output.write(buf, 0, p.length)
                     downBytes.addAndGet(p.length.toLong())
+                    val kk = p.port - BuhtaLinks.BASE_PORT
+                    if (kk in 0..7) downPer.addAndGet(kk, p.length.toLong())
                 }
             } catch (_: Exception) {
             }
@@ -280,7 +286,10 @@ class TunVpnService : VpnService() {
             TunnelManager.onVpnInterfaceReady(dns)
             while (true) {
                 delay(1000)
-                TunnelManager.reportBuhtaTraffic(upBytes.get(), downBytes.get())
+                val per = (0 until 8).filter { upPer.get(it) + downPer.get(it) > 0 }.joinToString(" ") {
+                    "к${it + 1}:↑%.1f↓%.1f".format(upPer.get(it) / 1048576.0, downPer.get(it) / 1048576.0)
+                }
+                TunnelManager.reportBuhtaTraffic(upBytes.get(), downBytes.get(), per)
             }
         }
     }

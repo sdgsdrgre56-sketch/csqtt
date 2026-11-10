@@ -1020,12 +1020,12 @@ object TunnelManager {
     }
 
     /** Счётчики трафика из TUN-насоса (TunVpnService). */
-    fun reportBuhtaTraffic(up: Long, down: Long) {
+    fun reportBuhtaTraffic(up: Long, down: Long, per: String = "") {
         val id = processIdentity ?: return
         val totalMB = (up + down) / (1024.0 * 1024.0)
         val streams = BuhtaLinks.readyPorts().size.coerceAtLeast(1)
         activeWorkers.value = streams
-        val msg = "Потоков: $streams | Трафик: %.2f МБ".format(totalMB)
+        val msg = "Потоков: $streams | Трафик: %.2f МБ".format(totalMB) + (if (per.isNotEmpty() && BuhtaLinks.total > 1) " | $per" else "")
         stats.value = msg
         updateProcessLog(id, "stats", "[СЕТЬ] $msg", 25, false, LogLevel.NET)
     }
