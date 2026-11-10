@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pion/dtls/v2"
 	"github.com/pion/ice/v2"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtp"
@@ -96,6 +97,9 @@ func AcceptAndConnect(offer *JingleOffer, responderJID string, iceServerInfos []
 		log.Printf("[webrtc] gathering ALL candidate types — a direct UDP pair beats the TCP relay if it works")
 	}
 	settingEngine.SetICECredentials(ufrag, pwd)
+	// AEAD AES-GCM для SRTP быстрее, чем AES-CM+HMAC-SHA1 на каждом пакете; мост выберет
+	// общий профиль сам, при отсутствии поддержки останется прежний.
+	settingEngine.SetSRTPProtectionProfiles(dtls.SRTP_AEAD_AES_128_GCM, dtls.SRTP_AES128_CM_HMAC_SHA1_80)
 	if runtime.GOOS == "android" {
 		if an, nerr := newAndroidNet(); nerr == nil {
 			settingEngine.SetNet(an)

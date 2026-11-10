@@ -18,9 +18,21 @@ const (
 	frameData  byte = 0xB7
 	framePing  byte = 0xB8
 	headerLen       = 5
-	MaxPayload      = 1000 // RTP payload целиком, включая заголовок кадра
-	maxFrag         = MaxPayload - headerLen
+	MaxPayload      = 1000 // значение по умолчанию для старых сборок; реальное — флаг -maxpayload
 )
+
+// fragSize — сколько байт IP-пакета едет в одном кадре. Приёмник собирает любые размеры
+// (число фрагментов лежит в заголовке кадра), поэтому сторонам не нужно совпадать.
+func fragSize() int {
+	p := *maxPayload
+	if p < 300 {
+		p = 300
+	}
+	if p > 1400 {
+		p = 1400
+	}
+	return p - headerLen
+}
 
 var ErrBadFrame = errors.New("bad frame")
 
@@ -34,6 +46,7 @@ func (f *Fragmenter) Split(pkt []byte) [][]byte {
 	if len(pkt) == 0 {
 		return nil
 	}
+	maxFrag := fragSize()
 	n := (len(pkt) + maxFrag - 1) / maxFrag
 	if n > 255 {
 		return nil

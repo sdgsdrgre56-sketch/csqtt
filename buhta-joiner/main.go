@@ -33,6 +33,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -48,6 +49,10 @@ func randHex(n int) string {
 }
 
 func main() {
+	// Меньше сборок мусора на горячем пути пакетов; GOGC из окружения имеет приоритет.
+	if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(400)
+	}
 	room := flag.String("room", "", "room UUID from the guest link (…/meet/<ROOM>?video=true&meeting=…)")
 	server := flag.String("server", "wss://vcall.saby.ru/xmpp-websocket/", "XMPP-over-WebSocket endpoint")
 	domain := flag.String("domain", "meet.jitsi", "XMPP virtual host Prosody answers as")
