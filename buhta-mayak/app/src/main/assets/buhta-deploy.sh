@@ -73,11 +73,15 @@ EOF
     # по той комнате, через которую пришёл запрос, — у телефона один адрес 10.77.0.2.
     cat > /usr/local/bin/buhta-net-mq.sh <<'NETEOF'
 #!/bin/sh
-pkill -f 'buhta-joiner .*-tunnel server' 2>/dev/null || true
-ip link del buhta0 2>/dev/null || true
-for d in buhta1 buhta2 buhta3 buhta4 buhta5; do ip link del $d 2>/dev/null || true; done
-sleep 1
-ip tuntap add dev buhta0 mode tun multi_queue 2>/dev/null || true
+# Устройство пересоздаём, только если его нет или оно не multi_queue: иначе
+# переподключение первой комнаты обрывало бы все остальные.
+if ! ip -d link show buhta0 2>/dev/null | grep -q multi_queue; then
+  pkill -f 'buhta-joiner .*-tunnel server' 2>/dev/null || true
+  ip link del buhta0 2>/dev/null || true
+  for d in buhta1 buhta2 buhta3 buhta4 buhta5; do ip link del $d 2>/dev/null || true; done
+  sleep 1
+  ip tuntap add dev buhta0 mode tun multi_queue 2>/dev/null || true
+fi
 ip addr replace 10.77.0.1/24 dev buhta0
 ip link set buhta0 up mtu 1200
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
