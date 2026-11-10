@@ -71,8 +71,12 @@ object BuhtaRoom {
     private val UUID_RE = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
     /** Разбирает все комнаты (по строке/запятой) для режима нескольких потоков. */
-    fun parseAll(raw: String): List<Target> =
-        raw.split(Regex("[,\\n]+")).map { it.trim() }.filter { it.isNotEmpty() }.mapNotNull { parse(it) }
+    fun parseAll(raw: String): List<Target> {
+        val list = raw.split(Regex("[,\\n]+")).map { it.trim() }.filter { it.isNotEmpty() }.mapNotNull { parse(it) }
+        // Комнаты без ключа берут ключ первой строки: сервер один, клиенты общие.
+        val key = list.firstOrNull { it.key.isNotEmpty() }?.key ?: return list
+        return list.map { if (it.key.isEmpty()) it.copy(key = key) else it }
+    }
 
     fun parse(raw: String): Target? {
         val t = raw.trim().split(Regex("[,\\s]+")).firstOrNull { it.isNotEmpty() } ?: return null

@@ -669,15 +669,6 @@ internal suspend fun performSetRoom(
             if (targets.size > 1) "Запуск сервера в ${targets.size} комнатах" else "Запуск сервера в комнате",
         )
         if (!isSuccessfulDeployResult(r.exitStatus, r.output)) return@withContext finishDeploy(r, "")
-        if (targets.size > 1) {
-            // Несколько потоков: панели/ключа нет, сохраняем все комнаты как есть.
-            val save = targets.joinToString("\n") { if (it.key.isNotEmpty()) it.key else it.room }
-            settingsStore.saveParticipantTunnelSettings(save, targets.size)
-            TunnelManager.addDeploySuccessLog("Сервер запущен в ${targets.size} комнатах (режим потоков)")
-            onProgress(1.0f, "Готово!")
-            DeployManager.stopDeploy("success")
-            return@withContext true
-        }
         val target = targets.first()
         onProgress(0.8f, "Ключ подключения...")
         var key: String? = Regex("BUHTA_KEY\\|(buhta://[A-Za-z0-9_=-]+)").find(r.output)?.groupValues?.get(1)
@@ -686,8 +677,12 @@ internal suspend fun performSetRoom(
                 TunnelManager.addDeployInfoLog(line)
             }
         }
-        val save = key ?: target.room
-        settingsStore.saveParticipantTunnelSettings(save, 1)
+        // Первая строка — ключ (в нём комната 1), дальше — остальные комнаты:
+        // приложение подставит этот же ключ и для них (сервер один, ключи общие).
+        val first = key ?: target.room
+        val save = (listOf(first) + targets.drop(1).map { it.room }).joinToString("\n")
+        settingsStore.saveParticipantTunnelSettings(save, targets.size)
+        if (targets.size > 1) TunnelManager.addDeploySuccessLog("Сервер запущен в ${targets.size} комнатах")
         if (key != null) {
             TunnelManager.addDeploySuccessLog("Ключ создан и сохранён в приложении")
         } else {

@@ -43,6 +43,36 @@ type Store struct {
 	priv    *ecdh.PrivateKey
 	// onChange вызывается после любого изменения списка клиентов.
 	onChange func()
+	clMod    time.Time // время изменения clients.json, которое мы видели
+}
+
+// ReloadClients перечитывает clients.json, если его поменял другой процесс
+// (панель живёт только в процессе первой комнаты). true — список обновлён.
+func (s *Store) ReloadClients() bool {
+	p := filepath.Join(s.dir, "clients.json")
+	fi, err := os.Stat(p)
+	if err != nil {
+		return false
+	}
+	s.mu.Lock()
+	same := fi.ModTime().Equal(s.clMod)
+	s.mu.Unlock()
+	if same {
+		return false
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return false
+	}
+	var cl []*Client
+	if err := json.Unmarshal(b, &cl); err != nil {
+		return false
+	}
+	s.mu.Lock()
+	s.clients = cl
+	s.clMod = fi.ModTime()
+	s.mu.Unlock()
+	return true
 }
 
 func openStore(dir string) (*Store, string, error) {
@@ -74,6 +104,9 @@ func openStore(dir string) (*Store, string, error) {
 	if b, err := os.ReadFile(filepath.Join(dir, "clients.json")); err == nil {
 		if err := json.Unmarshal(b, &s.clients); err != nil {
 			return nil, "", fmt.Errorf("clients.json: %w", err)
+		}
+		if fi, err := os.Stat(filepath.Join(dir, "clients.json")); err == nil {
+			s.clMod = fi.ModTime()
 		}
 	}
 	// пароль панели

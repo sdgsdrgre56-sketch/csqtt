@@ -68,62 +68,82 @@ EOF
     systemctl restart buhta-keep
     echo "[LOG] Режим: одна комната (сервер + панель + страж)"
   else
-    systemctl disable --now buhta-keep >/dev/null 2>&1 || true
-    cat > /usr/local/bin/buhta-net-multi.sh <<'EOF'
+    # Несколько комнат: по процессу-серверу на комнату, все на ОДНОМ buhta0 (multi_queue),
+    # общие ключи и клиенты (/etc/buhta), панель только у первой. Ядро само отвечает
+    # по той комнате, через которую пришёл запрос, — у телефона один адрес 10.77.0.2.
+    cat > /usr/local/bin/buhta-net-mq.sh <<'NETEOF'
 #!/bin/sh
-I=$1; D=buhta$I
-ip link del $D 2>/dev/null || true
+pkill -f 'buhta-joiner .*-tunnel server' 2>/dev/null || true
+ip link del buhta0 2>/dev/null || true
+for d in buhta1 buhta2 buhta3 buhta4 buhta5; do ip link del $d 2>/dev/null || true; done
 sleep 1
-ip tuntap add dev $D mode tun 2>/dev/null || true
-ip addr replace 10.77.$I.1/24 dev $D
-ip link set $D up mtu 1200
+ip tuntap add dev buhta0 mode tun multi_queue 2>/dev/null || true
+ip addr replace 10.77.0.1/24 dev buhta0
+ip link set buhta0 up mtu 1200
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
-iptables -t nat -C POSTROUTING -s 10.77.$I.0/24 ! -o $D -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s 10.77.$I.0/24 ! -o $D -j MASQUERADE
-iptables -C FORWARD -i $D -j ACCEPT 2>/dev/null || iptables -I FORWARD -i $D -j ACCEPT
-iptables -C FORWARD -o $D -j ACCEPT 2>/dev/null || iptables -I FORWARD -o $D -j ACCEPT
-EOF
-    chmod +x /usr/local/bin/buhta-net-multi.sh
+iptables -t nat -C POSTROUTING -s 10.77.0.0/24 ! -o buhta0 -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s 10.77.0.0/24 ! -o buhta0 -j MASQUERADE
+iptables -C FORWARD -i buhta0 -j ACCEPT 2>/dev/null || iptables -I FORWARD -i buhta0 -j ACCEPT
+iptables -C FORWARD -o buhta0 -j ACCEPT 2>/dev/null || iptables -I FORWARD -o buhta0 -j ACCEPT
+NETEOF
+    chmod +x /usr/local/bin/buhta-net-mq.sh
     i=0
     for R in $(printf '%s' "$BUHTA_ROOM" | tr ',' ' '); do
-      mkdir -p /etc/buhta/r$i
-      if [ $i -eq 0 ]; then UNIT=buhta; else UNIT=buhta-link-$i; fi
-      cat > /etc/systemd/system/$UNIT.service <<EOF
+      if [ $i -eq 0 ]; then
+        cat > /etc/systemd/system/buhta.service <<UNITEOF
 [Unit]
-Description=Buhta room server $i
+Description=Buhta tunnel server (room 1 + panel)
 After=network-online.target
 Wants=network-online.target
 [Service]
-ExecStartPre=/usr/local/bin/buhta-net-multi.sh $i
-ExecStart=$BIN -room $R -tunnel server -video -tun buhta$i -hold 8760h -timeout 90s -data /etc/buhta/r$i -panel=
+EnvironmentFile=-/etc/buhta/panel.env
+ExecStartPre=/usr/local/bin/buhta-net-mq.sh
+ExecStart=$BIN -room $R -tunnel server -video -mq -hold 8760h -timeout 90s -data /etc/buhta -panel :8787
 Restart=always
 RestartSec=1
 [Install]
 WantedBy=multi-user.target
-EOF
-      cat > /etc/systemd/system/buhta-keep-$i.service <<EOF
+UNITEOF
+        KU=buhta-keep; KN=Страж
+      else
+        cat > /etc/systemd/system/buhta-link-$i.service <<UNITEOF
 [Unit]
-Description=Buhta keeper $i
+Description=Buhta tunnel server (room $((i+1)))
+After=buhta.service
+PartOf=buhta.service
+[Service]
+ExecStartPre=/bin/sleep 2
+ExecStart=$BIN -room $R -tunnel server -video -mq -hold 8760h -timeout 90s -data /etc/buhta -panel=
+Restart=always
+RestartSec=2
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+        KU=buhta-keep-$i; KN=Страж$((i+1))
+      fi
+      cat > /etc/systemd/system/$KU.service <<UNITEOF
+[Unit]
+Description=Buhta keeper (room $((i+1)))
 After=network-online.target
 Wants=network-online.target
 [Service]
-ExecStart=$BIN -room $R -name Страж$i -nomedia -hold 8760h -timeout 90s
+ExecStart=$BIN -room $R -name $KN -nomedia -hold 8760h -timeout 90s
 Restart=always
 RestartSec=3
 [Install]
 WantedBy=multi-user.target
-EOF
+UNITEOF
       i=$((i+1))
     done
     systemctl daemon-reload
-    j=0
+    systemctl enable buhta buhta-keep >/dev/null 2>&1
+    systemctl restart buhta buhta-keep
+    j=1
     while [ $j -lt $N ]; do
-      if [ $j -eq 0 ]; then UNIT=buhta; else UNIT=buhta-link-$j; fi
-      systemctl enable $UNIT buhta-keep-$j >/dev/null 2>&1
-      systemctl restart $UNIT
-      systemctl restart buhta-keep-$j
+      systemctl enable buhta-link-$j buhta-keep-$j >/dev/null 2>&1
+      systemctl restart buhta-link-$j buhta-keep-$j
       j=$((j+1))
     done
-    echo "[LOG] Режим: $N комнат (по серверу в каждой, без панели)"
+    echo "[LOG] Режим: $N комнат на одном сервере (общий ключ и панель)"
   fi
 }
 case "$ACTION" in
@@ -174,7 +194,8 @@ EOF
     echo "CSQTT_DEPLOY_OK"
     exit 0
   fi
-  systemctl restart buhta
+  BUHTA_ROOM="$ROOM"
+  rebuild_services
   sleep 2
   if systemctl is-active --quiet buhta; then echo "[OK] Служба buhta запущена"; else echo "[ERR] служба не запустилась"; journalctl -u buhta --no-pager -n 20; exit 1; fi
   echo "CSQTT_DEPLOY_OK"
@@ -218,15 +239,7 @@ setroom)
   sleep 2
   if systemctl is-active --quiet buhta; then echo "[OK] Комнаты заданы, сервер запущен"; else echo "[ERR] служба не запустилась"; journalctl -u buhta --no-pager -n 20; exit 1; fi
   NROOM=$(printf '%s' "$ROOM" | tr ',' '\n' | grep -c .)
-  if [ "$NROOM" -gt 1 ]; then
-    echo "[OK] Несколько комнат — веб-панель и ключ в этом режиме не используются"
-    sleep 4
-    echo "[LOG] Журнал сервера:"
-    journalctl -u buhta --no-pager -n 15 -o cat 2>/dev/null | cut -c1-160 | sed 's/^/[LOG] /'
-    journalctl -u buhta-link-0 --no-pager -n 10 -o cat 2>/dev/null | grep -v '^<\|<-- \|--> ' | cut -c1-160 | sed 's/^/[LOG] /'
-    echo "CSQTT_DEPLOY_OK"
-    exit 0
-  fi
+  [ "$NROOM" -gt 1 ] && echo "[OK] Комнат: $NROOM — один ключ и одна панель на все"
   echo "[LOG] Создаю ключ в панели сервера"
   B=https://127.0.0.1:8787
   need curl || { apt-get update -qq >/dev/null 2>&1; apt-get install -y -qq curl >/dev/null 2>&1; }
@@ -245,9 +258,16 @@ setroom)
   sleep 6
   echo "[LOG] Журнал сервера:"
   journalctl -u buhta --no-pager -n 25 -o cat 2>/dev/null | grep -v '^<\|<-- \|--> ' | cut -c1-160 | sed 's/^/[LOG] /'
+  if [ "$NROOM" -gt 1 ]; then
+    echo "[LOG] Журнал комнаты 2:"
+    journalctl -u buhta-link-1 --no-pager -n 12 -o cat 2>/dev/null | grep -v '^<\|<-- \|--> ' | cut -c1-160 | sed 's/^/[LOG] /'
+  fi
   echo "CSQTT_DEPLOY_OK"
   ;;
 uninstall)
+  for u in $(ls /etc/systemd/system 2>/dev/null | grep -E '^buhta-(link|keep)-[0-9]+\.service$'); do
+    systemctl disable --now "$u" >/dev/null 2>&1; rm -f "/etc/systemd/system/$u"
+  done
   systemctl disable --now buhta buhta-keep >/dev/null 2>&1
   for u in $(ls /etc/systemd/system 2>/dev/null | grep -E '^buhta-(link|keep)-[0-9]+\.service$'); do systemctl disable --now "$u" >/dev/null 2>&1; rm -f "/etc/systemd/system/$u"; done
   rm -f /etc/systemd/system/buhta.service /etc/systemd/system/buhta-keep.service /usr/local/bin/buhta-joiner /usr/local/bin/buhta-net.sh

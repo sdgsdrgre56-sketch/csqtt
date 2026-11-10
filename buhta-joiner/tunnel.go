@@ -28,6 +28,7 @@ var (
 	tunName    = flag.String("tun", "buhta0", "имя TUN-интерфейса сервера (для нескольких комнат: buhta0, buhta1…)")
 	dataDir    = flag.String("data", "/etc/buhta", "папка данных сервера: ключ, клиенты, пароль панели")
 	panelAddr  = flag.String("panel", ":8787", "адрес веб-панели (HTTPS); пусто = панель выключена")
+	tunMQ      = flag.Bool("mq", false, "TUN в режиме multi_queue: несколько комнат (процессов) на одном buhta0")
 	videoLane  = flag.Bool("video", false, "вторая полоса через видеодорожку (VP8) — включается, только если собеседник подтвердил приём")
 )
 
@@ -500,6 +501,17 @@ func earlyServerInit() *SecServer {
 		earlySec = newSecServer(st, nil, nil)
 		if *panelAddr != "" {
 			startPanel(*panelAddr, st, earlySec, *dataDir)
+		} else {
+			// Доп. комната: клиентов добавляет панель первой комнаты — подхватываем изменения.
+			go func() {
+				for {
+					time.Sleep(5 * time.Second)
+					if st.ReloadClients() {
+						log.Printf("[store] список клиентов обновлён (%d)", st.Count())
+						st.notify()
+					}
+				}
+			}()
 		}
 	})
 	return earlySec

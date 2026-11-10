@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ecdh"
 	"encoding/base64"
 	"encoding/hex"
@@ -164,6 +165,9 @@ func runClientSecure(t *Tunnel, conn *net.UDPConn, peer *atomic.Value) {
 			return
 		}
 		peer.Store(from)
+		if n >= len(KeepMagic) && bytes.Equal(buf[:len(KeepMagic)], KeepMagic) {
+			continue // приманка насоса: только запоминаем обратный адрес
+		}
 		s := sess.Load()
 		if s == nil {
 			continue // туннель ещё не готов

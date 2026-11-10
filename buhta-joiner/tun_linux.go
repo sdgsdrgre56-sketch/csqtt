@@ -19,7 +19,11 @@ func OpenTUN(name string) (*os.File, error) {
 	var ifr [40]byte
 	copy(ifr[:16], name)
 	const iffTun, iffNoPi, tunSetIff = 0x0001, 0x1000, 0x400454ca
-	*(*uint16)(unsafe.Pointer(&ifr[16])) = iffTun | iffNoPi
+	var flags uint16 = iffTun | iffNoPi
+	if *tunMQ {
+		flags |= 0x0100 // IFF_MULTI_QUEUE: ядро раскладывает ответы по процессам-комнатам по потокам
+	}
+	*(*uint16)(unsafe.Pointer(&ifr[16])) = flags
 	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), tunSetIff, uintptr(unsafe.Pointer(&ifr[0]))); e != 0 {
 		syscall.Close(fd)
 		return nil, fmt.Errorf("TUNSETIFF: %v", e)

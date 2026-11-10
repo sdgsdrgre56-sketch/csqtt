@@ -48,6 +48,7 @@ object BuhtaLinks {
                     )
                     if (target.key.isNotEmpty()) { cmd.add("-key"); cmd.add(target.key) }
                     if (BuhtaRoom.relayOnly(context)) cmd.add("-relayonly")
+                    if (BuhtaRoom.videoLane(context)) cmd.add("-video")
                     val p = try {
                         ProcessBuilder(cmd).apply {
                             redirectErrorStream(true)
