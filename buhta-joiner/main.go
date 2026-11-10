@@ -551,12 +551,30 @@ func parseICEServiceTag(tag string) (ICEServerInfo, bool) {
 // attrFromSingleTag extracts one attribute's value from a single raw "<tag .../>" string
 // (as opposed to extractAllAttrValues, which re-scans for occurrences of a named tag).
 func attrFromSingleTag(tag, attr string) string {
+	// Имя атрибута ищем целиком (перед ним пробел): иначе "port='" находится
+	// внутри "transport='tcp'", и при другом порядке атрибутов порт становится "tcp".
+	find := func(needle string) int {
+		for off := 0; ; {
+			k := strings.Index(tag[off:], needle)
+			if k < 0 {
+				return -1
+			}
+			k += off
+			if k > 0 {
+				switch tag[k-1] {
+				case ' ', '\t', '\n', '\r':
+					return k
+				}
+			}
+			off = k + 1
+		}
+	}
 	needle := attr + "='"
-	i := strings.Index(tag, needle)
+	i := find(needle)
 	quote := byte('\'')
 	if i < 0 {
 		needle = attr + `="`
-		i = strings.Index(tag, needle)
+		i = find(needle)
 		quote = '"'
 	}
 	if i < 0 {
