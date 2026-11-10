@@ -193,6 +193,8 @@ internal fun DeployTab(
     val serverHosts by settingsStore.profileHosts.collectAsStateWithLifecycle(initialValue = emptyList())
     val needRoom by DeployManager.needRoom.collectAsStateWithLifecycle()
     var roomInput by rememberSaveable { mutableStateOf("") }
+    // Уже заданные комнаты — чтобы в диалоге подставить их и добавлять новую строкой, а не затирать.
+    val savedRoomsForDialog by settingsStore.vkHashes.collectAsStateWithLifecycle(initialValue = "")
     val isDeploying by DeployManager.isDeploying.collectAsStateWithLifecycle()
     val deployProgress by DeployManager.deployProgress.collectAsStateWithLifecycle()
     val currentStep by DeployManager.currentStep.collectAsStateWithLifecycle()
@@ -545,13 +547,14 @@ internal fun DeployTab(
         },
     )
 
+    LaunchedEffect(needRoom) { if (needRoom && roomInput.isBlank()) roomInput = savedRoomsForDialog }
     if (needRoom && !isDeploying) {
         AlertDialog(
             onDismissRequest = { DeployManager.needRoom.value = false },
-            title = { Text("Ссылка на комнату") },
+            title = { Text("Комнаты сервера (потоки)") },
             text = {
                 androidx.compose.foundation.layout.Column {
-                    Text("Сервер установлен. Вставьте ссылку на комнату Saby Meet. Для нескольких потоков вставьте несколько ссылок, по одной в строке — скорость комнат сложится.")
+                    Text("Одна строка — одна комната. Для скорости добавь ещё комнату новой строкой: сервер сам поднимет свой сервер и Стража в каждой, скорость сложится. Уже заданные комнаты подставлены ниже.")
                     OutlinedTextField(
                         value = roomInput,
                         onValueChange = { roomInput = it },
