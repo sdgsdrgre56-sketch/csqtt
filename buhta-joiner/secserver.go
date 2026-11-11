@@ -54,9 +54,11 @@ type liveClient struct {
 	token    [16]byte
 	ip       [4]byte
 	sess     atomic.Pointer[secSession]
-	bytesIn  uint64 // от клиента (его отправка)
-	bytesOut uint64 // к клиенту (его загрузка)
-	lastSeen int64  // unix nano
+	prev     atomic.Pointer[secSession] // прежняя сессия: её пакеты ещё в пути после нового рукопожатия
+	prevAt   int64                      // unix nano замены
+	bytesIn  uint64                     // от клиента (его отправка)
+	bytesOut uint64                     // к клиенту (его загрузка)
+	lastSeen int64                      // unix nano
 	inLim    bucket
 	outLim   bucket
 }
@@ -186,6 +188,10 @@ func (s *SecServer) onHello(dg []byte) {
 		s.warn("[sec] рукопожатие: %v", err)
 		return
 	}
+	if old := lc.sess.Load(); old != nil {
+		lc.prev.Store(old)
+		atomic.StoreInt64(&lc.prevAt, time.Now().UnixNano())
+	}
 	lc.sess.Store(sess)
 	atomic.StoreInt64(&lc.lastSeen, time.Now().UnixNano())
 	s.seen[string(hi.epk)] = &helloEntry{lc: lc, welcome: welcome, at: time.Now()}
@@ -211,6 +217,12 @@ func (s *SecServer) onData(dg []byte) {
 		return
 	}
 	pkt, err := sess.open(dg)
+	if err != nil {
+		// Клиент ещё шлёт старым ключом, пока к нему идёт ответ на новое рукопожатие.
+		if p := lc.prev.Load(); p != nil && time.Now().UnixNano()-atomic.LoadInt64(&lc.prevAt) < int64(10*time.Second) {
+			pkt, err = p.open(dg)
+		}
+	}
 	if err != nil || len(pkt) < 20 || pkt[0]>>4 != 4 {
 		return
 	}

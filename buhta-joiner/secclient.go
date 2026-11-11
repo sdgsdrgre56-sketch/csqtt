@@ -67,6 +67,8 @@ func runClientSecure(t *Tunnel, conn *net.UDPConn, peer *atomic.Value) {
 
 	var (
 		sess      atomic.Pointer[secSession]
+		prevSess  atomic.Pointer[secSession]
+		prevAt    int64
 		hsMu      sync.Mutex
 		hs        *clientHS
 		lastRx    int64 // unix nano последнего принятого пакета данных
@@ -89,6 +91,10 @@ func runClientSecure(t *Tunnel, conn *net.UDPConn, peer *atomic.Value) {
 			if err != nil {
 				return // чужой или устаревший ответ
 			}
+			if o := sess.Load(); o != nil {
+				prevSess.Store(o)
+				atomic.StoreInt64(&prevAt, time.Now().UnixNano())
+			}
 			sess.Store(s)
 			hsMu.Lock()
 			hs = nil // повторный WELCOME на то же приветствие не должен сбросить счётчики
@@ -109,6 +115,12 @@ func runClientSecure(t *Tunnel, conn *net.UDPConn, peer *atomic.Value) {
 				return // пакет чужого клиента (мост рассылает всем)
 			}
 			pkt, err := s.open(dg)
+			if err != nil {
+				// Сервер мог отправить пакет ещё прежним ключом.
+				if p := prevSess.Load(); p != nil && time.Now().UnixNano()-atomic.LoadInt64(&prevAt) < int64(10*time.Second) {
+					pkt, err = p.open(dg)
+				}
+			}
 			if err != nil || len(pkt) < 20 || pkt[0]>>4 != 4 {
 				return
 			}
