@@ -113,10 +113,17 @@ object BuhtaLinks {
         if (frag != 0) return 0 // фрагменты (MF или смещение) — через первую комнату
         val proto = pkt[9].toInt() and 0xff
         if ((proto != 6 && proto != 17) || len < ihl + 4) return 0
-        var h = 17
-        for (i in 16..19) h = h * 31 + (pkt[i].toInt() and 0xff)
-        for (i in 0..3) h = h * 31 + (pkt[ihl + i].toInt() and 0xff)
-        h = h * 31 + proto
+        var h = -0x7ee3623b // FNV-1a, смещение 2166136261
+        for (i in 16..19) h = (h xor (pkt[i].toInt() and 0xff)) * 16777619
+        for (i in 0..3) h = (h xor (pkt[ihl + i].toInt() and 0xff)) * 16777619
+        h = (h xor proto) * 16777619
+        // Перемешивание: порты исходящих соединений идут подряд с шагом 2, без этого
+        // все соединения одного теста падали в одну комнату.
+        h = h xor (h ushr 16)
+        h *= 0x85ebca6b.toInt()
+        h = h xor (h ushr 13)
+        h *= 0xc2b2ae35.toInt()
+        h = h xor (h ushr 16)
         val k = Math.floorMod(h, n)
         return if (k == 0 || isReady(BASE_PORT + k)) k else 0
     }
