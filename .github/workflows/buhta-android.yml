@@ -40,21 +40,6 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build APK
-        working-directory: buhta-mayak
-        env:
-          BUHTA_BUILD: ${{ github.run_number }}
-        run: ./gradlew --no-daemon :app:assembleDebug
-      - name: Publish pre-release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cp buhta-mayak/app/build/outputs/apk/debug/app-debug.apk Buhta.apk
-          gh release create "buhta-apk-${{ github.run_number }}" Buhta.apk \
-            --title "buhta-apk-${{ github.run_number }}" \
-            --notes "Buhta Android APK from ${{ github.sha }} (experiment)" \
-            --target "${{ github.sha }}" \
-            --prerelease --latest=false
       - name: Build APK «Бухта 2 ядра» (отдельное приложение)
         working-directory: buhta-mayak
         env:
