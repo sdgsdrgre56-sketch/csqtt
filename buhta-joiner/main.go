@@ -65,6 +65,18 @@ func main() {
 	noMedia := flag.Bool("nomedia", false, "stay in the room as a participant but never accept media (keeps the conference alive without receiving traffic)")
 	relayOnly := flag.Bool("relayonly", false, "force all media through Saby's TCP TURN relay instead of letting ICE try a direct UDP path")
 	flag.Parse()
+	// Клиент (телефон) ведёт себя как проверенная версия 1.0.66: размер кадра 1000, паузы 3 с,
+	// стандартный профиль SRTP. Ускорение (кадр 1250, AES-GCM) оставлено серверу.
+	if *tunnelMode == "client" {
+		explicit := map[string]bool{}
+		flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+		if !explicit["maxpayload"] {
+			*maxPayload = 1000
+		}
+		if !explicit["icewait"] {
+			*iceWait = 3 * time.Second
+		}
+	}
 	roomID = *room
 	if *tunnelMode == "concentrator" {
 		runConcentrator("buhta0")
