@@ -94,7 +94,8 @@ object BuhtaLinks {
             procs.forEach { runCatching { it.destroy() } }
             procs.clear()
         }
-        ready.clear()
+        // Первая комната (порт 17777) ведётся отдельно и должна оставаться готовой.
+        ready.removeAll { it != BASE_PORT }
     }
 
     // ---- Закрепление соединений за комнатами и подмена адреса ----
