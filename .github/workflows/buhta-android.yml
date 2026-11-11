@@ -55,3 +55,19 @@ jobs:
             --notes "Buhta Android APK from ${{ github.sha }} (experiment)" \
             --target "${{ github.sha }}" \
             --prerelease --latest=false
+      - name: Build APK «Бухта 2 ядра» (отдельное приложение)
+        working-directory: buhta-mayak
+        env:
+          BUHTA_BUILD: ${{ github.run_number }}
+          BUHTA_VARIANT: 2core
+        run: ./gradlew --no-daemon :app:assembleDebug
+      - name: Publish pre-release (Бухта 2 ядра)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp buhta-mayak/app/build/outputs/apk/debug/app-debug.apk Buhta2.apk
+          gh release create "buhta2-apk-${{ github.run_number }}" Buhta2.apk \
+            --title "buhta2-apk-${{ github.run_number }}" \
+            --notes "Buhta 2 cores Android APK from ${{ github.sha }}" \
+            --target "${{ github.sha }}" \
+            --prerelease --latest=false

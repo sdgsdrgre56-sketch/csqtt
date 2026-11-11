@@ -66,7 +66,10 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "ru.buhta.app"
+        // «Бухта 2 ядра» — отдельное приложение (другой id), ставится рядом с обычной «Бухтой».
+        val core2 = System.getenv("BUHTA_VARIANT") == "2core"
+        applicationId = if (core2) "ru.buhta.core2" else "ru.buhta.app"
+        resValue("string", "app_name", if (core2) "Бухта 2 ядра" else "Бухта")
         minSdk = 26
         targetSdk = 37
         versionCode = (System.getenv("BUHTA_BUILD") ?: "1").toInt()
