@@ -165,7 +165,7 @@ internal fun ConnectionTab(
         else -> "${manualHashes.size}/${CsqttConstants.Tunnel.MAX_VK_HASHES}"
     }
 
-    fun startIntent(source: ConnectionSource, generationId: Long, salt: String): Intent =
+    fun startIntent(source: ConnectionSource, generationId: Long, salt: String, workersOverride: Int? = null): Intent =
         Intent(context, TunnelService::class.java).apply {
             action = "START"
             putExtra("peer", source.peer)
@@ -174,7 +174,8 @@ internal fun ConnectionTab(
             putExtra("secondary_vk_hash", "")
             putExtra(
                 "workers_per_hash",
-                if (MayakConfig.SIMPLE_UI) workersPerHash.coerceAtMost(MayakConfig.MAX_WORKERS) else workersPerHash,
+                workersOverride
+                    ?: if (MayakConfig.SIMPLE_UI) workersPerHash.coerceAtMost(MayakConfig.MAX_WORKERS) else workersPerHash,
             )
             putExtra("port", 0)
             putExtra("sni", sni)
@@ -190,7 +191,7 @@ internal fun ConnectionTab(
             putExtra("session_salt", salt)
         }
 
-    fun startTunnelService() {
+    fun startTunnelService(workersOverride: Int? = null) {
         scope.launch {
             val source = resolveConnectionSource(settingsStore) ?: run {
                 context.showRaisedToast("Заполните настройки подключения", Toast.LENGTH_SHORT)
@@ -199,7 +200,7 @@ internal fun ConnectionTab(
             TunnelManager.isLoggingEnabled = settingsStore.loggingEnabled.first()
             val nextGen = System.currentTimeMillis() / 1000L
             val salt = newTunnelSessionId()
-            val intent = startIntent(source, nextGen, salt)
+            val intent = startIntent(source, nextGen, salt, workersOverride)
             runCatching { context.startForegroundService(intent) }
                 .onFailure { error ->
                     TunnelManager.updateLog(
@@ -359,9 +360,20 @@ internal fun ConnectionTab(
             }
         }
         firstWorkingJob = scope.launch {
+            // «Первый рабочий» always goes for 9 connections: they get through where 18+ are cut
+            // (hoster limits on UDP flows), and the speed setting shows 9 so later starts match.
+            settingsStore.saveWorkersPerHash(FIRST_WORKING_WORKERS)
             try {
+                // Goes round all servers again and again until one really gives internet;
+                // the person stops it with the button or by tapping the lighthouse.
+                var round = 1
+                while (true) {
                 for ((tried, index) in order.withIndex()) {
-                    firstWorkingText = "Пробую сервер ${index + 1} · ${tried + 1} из ${order.size}"
+                    firstWorkingText = if (round == 1) {
+                        "Пробую сервер ${index + 1} · ${tried + 1} из ${order.size}"
+                    } else {
+                        "Круг $round · сервер ${index + 1} · ${tried + 1} из ${order.size}"
+                    }
                     // The previous try must be fully off (and past its cooldown) before the next start.
                     kotlinx.coroutines.withTimeoutOrNull(15_000) {
                         kotlinx.coroutines.flow.combine(
@@ -373,7 +385,7 @@ internal fun ConnectionTab(
                             .first { it }
                     }
                     settingsStore.selectCsqttLink(index)
-                    startTunnelService()
+                    startTunnelService(workersOverride = FIRST_WORKING_WORKERS)
                     // Wait for the start to register…
                     val began = kotlinx.coroutines.withTimeoutOrNull(8_000) {
                         kotlinx.coroutines.flow.combine(TunnelManager.running, TunnelManager.starting) { running, starting ->
@@ -381,27 +393,44 @@ internal fun ConnectionTab(
                         }.first { it }
                     } != null
                     if (!began) continue
-                    // …then for traffic, or for the tunnel to give up on this server by itself.
-                    val works = kotlinx.coroutines.withTimeoutOrNull(FIRST_WORKING_WAIT_MS) {
+                    // …then for the tunnel to come up (connections + VPN ready), or to give up by itself.
+                    val up = kotlinx.coroutines.withTimeoutOrNull(FIRST_WORKING_WAIT_MS) {
                         kotlinx.coroutines.flow.combine(
                             TunnelManager.activeWorkers,
+                            TunnelManager.vpnReady,
                             TunnelManager.running,
                             TunnelManager.starting,
-                        ) { workers, running, starting ->
+                        ) { workers, vpnReady, running, starting ->
                             when {
-                                workers > 0 -> true
+                                workers > 0 && vpnReady -> true
                                 !running && !starting -> false
                                 else -> null
                             }
                         }.first { it != null }
                     } == true
+                    // Up is not enough: a server whose connections drop right away (hoster limits)
+                    // looked "working" and the search stuck on it. It must stay up for a while.
+                    val works = up && run {
+                        firstWorkingText = "Сервер ${index + 1} подключился · проверяю, что интернет держится"
+                        val dropped = kotlinx.coroutines.withTimeoutOrNull(FIRST_WORKING_STABLE_MS) {
+                            kotlinx.coroutines.flow.combine(
+                                TunnelManager.activeWorkers,
+                                TunnelManager.running,
+                            ) { workers, running -> workers == 0 || !running }
+                                .first { it }
+                        } != null
+                        !dropped
+                    }
                     if (works) {
                         firstWorkingText = ""
                         return@launch
                     }
                     if (TunnelManager.running.value || TunnelManager.starting.value) stopTunnelNow()
                 }
-                firstWorkingText = "Ни один сервер не ответил. Проверьте интернет и попробуйте ещё раз"
+                round += 1
+                firstWorkingText = "Ни один сервер пока не дал интернет · ищу снова (круг $round)"
+                kotlinx.coroutines.delay(3_000)
+                }
             } finally {
                 firstWorkingJob = null
             }
@@ -783,3 +812,9 @@ private fun formatRate(value: Double): String = when {
 
 /** «Первый рабочий»: how long one server may take to pass traffic before the next one is tried. */
 private const val FIRST_WORKING_WAIT_MS = 20_000L
+
+/** «Первый рабочий»: how long a server must keep its connections before it counts as working. */
+private const val FIRST_WORKING_STABLE_MS = 15_000L
+
+/** «Первый рабочий»: connections used while searching, the most reliable speed step. */
+private const val FIRST_WORKING_WORKERS = 9
