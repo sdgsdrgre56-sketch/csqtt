@@ -563,6 +563,8 @@ internal suspend fun performDeploy(
     keyPassphrase: String = "",
     certificate: String = "",
     installInDocker: Boolean = false,
+    // Mayak Admin: "46001,46002,…" redirected to the tunnel port on the server; "" = none.
+    extraPeerPorts: String = "",
 ): Boolean = withContext(Dispatchers.IO) {
     var ssh: SshjClient? = null
     var tempDir: File? = null
@@ -635,7 +637,8 @@ internal suspend fun performDeploy(
 
         val deployEnvironment =
             "env CSQTT_PEER_PORT=$peerPort CSQTT_SSH_PORT=$port CSQTT_WEB_PORT=$webPort " +
-                "CSQTT_DEPLOY_MODE=${deployMode(installInDocker)}"
+                "CSQTT_DEPLOY_MODE=${deployMode(installInDocker)} " +
+                "CSQTT_EXTRA_PEER_PORTS=${shellQuote(extraPeerPorts.filter { it.isDigit() || it == ',' })}"
         onProgress(0.10f, "Загрузка нового сервера...")
         sshClient.upload(serverFile, "/tmp/.csqtt-upload-server")
         sshClient.upload(environmentFile, "/tmp/.csqtt-upload-web.env")

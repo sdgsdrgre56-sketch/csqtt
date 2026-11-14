@@ -13,6 +13,10 @@ readonly LOG_FILE="/var/log/csqtt-install.log"
 readonly PEER_PORT="${CSQTT_PEER_PORT:-46000}"
 readonly SSH_PORT="${CSQTT_SSH_PORT:-22}"
 readonly WEB_PORT="${CSQTT_WEB_PORT:-46002}"
+# Mayak Admin: extra UDP ports ("46001,46002,…") redirected to PEER_PORT, like in Квазар.
+# The phone spreads its workers across them, so a hoster limit on flows per source
+# address and port does not cut workers off. Empty = only PEER_PORT.
+readonly EXTRA_PEER_PORTS="$(printf '%s' "${CSQTT_EXTRA_PEER_PORTS:-}" | tr -c '0-9,' ',' | tr -s ',' | sed 's/^,//; s/,$//')"
 readonly LE_HTTP_PORT="80"
 readonly LE_RENEW_BEFORE_SECONDS="86400"
 readonly DEPLOY_MODE="${CSQTT_DEPLOY_MODE:-systemd}"
@@ -86,6 +90,14 @@ validate_distinct_network_ports() {
     [ "$PEER_PORT" != "$WEB_PORT" ] || die "CSQTT_PEER_PORT не может совпадать с WEB-портом"
     [ "$PEER_PORT" != "$LE_HTTP_PORT" ] || die "CSQTT_PEER_PORT не может совпадать с HTTP-портом"
     [ "$WEB_PORT" != "$SSH_PORT" ] || die "CSQTT_WEB_PORT не может совпадать с SSH-портом"
+    local extra
+    for extra in $(printf '%s' "$EXTRA_PEER_PORTS" | tr ',' ' '); do
+        validate_port "CSQTT_EXTRA_PEER_PORTS" "$extra"
+        case "$extra" in
+            "$PEER_PORT"|"$SSH_PORT"|"$WEB_PORT"|"$LE_HTTP_PORT")
+                die "Доп. порт $extra совпадает с основным, SSH, WEB или HTTP портом" ;;
+        esac
+    done
 }
 
 C_GREEN=''; C_YELLOW=''; C_RED=''
@@ -929,6 +941,14 @@ setup_nat_and_firewall() {
     log_info "WAN-интерфейс: $iface"
 
     fw_add_input_udp "$PEER_PORT"
+    local extra
+    for extra in $(printf '%s' "$EXTRA_PEER_PORTS" | tr ',' ' '); do
+        fw_add_input_udp "$extra"
+        iptables -w "$XT_WAIT" -t nat -C PREROUTING -p udp --dport "$extra" -m comment --comment "$IPT_COMMENT" -j REDIRECT --to-ports "$PEER_PORT" >/dev/null 2>&1 || \
+            iptables -w "$XT_WAIT" -t nat -A PREROUTING -p udp --dport "$extra" -m comment --comment "$IPT_COMMENT" -j REDIRECT --to-ports "$PEER_PORT" >>"$LOG_FILE" 2>&1 || \
+            die "Не удалось перенаправить ${extra}/udp на ${PEER_PORT}"
+    done
+    [ -z "$EXTRA_PEER_PORTS" ] || echo "✓ Доп. порты туннеля: ${EXTRA_PEER_PORTS} → ${PEER_PORT}/udp"
     fw_add_input_tcp "$WEB_PORT"
     fw_add_input_tcp "$LE_HTTP_PORT"
 
@@ -949,6 +969,7 @@ write_network_helper() {
 #!/bin/sh
 set -eu
     PEER_PORT="$PEER_PORT"
+EXTRA_PEER_PORTS="$EXTRA_PEER_PORTS"
 WEB_PORT="$WEB_PORT"
 LE_HTTP_PORT="$LE_HTTP_PORT"
 CSQTT_IFACE="$CSQTT_IFACE"
@@ -1022,6 +1043,10 @@ done
 
 ipt() { iptables -w "\$XT_WAIT" "\$@"; }
 ipt -C INPUT -p udp --dport "\$PEER_PORT" -m comment --comment "\$IPT_COMMENT" -j ACCEPT 2>/dev/null || ipt -I INPUT -p udp --dport "\$PEER_PORT" -m comment --comment "\$IPT_COMMENT" -j ACCEPT
+for extra in \$(echo "\$EXTRA_PEER_PORTS" | tr ',' ' '); do
+    ipt -C INPUT -p udp --dport "\$extra" -m comment --comment "\$IPT_COMMENT" -j ACCEPT 2>/dev/null || ipt -I INPUT -p udp --dport "\$extra" -m comment --comment "\$IPT_COMMENT" -j ACCEPT
+    ipt -t nat -C PREROUTING -p udp --dport "\$extra" -m comment --comment "\$IPT_COMMENT" -j REDIRECT --to-ports "\$PEER_PORT" 2>/dev/null || ipt -t nat -A PREROUTING -p udp --dport "\$extra" -m comment --comment "\$IPT_COMMENT" -j REDIRECT --to-ports "\$PEER_PORT"
+done
 ipt -C INPUT -p tcp --dport "\$WEB_PORT" -m comment --comment "\$IPT_COMMENT" -j ACCEPT 2>/dev/null || ipt -I INPUT -p tcp --dport "\$WEB_PORT" -m comment --comment "\$IPT_COMMENT" -j ACCEPT
 ipt -C INPUT -p tcp --dport "\$LE_HTTP_PORT" -m comment --comment "\$IPT_COMMENT" -j ACCEPT 2>/dev/null || ipt -I INPUT -p tcp --dport "\$LE_HTTP_PORT" -m comment --comment "\$IPT_COMMENT" -j ACCEPT
 ipt -C INPUT -i "\$CSQTT_IFACE" -s "\$SUBNET" -m comment --comment "\$IPT_COMMENT" -j ACCEPT 2>/dev/null || ipt -I INPUT -i "\$CSQTT_IFACE" -s "\$SUBNET" -m comment --comment "\$IPT_COMMENT" -j ACCEPT

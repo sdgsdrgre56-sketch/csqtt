@@ -39,6 +39,7 @@ internal data class DeploySettingsSnapshot(
     val manualPortsEnabled: Boolean = false,
     val serverPeerPort: Int = CsqttConstants.Network.DEFAULT_SERVER_PEER_PORT,
     val serverWebPort: Int = CsqttConstants.Network.DEFAULT_SERVER_WEB_PORT,
+    val extraPeerPorts: String = "",
     val sshKeysMode: Boolean = false,
     val dockerInstall: Boolean = false,
     val sshPrivateKey: String = "",
@@ -100,6 +101,9 @@ class SettingsStore(context: Context) {
         private val DEPLOY_IP = stringPreferencesKey("deploy_ip")
         // Mayak Admin: a short note about a server for people ("YouTube без рекламы").
         private val SERVER_NOTE = stringPreferencesKey("mayak_server_note")
+        // Mayak Admin: extra tunnel ports of a server ("46001-46009" or "51234,52345"), redirected
+        // to the main tunnel port on the server; workers are spread across them. "" = none.
+        private val EXTRA_PEER_PORTS = stringPreferencesKey("mayak_extra_peer_ports")
         private val DEPLOY_LOGIN = stringPreferencesKey("deploy_login")
         private val DEPLOY_PASSWORD = stringPreferencesKey("deploy_password")
         private val DEPLOY_PASSWORD_ENCRYPTED = stringPreferencesKey("deploy_password_encrypted")
@@ -379,6 +383,7 @@ class SettingsStore(context: Context) {
                 ?: CsqttConstants.Network.DEFAULT_SERVER_PEER_PORT,
             serverWebPort = prefs[getProfileKey(SERVER_WEB_PORT, profile)]
                 ?: CsqttConstants.Network.DEFAULT_SERVER_WEB_PORT,
+            extraPeerPorts = prefs[getProfileKey(EXTRA_PEER_PORTS, profile)] ?: "",
             sshKeysMode = prefs[getProfileKey(SSH_KEYS_MODE, profile)] ?: false,
             dockerInstall = prefs[getProfileKey(DOCKER_INSTALL, profile)] ?: false,
             sshPrivateKey = readSecret(prefs, SSH_PRIVATE_KEY_ENCRYPTED, SSH_PRIVATE_KEY, profile),
@@ -909,6 +914,17 @@ class SettingsStore(context: Context) {
             prefs[getProfileKey(SERVER_WEB_PORT, profile)] = web
             prefs[getProfileKey(DEPLOY_SSH_PORT, profile)] = sshPortStr
         }
+    }
+
+    /** Mayak Admin: extra tunnel ports of the active server, "" = none. */
+    val extraPeerPorts: Flow<String> = dataStore.data.map { prefs ->
+        val profile = prefs[ACTIVE_PROFILE] ?: 0
+        prefs[getProfileKey(EXTRA_PEER_PORTS, profile)] ?: ""
+    }
+
+    suspend fun saveExtraPeerPorts(value: String) {
+        val profile = activeProfile.first()
+        dataStore.edit { prefs -> prefs[getProfileKey(EXTRA_PEER_PORTS, profile)] = value.trim() }
     }
 
     suspend fun saveServerPeerPort(peer: Int) {

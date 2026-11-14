@@ -182,7 +182,9 @@ async fn run(arguments: Arguments) -> Result<()> {
     if arguments.password.is_empty() {
         bail!("[КЛИЕНТ] Нужен -password: WRAP ключ выводится из пароля подключения");
     }
-    let peer = resolve_peer(&arguments.peer).await?;
+    let (peer_base, extra_peer_ports) = split_peer_ports(&arguments.peer)?;
+    let peer = resolve_peer(peer_base).await?;
+    let peer_ports = peer_port_list(peer.port(), &extra_peer_ports);
     let mode = ObfsMode::parse(&arguments.obfs)?;
     let turn_transport = TurnTransportMode::parse(&arguments.turn_transport)?;
     let wrap_key = derive_wrap_key(&arguments.password)?;
@@ -274,8 +276,15 @@ async fn run(arguments: Arguments) -> Result<()> {
         cancel.clone(),
     );
     let local_port: Arc<str> = Arc::from(local_port);
+    if peer_ports.len() > 1 {
+        crate::log_error!(
+            "[КЛИЕНТ] Порты сервера: {} (потоки раскладываются по ним)",
+            peer_ports.iter().map(u16::to_string).collect::<Vec<_>>().join(",")
+        );
+    }
     let params = Arc::new(RuntimeParams {
         peer,
+        peer_ports: peer_ports.into(),
         turn_host: (!arguments.turn.is_empty()).then(|| Arc::from(arguments.turn.as_str())),
         turn_port: (!arguments.port.is_empty()).then(|| Arc::from(arguments.port.as_str())),
         turn_transport,
@@ -561,6 +570,52 @@ async fn run_vk_hash_validation(arguments: &Arguments) -> Result<()> {
     Ok(())
 }
 
+/// Mayak Admin: "host:46000+46001-46009,51234" — the part after '+' lists extra server
+/// ports (redirected to the main one on the server) that workers are spread across.
+fn split_peer_ports(raw: &str) -> Result<(&str, Vec<u16>)> {
+    let Some((base, extra)) = raw.split_once('+') else {
+        return Ok((raw, Vec::new()));
+    };
+    Ok((base, parse_port_list(extra)?))
+}
+
+fn parse_port_list(text: &str) -> Result<Vec<u16>> {
+    let mut ports = Vec::new();
+    for part in text.split(|c: char| c == ',' || c == ';' || c.is_whitespace()) {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        if let Some((from, to)) = part.split_once('-') {
+            let from: u16 = from.trim().parse().context("неверный порт в списке портов")?;
+            let to: u16 = to.trim().parse().context("неверный порт в списке портов")?;
+            if from == 0 || to < from || to - from > 64 {
+                bail!("[КЛИЕНТ] Неверный диапазон портов: {part}");
+            }
+            ports.extend(from..=to);
+        } else {
+            let port: u16 = part.parse().context("неверный порт в списке портов")?;
+            if port == 0 {
+                bail!("[КЛИЕНТ] Порт 0 недопустим");
+            }
+            ports.push(port);
+        }
+    }
+    Ok(ports)
+}
+
+fn peer_port_list(base: u16, extra: &[u16]) -> Vec<u16> {
+    let mut ports = vec![base];
+    for &port in extra {
+        if !ports.contains(&port) && ports.len() < MAX_PEER_PORTS {
+            ports.push(port);
+        }
+    }
+    ports
+}
+
+const MAX_PEER_PORTS: usize = 32;
+
 async fn resolve_peer(peer: &str) -> Result<SocketAddr> {
     let mut last_error = None;
     for _ in 0..15 {
@@ -828,5 +883,31 @@ mod worker_count_tests {
         let cancel = CancellationToken::new();
         cancel.cancel();
         assert!(!wait_for_js_credential_readiness(receiver, 1, cancel).await);
+    }
+}
+
+#[cfg(test)]
+mod peer_port_tests {
+    use super::*;
+
+    #[test]
+    fn peer_without_plus_has_no_extra_ports() {
+        let (base, extra) = split_peer_ports("1.2.3.4:46000").unwrap();
+        assert_eq!(base, "1.2.3.4:46000");
+        assert!(extra.is_empty());
+    }
+
+    #[test]
+    fn ranges_and_lists_are_parsed_and_deduplicated() {
+        let (base, extra) = split_peer_ports("[::1]:46000+46001-46003,51234,46000").unwrap();
+        assert_eq!(base, "[::1]:46000");
+        assert_eq!(peer_port_list(46000, &extra), vec![46000, 46001, 46002, 46003, 51234]);
+    }
+
+    #[test]
+    fn bad_ranges_are_rejected() {
+        assert!(split_peer_ports("h:1+5-1").is_err());
+        assert!(split_peer_ports("h:1+0").is_err());
+        assert!(split_peer_ports("h:1+1-1000").is_err());
     }
 }

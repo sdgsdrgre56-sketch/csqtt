@@ -223,6 +223,7 @@ private fun ManualPortFields(
     state: DeployUiState,
     onAction: (DeployAction) -> Unit,
 ) {
+    Column(verticalArrangement = Arrangement.spacedBy(CsqttSpacing.Sm)) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(CsqttSpacing.Sm),
@@ -257,6 +258,28 @@ private fun ManualPortFields(
             keyboardType = KeyboardType.Number,
             modifier = Modifier.weight(1f),
         )
+    }
+    // Like in Квазар: extra high ports for the tunnel, redirected to the main one on the server.
+    DeployTextField(
+        value = state.extraPorts,
+        onValueChange = { onAction(DeployAction.ExtraPortsChanged(it)) },
+        label = "Доп. порты туннеля",
+        placeholder = "46001-46009 или 51234,52345",
+        enabled = !state.isDeploying,
+        isError = !com.csqtt.client.ExtraPeerPorts.isValid(state.extraPorts),
+        keyboardType = KeyboardType.Text,
+        trailingContent = {
+            TextButton(
+                onClick = { onAction(DeployAction.RandomExtraPorts) },
+                enabled = !state.isDeploying,
+            ) { Text("Случайные") }
+        },
+    )
+    Text(
+        text = "Потоки раскладываются по этим портам — помогает, если хостер режет много UDP-соединений с одного адреса. Пусто — только основной порт.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
     }
 }
 

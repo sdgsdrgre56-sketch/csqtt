@@ -37,12 +37,16 @@ suspend fun resolveConnectionSource(store: SettingsStore): ConnectionSource? {
     val password = passwordState.value
     if (passwordState.state == StoredSecretState.Unreadable) return null
     if (basePeer.isBlank() || password.isBlank()) return null
-    val serverPeerPort = if (store.manualPortsEnabled.first()) {
+    val manualPorts = store.manualPortsEnabled.first()
+    val serverPeerPort = if (manualPorts) {
         store.serverPeerPort.first()
     } else {
         CsqttConstants.Network.DEFAULT_SERVER_PEER_PORT
     }
-    val peer = if (basePeer.contains(':')) basePeer else "$basePeer:$serverPeerPort"
+    val mainPeer = if (basePeer.contains(':')) basePeer else "$basePeer:$serverPeerPort"
+    // Mayak Admin: "host:port+46001-46009" — the native client spreads workers across these ports.
+    val extraPorts = if (manualPorts) ExtraPeerPorts.normalize(store.extraPeerPorts.first()) else ""
+    val peer = if (extraPorts.isEmpty()) mainPeer else "$mainPeer+$extraPorts"
     return ConnectionSource(
         peer = peer,
         password = password,

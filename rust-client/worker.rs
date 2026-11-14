@@ -85,6 +85,8 @@ fn recovery_now_ms() -> u64 {
 
 pub struct RuntimeParams {
     pub peer: SocketAddr,
+    /// Server ports workers are spread across; the first one is `peer`'s own port.
+    pub peer_ports: Arc<[u16]>,
     pub turn_host: Option<Arc<str>>,
     pub turn_port: Option<Arc<str>>,
     pub turn_transport: TurnTransportMode,
@@ -641,7 +643,7 @@ async fn worker_loop(
         let credential_generation = context.repair.credential_generation(id);
         let session_config = SessionConfig {
             id,
-            peer: context.params.peer,
+            peer: peer_for_worker(&context.params, id),
             turn_host: context.params.turn_host.clone(),
             turn_port: context.params.turn_port.clone(),
             turn_transport: context.params.turn_transport,
@@ -902,6 +904,18 @@ fn should_refresh_configuration_after_full_outage(
     cancelled: bool,
 ) -> bool {
     was_ready && failed && active_connections == 0 && !cancelled
+}
+
+/// Worker N goes to port N-1 (mod count), so a hoster limit on flows per source
+/// address and destination port is not hit by one VK relay carrying many workers.
+pub fn peer_for_worker(params: &RuntimeParams, id: usize) -> SocketAddr {
+    let ports = &params.peer_ports;
+    if ports.len() <= 1 || id == 0 {
+        return params.peer;
+    }
+    let mut peer = params.peer;
+    peer.set_port(ports[(id - 1) % ports.len()]);
+    peer
 }
 
 fn worker_retry_delay(attempt: usize) -> Duration {

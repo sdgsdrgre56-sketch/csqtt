@@ -69,6 +69,7 @@ internal data class DeployUiState(
     val sshPort: String = CsqttConstants.Network.DEFAULT_SSH_PORT.toString(),
     val peerPort: String = CsqttConstants.Network.DEFAULT_SERVER_PEER_PORT.toString(),
     val webPort: String = CsqttConstants.Network.DEFAULT_SERVER_WEB_PORT.toString(),
+    val extraPorts: String = "",
     val mainPasswordConfigured: Boolean = false,
     val webPanelConfigured: Boolean = false,
     val sshKeysMode: Boolean = false,
@@ -80,7 +81,8 @@ internal data class DeployUiState(
     val showValidation: Boolean = false,
 ) {
     val portsValid: Boolean
-        get() = !manualPorts || listOf(sshPort, peerPort, webPort).all(::isValidPort)
+        get() = !manualPorts ||
+            (listOf(sshPort, peerPort, webPort).all(::isValidPort) && com.csqtt.client.ExtraPeerPorts.isValid(extraPorts))
 
     val authorizationConfigured: Boolean
         get() = mainPasswordConfigured && webPanelConfigured
@@ -107,6 +109,8 @@ internal sealed interface DeployAction {
     data class SshPortChanged(val value: String) : DeployAction
     data class PeerPortChanged(val value: String) : DeployAction
     data class WebPortChanged(val value: String) : DeployAction
+    data class ExtraPortsChanged(val value: String) : DeployAction
+    data object RandomExtraPorts : DeployAction
     data object EditAuthorization : DeployAction
     data object Install : DeployAction
     data object Uninstall : DeployAction
@@ -186,6 +190,7 @@ internal fun DeployTab(
     val savedSshCertificate = savedSettings.sshCertificate
     val savedServerPeerPort = savedSettings.serverPeerPort
     val savedServerWebPort = savedSettings.serverWebPort
+    val savedExtraPorts = savedSettings.extraPeerPorts
     val isDeploying by DeployManager.isDeploying.collectAsStateWithLifecycle()
     val deployProgress by DeployManager.deployProgress.collectAsStateWithLifecycle()
     val currentStep by DeployManager.currentStep.collectAsStateWithLifecycle()
@@ -198,6 +203,8 @@ internal fun DeployTab(
     }
     var peerPort by rememberSaveable(savedSettings.profile) { mutableStateOf(savedServerPeerPort.toString()) }
     var webPort by rememberSaveable(savedSettings.profile) { mutableStateOf(savedServerWebPort.toString()) }
+    var extraPorts by rememberSaveable(savedSettings.profile) { mutableStateOf(savedExtraPorts) }
+    var extraPortsEdited by rememberSaveable(savedSettings.profile) { mutableStateOf(false) }
     var dockerInstall by rememberSaveable(savedSettings.profile) { mutableStateOf(savedDockerInstall) }
     var generalEdited by rememberSaveable(savedSettings.profile) { mutableStateOf(false) }
     var credentialsEdited by rememberSaveable(savedSettings.profile) { mutableStateOf(false) }
@@ -226,6 +233,14 @@ internal fun DeployTab(
             peerPort = savedServerPeerPort.toString()
             webPort = savedServerWebPort.toString()
         }
+    }
+    LaunchedEffect(savedSettings.profile, savedExtraPorts) {
+        if (!extraPortsEdited) extraPorts = savedExtraPorts
+    }
+    LaunchedEffect(savedSettings.profile, extraPorts, extraPortsEdited) {
+        if (!extraPortsEdited) return@LaunchedEffect
+        kotlinx.coroutines.delay(450)
+        if (com.csqtt.client.ExtraPeerPorts.isValid(extraPorts)) settingsStore.saveExtraPeerPorts(extraPorts)
     }
     LaunchedEffect(savedSettings.profile, savedDockerInstall) {
         dockerInstall = savedDockerInstall
@@ -260,6 +275,7 @@ internal fun DeployTab(
         sshPort = sshPort,
         peerPort = peerPort,
         webPort = webPort,
+        extraPorts = extraPorts,
         mainPasswordConfigured = savedMainPass.isNotBlank(),
         webPanelConfigured = hasWebPanelCredentials(savedWebLogin, savedWebPassword),
         sshKeysMode = savedSshKeysMode,
@@ -281,10 +297,19 @@ internal fun DeployTab(
         val deployKeyPassphrase = if (savedSshKeysMode) savedSshKeyPassphrase else ""
         val deployCertificate = if (savedSshKeysMode) savedSshCertificate else ""
         val deployPassword = if (savedSshKeysMode) "" else sshPassword
+        // Extra ports only with manual ports; never the main tunnel, SSH or web port itself.
+        val deployExtraPorts = if (savedManualPorts) {
+            com.csqtt.client.ExtraPeerPorts.parse(extraPorts).orEmpty()
+                .filter { it != effectivePeerPort && it != effectiveSshPort && it != effectiveWebPort }
+                .joinToString(",")
+        } else {
+            ""
+        }
         scope.launch {
             settingsStore.saveDeploy(host)
             settingsStore.saveDeploySecrets(savedMainPass, sshLogin, sshPassword, savedWebLogin, savedWebPassword)
             settingsStore.savePorts(effectivePeerPort, effectiveWebPort, effectiveSshPort.toString())
+            settingsStore.saveExtraPeerPorts(deployExtraPorts)
         }
         DeployManager.startDeploy()
         DeployManager.scope.launch {
@@ -301,6 +326,7 @@ internal fun DeployTab(
                     webPass = savedWebPassword,
                     peerPort = effectivePeerPort,
                     webPort = effectiveWebPort,
+                    extraPeerPorts = deployExtraPorts,
                     onProgress = DeployManager::updateProgress,
                     privateKey = deployPrivateKey,
                     keyPassphrase = deployKeyPassphrase,
@@ -434,6 +460,15 @@ internal fun DeployTab(
                 is DeployAction.WebPortChanged -> {
                     webPort = action.value.filter(Char::isDigit).take(5)
                     portsEdited = true
+                }
+                is DeployAction.ExtraPortsChanged -> {
+                    extraPorts = action.value.filter { it.isDigit() || it == ',' || it == '-' || it == ' ' }.take(200)
+                    extraPortsEdited = true
+                }
+                DeployAction.RandomExtraPorts -> {
+                    val taken = listOf(sshPort, peerPort, webPort).mapNotNull(String::toIntOrNull).toSet()
+                    extraPorts = com.csqtt.client.ExtraPeerPorts.random(9, taken)
+                    extraPortsEdited = true
                 }
                 DeployAction.EditAuthorization -> showSecretsDialog = true
                 DeployAction.Install -> {
