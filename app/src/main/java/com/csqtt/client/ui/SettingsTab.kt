@@ -485,7 +485,7 @@ internal fun SettingsTabContent(
 
     val scrollState = rememberScrollState()
 
-    val isPeerValid = peerInput.isNotBlank() && !peerInput.contains(":")
+    val isPeerValid = com.csqtt.client.PeerHost.isValidInput(peerInput)
     val isPeerPortValid = peerPortInput.toIntOrNull() in 1..65535
     val hashesReadyForTunnel = when {
         participantMode && linkHashes.isNotEmpty() -> true

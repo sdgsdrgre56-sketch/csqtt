@@ -43,7 +43,7 @@ suspend fun resolveConnectionSource(store: SettingsStore): ConnectionSource? {
     } else {
         CsqttConstants.Network.DEFAULT_SERVER_PEER_PORT
     }
-    val mainPeer = if (basePeer.contains(':')) basePeer else "$basePeer:$serverPeerPort"
+    val mainPeer = PeerHost.withPort(basePeer, serverPeerPort)
     // Mayak Admin: "host:port+46001-46009" — the native client spreads workers across these ports.
     val extraPorts = if (manualPorts) ExtraPeerPorts.normalize(store.extraPeerPorts.first()) else ""
     val peer = if (extraPorts.isEmpty()) mainPeer else "$mainPeer+$extraPorts"
