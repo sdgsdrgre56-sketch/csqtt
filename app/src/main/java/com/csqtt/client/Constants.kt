@@ -22,7 +22,7 @@ object CsqttConstants {
          * server grid (MayakConfig.ADMIN_SERVERS) and the most links a person's Mayak keeps
          * (MayakLinks.MAX_LINKS) both follow it, so people always get every server the admin has.
          */
-        const val SERVER_SLOTS = 15
+        const val SERVER_SLOTS = 20
         const val MAX_INDEX = SERVER_SLOTS - 1
     }
 

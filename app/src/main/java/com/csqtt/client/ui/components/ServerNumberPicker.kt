@@ -273,6 +273,12 @@ fun ServerDetailsLine(settingsStore: SettingsStore, index: Int, modifier: Modifi
     }
 }
 
+/** A server note that says the server is without ads: its flag is drawn inside a small TV. */
+fun isAdFreeNote(note: String): Boolean {
+    val text = note.lowercase()
+    return "без рекламы" in text || "youtube" in text || "ютуб" in text
+}
+
 /**
  * Mayak Admin: servers whose note says they are without ads ("YouTube без рекламы", "без рекламы",
  * "ютуб") — their flag is drawn inside a small TV.
@@ -282,8 +288,7 @@ fun rememberTvServers(settingsStore: SettingsStore, count: Int): Set<Int> {
     val manualVersion by ServerFlags.manualVersion.collectAsState()
     val servers by produceState(initialValue = emptySet<Int>(), settingsStore, count, manualVersion) {
         value = (0 until count).filter { index ->
-            val note = runCatching { settingsStore.serverNote(index) }.getOrDefault("").lowercase()
-            "без рекламы" in note || "youtube" in note || "ютуб" in note
+            isAdFreeNote(runCatching { settingsStore.serverNote(index) }.getOrDefault(""))
         }.toSet()
     }
     return servers

@@ -594,6 +594,12 @@ internal fun SettingsTabContent(
                             onSelected = { index -> scope.launch { settingsStore.selectCsqttLink(index) } },
                             enabled = !tunnelRunning,
                             flags = linkFlags,
+                            // Servers the admin marked "без рекламы": the flag sits inside a small TV.
+                            tvServers = storedLinks.mapIndexedNotNull { index, link ->
+                                index.takeIf {
+                                    com.csqtt.client.ui.components.isAdFreeNote(parseCsqttLink(link)?.note.orEmpty())
+                                }
+                            }.toSet(),
                             numberColors = storedLinks.mapIndexedNotNull { index, link ->
                                 val host = parseCsqttLink(link)?.host ?: return@mapIndexedNotNull null
                                 serverStatus[host]?.let { up ->
