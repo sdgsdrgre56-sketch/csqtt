@@ -175,6 +175,11 @@ object CsqttConstants {
         const val PALETTE_INDIGO = "indigo"
         const val PALETTE_ESPRESSO = "espresso"
         const val PALETTE_FOREST = "forest"
+        // Mayak Admin skins (dark only); "" = the usual look.
+        const val SKIN_NONE = ""
+        const val SKIN_GOLD = "gold"
+        const val SKIN_NEON = "neon"
+        const val SKIN_PREMIUM = "premium"
     }
 
     object Links {

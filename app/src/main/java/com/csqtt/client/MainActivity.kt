@@ -144,6 +144,7 @@ class MainActivity : ComponentActivity() {
                 uiStateHolder.SaveableStateProvider("main_ui") {
             val settingsStore = remember { appSettingsStore }
             val themeMode by settingsStore.themeMode.collectAsStateWithLifecycle(initialValue = CsqttConstants.Theme.MODE_SYSTEM)
+            val skin by settingsStore.skin.collectAsStateWithLifecycle(initialValue = CsqttConstants.Theme.SKIN_NONE)
             val activeFingerprint by settingsStore.selectedFingerprint.collectAsStateWithLifecycle(initialValue = CsqttConstants.Tunnel.DEFAULT_FINGERPRINT)
             val scope = rememberCoroutineScope()
 
@@ -151,7 +152,7 @@ class MainActivity : ComponentActivity() {
             val fixedDensity = remember(baseDensity.density) { Density(baseDensity.density, 1f) }
 
             CompositionLocalProvider(LocalDensity provides fixedDensity) {
-            CSQTTTheme(themeMode = themeMode) {
+            CSQTTTheme(themeMode = themeMode, skin = skin) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,

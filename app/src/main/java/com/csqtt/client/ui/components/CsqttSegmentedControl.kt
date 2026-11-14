@@ -24,6 +24,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
 import com.csqtt.client.ui.design.CsqttShapes
 import com.csqtt.client.ui.design.CsqttSizes
 import com.csqtt.client.ui.design.CsqttSpacing
@@ -40,6 +44,8 @@ fun <T> CsqttSegmentedControl(
     subLabels: Map<T, String> = emptyMap(),
     // Mayak: colour of a label (green = server answers, red = it does not), by option value.
     labelColors: Map<T, androidx.compose.ui.graphics.Color> = emptyMap(),
+    // Mayak Admin: options whose label starts with a flag drawn inside a small TV ("🇸🇪 3").
+    tvFramed: Set<T> = emptySet(),
 ) {
     Row(
         modifier = modifier
@@ -74,7 +80,7 @@ fun <T> CsqttSegmentedControl(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
-                        Text(text = label, style = MaterialTheme.typography.labelMedium, maxLines = 1, color = labelColor)
+                        SegmentLabel(label, value in tvFramed, labelColor)
                         Text(
                             text = subLabel ?: " ",
                             style = MaterialTheme.typography.labelSmall,
@@ -98,9 +104,47 @@ fun <T> CsqttSegmentedControl(
                         )
                         androidx.compose.foundation.layout.Spacer(Modifier.width(CsqttSpacing.Xxs))
                     }
-                    Text(text = label, style = MaterialTheme.typography.labelMedium, maxLines = 1, color = labelColor)
+                    SegmentLabel(label, value in tvFramed, labelColor)
                 }
             }
         }
+    }
+}
+
+/** A segment label; with [tv] its first word (the flag) sits on the screen of a small TV. */
+@Composable
+private fun SegmentLabel(label: String, tv: Boolean, color: androidx.compose.ui.graphics.Color) {
+    val split = label.indexOf(' ')
+    if (!tv || split <= 0) {
+        Text(text = label, style = MaterialTheme.typography.labelMedium, maxLines = 1, color = color)
+        return
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TvFlag(label.substring(0, split))
+        androidx.compose.foundation.layout.Spacer(Modifier.width(3.dp))
+        Text(text = label.substring(split + 1), style = MaterialTheme.typography.labelMedium, maxLines = 1, color = color)
+    }
+}
+
+/** A tiny TV: a rounded frame with the flag on its screen and a short stand under it. */
+@Composable
+private fun TvFlag(flag: String) {
+    val frame = androidx.compose.material3.LocalContentColor.current
+    androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .border(1.5.dp, frame, androidx.compose.foundation.shape.RoundedCornerShape(3.dp))
+                .padding(horizontal = 2.dp, vertical = 0.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text = flag, fontSize = 11.sp, lineHeight = 13.sp, maxLines = 1)
+        }
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .padding(top = 1.dp)
+                .width(8.dp)
+                .height(1.5.dp)
+                .background(frame),
+        )
     }
 }

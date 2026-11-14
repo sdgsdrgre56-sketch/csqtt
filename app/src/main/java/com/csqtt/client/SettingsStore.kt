@@ -156,7 +156,8 @@ class SettingsStore(context: Context) {
             booleanPreferencesKey("battery_optimization_prompt_handled")
         private val AUTO_PAUSE_ON_WIFI = booleanPreferencesKey("auto_pause_on_wifi")
 
-        private val THEME_MODE = stringPreferencesKey("theme_mode") 
+        private val THEME_MODE = stringPreferencesKey("theme_mode")
+        private val SKIN = stringPreferencesKey("mayak_admin_skin") 
         private val IS_DYNAMIC_COLOR = booleanPreferencesKey("is_dynamic_color")
         private val THEME_PALETTE = stringPreferencesKey("theme_palette")
 
@@ -551,6 +552,13 @@ class SettingsStore(context: Context) {
         dataStore.edit { prefs ->
             prefs[TUNNEL_WAS_RUNNING] = running
         }
+    }
+
+    /** Mayak Admin: chosen skin ("gold", "neon", "premium"), "" for the usual look. */
+    val skin: Flow<String> = dataStore.data.map { it[SKIN] ?: "" }
+
+    suspend fun saveSkin(skin: String) {
+        dataStore.edit { prefs -> prefs[SKIN] = skin }
     }
 
     suspend fun saveThemeMode(mode: String) {

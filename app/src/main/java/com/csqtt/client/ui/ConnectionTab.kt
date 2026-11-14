@@ -503,6 +503,7 @@ internal fun ConnectionTab(
             com.csqtt.client.ui.components.ServerNumberPicker(
                 count = MayakConfig.ADMIN_SERVERS,
                 flags = adminServerFlags,
+                tvServers = com.csqtt.client.ui.components.rememberTvServers(settingsStore, MayakConfig.ADMIN_SERVERS),
                 // Ping from this phone to each server, under its flag.
                 pings = com.csqtt.client.ui.components.ServerPings.pings.toMap(),
                 // Green number when the server answers, red when it does not.

@@ -284,6 +284,80 @@ private val MayakLightColorScheme = lightColorScheme(
     surfaceTint = Color.Transparent,
 )
 
+// Mayak Admin skins: always dark.
+private val GoldSkinColorScheme = darkColorScheme(
+    primary = Color(0xFFC9A24A),
+    onPrimary = Color(0xFF1A1405),
+    primaryContainer = Color(0xFF3A2E12),
+    onPrimaryContainer = Color(0xFFF3E2B3),
+    secondary = Color(0xFFC9A24A),
+    onSecondary = Color(0xFF1A1405),
+    secondaryContainer = Color(0xFF2A2210),
+    onSecondaryContainer = Color(0xFFF3E2B3),
+    tertiary = Color(0xFFE8C877),
+    onTertiary = Color(0xFF1A1405),
+    background = Color(0xFF0E0C08),
+    onBackground = Color(0xFFF3E2B3),
+    surface = Color(0xFF17130B),
+    onSurface = Color(0xFFF3E2B3),
+    surfaceVariant = Color(0xFF1F1A10),
+    onSurfaceVariant = Color(0xFFBFA978),
+    outline = Color(0xFF6B5320),
+    outlineVariant = Color(0xFF4A3A16),
+    surfaceTint = Color.Transparent,
+)
+
+private val NeonSkinColorScheme = darkColorScheme(
+    primary = Color(0xFF7FD3FF),
+    onPrimary = Color(0xFF06142B),
+    primaryContainer = Color(0xFF1B2A55),
+    onPrimaryContainer = Color(0xFFE6F0FF),
+    secondary = Color(0xFFB48CFF),
+    onSecondary = Color(0xFF1A0A3A),
+    secondaryContainer = Color(0xFF2A1F55),
+    onSecondaryContainer = Color(0xFFEDE3FF),
+    tertiary = Color(0xFFB48CFF),
+    onTertiary = Color(0xFF1A0A3A),
+    background = Color(0xFF0B1020),
+    onBackground = Color(0xFFE6F0FF),
+    surface = Color(0xFF131A33),
+    onSurface = Color(0xFFE6F0FF),
+    surfaceVariant = Color(0xFF1A2347),
+    onSurfaceVariant = Color(0xFFAFC2EE),
+    outline = Color(0xFF3A4A85),
+    outlineVariant = Color(0xFF2E3B6E),
+    surfaceTint = Color.Transparent,
+)
+
+private val PremiumSkinColorScheme = darkColorScheme(
+    primary = Color(0xFFFFFFFF),
+    onPrimary = Color(0xFF000000),
+    primaryContainer = Color(0xFF2A2A2A),
+    onPrimaryContainer = Color(0xFFFFFFFF),
+    secondary = Color(0xFFE0E0E0),
+    onSecondary = Color(0xFF000000),
+    secondaryContainer = Color(0xFF222222),
+    onSecondaryContainer = Color(0xFFFFFFFF),
+    tertiary = Color(0xFFBDBDBD),
+    onTertiary = Color(0xFF000000),
+    background = Color(0xFF0A0A0A),
+    onBackground = Color(0xFFFFFFFF),
+    surface = Color(0xFF121212),
+    onSurface = Color(0xFFFFFFFF),
+    surfaceVariant = Color(0xFF1A1A1A),
+    onSurfaceVariant = Color(0xFFB0B0B0),
+    outline = Color(0xFF444444),
+    outlineVariant = Color(0xFF2A2A2A),
+    surfaceTint = Color.Transparent,
+)
+
+private fun skinColorScheme(skin: String): androidx.compose.material3.ColorScheme? = when (skin) {
+    CsqttConstants.Theme.SKIN_GOLD -> GoldSkinColorScheme
+    CsqttConstants.Theme.SKIN_NEON -> NeonSkinColorScheme
+    CsqttConstants.Theme.SKIN_PREMIUM -> PremiumSkinColorScheme
+    else -> null
+}
+
 private fun getAppColorScheme(isDark: Boolean): androidx.compose.material3.ColorScheme = when {
     MayakConfig.BRANDED -> if (isDark) MayakDarkColorScheme else MayakLightColorScheme
     isDark -> BrandDarkColorScheme
@@ -312,16 +386,18 @@ object CSQTTColors {
 @Composable
 fun CSQTTTheme(
     themeMode: String = "system",
+    skin: String = "",
     content: @Composable () -> Unit
 ) {
-    val darkTheme = when (themeMode) {
+    val skinScheme = if (MayakConfig.ADMIN) skinColorScheme(skin) else null
+    val darkTheme = skinScheme != null || when (themeMode) {
         CsqttConstants.Theme.MODE_DARK -> true
         CsqttConstants.Theme.MODE_LIGHT -> false
         else -> isSystemInDarkTheme()
     }
 
-    val colorScheme = remember(darkTheme) {
-        getAppColorScheme(darkTheme)
+    val colorScheme = remember(darkTheme, skinScheme) {
+        skinScheme ?: getAppColorScheme(darkTheme)
     }
 
     val view = LocalView.current

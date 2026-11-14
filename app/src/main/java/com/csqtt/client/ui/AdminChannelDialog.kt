@@ -301,6 +301,7 @@ internal fun AdminChannelDialog(
                     com.csqtt.client.ui.components.ServerNumberPicker(
                         count = MayakConfig.ADMIN_SERVERS,
                         flags = com.csqtt.client.ui.components.rememberServerFlags(settingsStore, MayakConfig.ADMIN_SERVERS),
+                        tvServers = com.csqtt.client.ui.components.rememberTvServers(settingsStore, MayakConfig.ADMIN_SERVERS),
                         selected = targetServer,
                         onSelected = { targetServer = it },
                         enabled = !busy,
@@ -334,7 +335,7 @@ internal fun AdminChannelDialog(
                             val note = serverNote.trim()
                             launchTask {
                                 settingsStore.saveServerNote(target, note)
-                                // The 📺 mark next to the server's flag follows the note.
+                                // The TV around the flag next to the server's flag follows the note.
                                 com.csqtt.client.ServerFlags.manualVersion.value += 1
                                 val r = MayakSyncAdmin.publishPeople(context, settingsStore)
                                 buildString {

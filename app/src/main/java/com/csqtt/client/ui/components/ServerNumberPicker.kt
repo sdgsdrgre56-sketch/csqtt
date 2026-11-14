@@ -55,6 +55,8 @@ fun ServerNumberPicker(
     pings: Map<Int, String> = emptyMap(),
     // Mayak: colour of a server's number (green = answers, red = does not), by index.
     numberColors: Map<Int, androidx.compose.ui.graphics.Color> = emptyMap(),
+    // Mayak Admin: servers without ads — their flag is drawn inside a small TV.
+    tvServers: Set<Int> = emptySet(),
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -74,6 +76,7 @@ fun ServerNumberPicker(
                 showCheck = flags.isEmpty(),
                 subLabels = if (pings.isEmpty()) emptyMap() else row.associateWith { pings[it].orEmpty() },
                 labelColors = if (numberColors.isEmpty()) emptyMap() else row.mapNotNull { idx -> numberColors[idx]?.let { idx to it } }.toMap(),
+                tvFramed = row.filter { it in tvServers && flags[it].orEmpty().isNotEmpty() }.toSet(),
             )
         }
     }
@@ -88,23 +91,16 @@ fun rememberServerFlags(settingsStore: SettingsStore, count: Int): Map<Int, Stri
         val hosts = runCatching { settingsStore.adminPanelProfiles(count) }.getOrNull()
             ?.associate { it.index to it.host }
             ?: return@produceState
-        // Servers whose note mentions YouTube ("YouTube без рекламы") get a small 📺 next to the flag.
-        val youtube = (0 until count).filter { index ->
-            val note = runCatching { settingsStore.serverNote(index) }.getOrDefault("")
-            note.contains("youtube", ignoreCase = true) || note.contains("ютуб", ignoreCase = true)
-        }.toSet()
-        fun withMarks(flags: Map<Int, String>): Map<Int, String> =
-            flags + youtube.associateWith { index -> flags[index].orEmpty() + YOUTUBE_MARK }
         // Remembered ones show at once; the rest are looked up one by one.
         val known = hosts.mapNotNull { (index, host) ->
             ServerFlags.cached(context, host)?.let { index to ServerFlags.flagOf(it) }
         }.toMap().toMutableMap()
-        value = withMarks(known)
+        value = known.toMap()
         for ((index, host) in hosts) {
             if (index in known || host.isBlank()) continue
             val code = ServerFlags.countryCode(context, host) ?: continue
             known[index] = ServerFlags.flagOf(code)
-            value = withMarks(known)
+            value = known.toMap()
         }
     }
     return flags
@@ -277,5 +273,18 @@ fun ServerDetailsLine(settingsStore: SettingsStore, index: Int, modifier: Modifi
     }
 }
 
-/** Mayak Admin: the small mark next to the flag of a server with YouTube without ads. */
-private const val YOUTUBE_MARK = "📺"
+/**
+ * Mayak Admin: servers whose note says they are without ads ("YouTube без рекламы", "без рекламы",
+ * "ютуб") — their flag is drawn inside a small TV.
+ */
+@Composable
+fun rememberTvServers(settingsStore: SettingsStore, count: Int): Set<Int> {
+    val manualVersion by ServerFlags.manualVersion.collectAsState()
+    val servers by produceState(initialValue = emptySet<Int>(), settingsStore, count, manualVersion) {
+        value = (0 until count).filter { index ->
+            val note = runCatching { settingsStore.serverNote(index) }.getOrDefault("").lowercase()
+            "без рекламы" in note || "youtube" in note || "ютуб" in note
+        }.toSet()
+    }
+    return servers
+}

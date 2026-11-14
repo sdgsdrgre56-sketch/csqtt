@@ -177,6 +177,22 @@ fun FloatingToolbar(
                     )
                     }
 
+                    if (com.csqtt.client.MayakConfig.ADMIN) {
+                        val skin by settingsStore.skin.collectAsStateWithLifecycle(initialValue = CsqttConstants.Theme.SKIN_NONE)
+                        CompactDropdownSetting(
+                            title = "Скины",
+                            selectedKey = skin,
+                            options = listOf(
+                                CsqttConstants.Theme.SKIN_NONE to "Обычный",
+                                CsqttConstants.Theme.SKIN_GOLD to "Золото",
+                                CsqttConstants.Theme.SKIN_NEON to "Неон",
+                                CsqttConstants.Theme.SKIN_PREMIUM to "Премиум",
+                            ),
+                            enabled = true,
+                            onSelected = { value -> scope.launch { settingsStore.saveSkin(value) } },
+                        )
+                    }
+
                     CompactDropdownSetting(
                         title = "Оформление",
                         selectedKey = currentTheme,
