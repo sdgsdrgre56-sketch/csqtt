@@ -90,7 +90,8 @@ fun rememberServerFlags(settingsStore: SettingsStore, count: Int): Map<Int, Stri
             ?: return@produceState
         // Servers whose note mentions YouTube ("YouTube без рекламы") get a small 📺 next to the flag.
         val youtube = (0 until count).filter { index ->
-            runCatching { settingsStore.serverNote(index) }.getOrDefault("").contains("youtube", ignoreCase = true)
+            val note = runCatching { settingsStore.serverNote(index) }.getOrDefault("")
+            note.contains("youtube", ignoreCase = true) || note.contains("ютуб", ignoreCase = true)
         }.toSet()
         fun withMarks(flags: Map<Int, String>): Map<Int, String> =
             flags + youtube.associateWith { index -> flags[index].orEmpty() + YOUTUBE_MARK }
