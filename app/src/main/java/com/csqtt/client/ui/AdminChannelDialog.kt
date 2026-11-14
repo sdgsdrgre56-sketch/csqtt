@@ -334,6 +334,8 @@ internal fun AdminChannelDialog(
                             val note = serverNote.trim()
                             launchTask {
                                 settingsStore.saveServerNote(target, note)
+                                // The 📺 mark next to the server's flag follows the note.
+                                com.csqtt.client.ServerFlags.manualVersion.value += 1
                                 val r = MayakSyncAdmin.publishPeople(context, settingsStore)
                                 buildString {
                                     append(if (note.isEmpty()) "Подпись сервера ${target + 1} убрана." else "Подпись сервера ${target + 1} сохранена.")

@@ -88,16 +88,22 @@ fun rememberServerFlags(settingsStore: SettingsStore, count: Int): Map<Int, Stri
         val hosts = runCatching { settingsStore.adminPanelProfiles(count) }.getOrNull()
             ?.associate { it.index to it.host }
             ?: return@produceState
+        // Servers whose note mentions YouTube ("YouTube без рекламы") get a small 📺 next to the flag.
+        val youtube = (0 until count).filter { index ->
+            runCatching { settingsStore.serverNote(index) }.getOrDefault("").contains("youtube", ignoreCase = true)
+        }.toSet()
+        fun withMarks(flags: Map<Int, String>): Map<Int, String> =
+            flags + youtube.associateWith { index -> flags[index].orEmpty() + YOUTUBE_MARK }
         // Remembered ones show at once; the rest are looked up one by one.
         val known = hosts.mapNotNull { (index, host) ->
             ServerFlags.cached(context, host)?.let { index to ServerFlags.flagOf(it) }
         }.toMap().toMutableMap()
-        value = known.toMap()
+        value = withMarks(known)
         for ((index, host) in hosts) {
             if (index in known || host.isBlank()) continue
             val code = ServerFlags.countryCode(context, host) ?: continue
             known[index] = ServerFlags.flagOf(code)
-            value = known.toMap()
+            value = withMarks(known)
         }
     }
     return flags
@@ -269,3 +275,6 @@ fun ServerDetailsLine(settingsStore: SettingsStore, index: Int, modifier: Modifi
         )
     }
 }
+
+/** Mayak Admin: the small mark next to the flag of a server with YouTube without ads. */
+private const val YOUTUBE_MARK = "📺"
